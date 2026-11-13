@@ -55,7 +55,7 @@ only with ` + experimental.MCPVar + `=1.`,
 			return group(c, args)
 		},
 	}
-	c.AddCommand(a.mcpAddCmd(), a.mcpListCmd(), a.mcpShowCmd(), a.mcpStatusCmd(), a.mcpLoginCmd(), a.mcpLogoutCmd(), a.mcpRemoveCmd(), mcpProxyCmd())
+	c.AddCommand(a.mcpAddCmd(), a.mcpListCmd(), a.mcpShowCmd(), a.mcpStatusCmd(), a.mcpLoginCmd(), a.mcpLogoutCmd(), a.mcpRemoveCmd(), a.mcpApprovalCmd(false), a.mcpApprovalCmd(true), mcpProxyCmd())
 	return c
 }
 
@@ -213,6 +213,11 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 		fmt.Fprintln(s.Out, "nothing changed (--dry-run)")
 		return 0
 	}
+	store := openStore()
+	generation, err := store.BindingGeneration(added)
+	if err != nil {
+		return fail(err)
+	}
 	secrets, err := askSecrets(stdio, o.noInput, name, added.SecretEnv, added.SecretHeaders, o.clientSecret)
 	if err != nil {
 		return fail(err)
@@ -230,24 +235,21 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 			return fail(fmt.Errorf("%w; nothing changed: add --no-login, and run ctxtra mcp login %s in your terminal later", errNeedsTerminal, name))
 		}
 	}
-	// The values are stored under the config's lock, once the edit knows
-	// the name is new, so that a concurrent add of the same name can't
-	// replace or delete them.
-	store := openStore()
-	commit := func(old []byte) ([]byte, error) {
-		out, err := change(old)
-		if err != nil || secrets.empty() && o.signIn.callbackPort == 0 {
-			return out, err
+	// Validate shared credentials before writing config, then save settings
+	// only after that write succeeds, keeping both locks until completion.
+	commit := func(write func() error) error {
+		guard := creds.WriteGuard{ExpectedGeneration: &generation}
+		if secrets.empty() && o.signIn.callbackPort == 0 {
+			_, err := store.CommitSettings(added, guard, nil, write)
+			return err
 		}
-		if err := storeSecrets(s.Err, store, added, secrets); err != nil {
-			return nil, err
+		r, err := storeSecretsAfter(s.Err, store, added, secrets, o.signIn.callbackPort, guard, write)
+		if err == nil {
+			generation = r.Generation
 		}
-		if o.signIn.callbackPort != 0 {
-			return out, store.SetCallbackPort(added, o.signIn.callbackPort)
-		}
-		return out, nil
+		return err
 	}
-	if err := s.edit(commit); err != nil {
+	if err := s.editWithCommit(change, commit); err != nil {
 		return fail(err)
 	}
 	fmt.Fprintf(s.Out, "added the MCP server %s to %s: %s\n", name, paths.Tilde(s.file), describeServer(added))
@@ -257,6 +259,7 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 	signedIn := ch == nil
 	if ch != nil {
 		o.signIn.clientSecret = secrets.clientSecret
+		o.signIn.expectedGeneration = &generation
 		if err := signInTo(ctx, stdio, store, added, ch, o.signIn); err != nil {
 			fmt.Fprintf(s.Err, "ctxtra mcp add: the sign-in failed: %v\nThe server is added; sign in with ctxtra mcp login %s\n", err, name)
 		} else {
@@ -299,23 +302,29 @@ func agentsNeedingSetup() []string {
 
 // storeSecrets stores the secret values of srv, creating the store's key
 // when there is none.
-func storeSecrets(errOut io.Writer, store *creds.Store, srv upstream.Server, v secretValues) error {
+func storeSecrets(errOut io.Writer, store *creds.Store, srv upstream.Server, v secretValues, callbackPort int, guard creds.WriteGuard) (*creds.Record, error) {
+	return storeSecretsAfter(errOut, store, srv, v, callbackPort, guard, nil)
+}
+
+func storeSecretsAfter(errOut io.Writer, store *creds.Store, srv upstream.Server, v secretValues, callbackPort int, guard creds.WriteGuard, commit func() error) (*creds.Record, error) {
 	fileKey, err := store.EnsureKey()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if fileKey {
 		warnFileKey(errOut, store)
 	}
+	settings := creds.Settings{}
 	if len(v.env) > 0 || len(v.headers) > 0 {
-		if err := store.SetSecrets(srv, v.env, v.headers); err != nil {
-			return err
-		}
+		settings.Secrets = &creds.Secrets{Env: v.env, Headers: v.headers}
 	}
 	if v.clientSecret != "" {
-		return store.SetClientSecret(srv, v.clientSecret)
+		settings.ClientSecret = &v.clientSecret
 	}
-	return nil
+	if callbackPort != 0 {
+		settings.CallbackPort = &callbackPort
+	}
+	return store.CommitSettings(srv, guard, &settings, commit)
 }
 
 func describeServer(s upstream.Server) string {
@@ -375,23 +384,27 @@ func printTools(w interface{ Write([]byte) (int, error) }, tools []names.Name) {
 
 // mcpInfo is a server in mcp list --json.
 type mcpInfo struct {
-	Name    string   `json:"name"`
-	Kind    string   `json:"kind"`
-	URL     string   `json:"url,omitempty"`
-	Command []string `json:"command,omitempty"`
-	SignIn  string   `json:"sign_in"`
-	Notes   string   `json:"notes,omitempty"`
+	ID       string   `json:"id"`
+	Source   string   `json:"source,omitempty"`
+	Approval string   `json:"approval"`
+	Name     string   `json:"name"`
+	Kind     string   `json:"kind"`
+	URL      string   `json:"url,omitempty"`
+	Command  []string `json:"command,omitempty"`
+	SignIn   string   `json:"sign_in"`
+	Notes    string   `json:"notes,omitempty"`
 }
 
 // mcpInfos are the config's servers with their sign-in state.
 func mcpInfos(cfg *config.Config) []mcpInfo {
+	cfg.LoadMCPCatalog()
 	out := []mcpInfo{}
 	for _, s := range cfg.MCPServers {
 		kind := "remote"
 		if s.Local() {
 			kind = "local"
 		}
-		out = append(out, mcpInfo{s.Name, kind, s.URL, s.Command, signIn(s), s.Notes})
+		out = append(out, mcpInfo{ID: s.ID, Name: s.Name, Source: s.Source, Approval: approvalState(s), Kind: kind, URL: s.URL, Command: s.Command, SignIn: signIn(s), Notes: s.Notes})
 	}
 	return out
 }
@@ -468,7 +481,11 @@ func (a *app) mcpListCmd() *cobra.Command {
 				fmt.Fprintf(a.Out, "no MCP servers in %s\n", paths.Tilde(cfg.File))
 			}
 			for _, s := range out {
-				fmt.Fprintf(a.Out, "%s  %s, %s\n", s.Name, s.Kind, s.SignIn)
+				fmt.Fprintf(a.Out, "%s  %s, %s", s.ID, s.Kind, s.SignIn)
+				if s.Source != "" {
+					fmt.Fprintf(a.Out, ", %s", s.Approval)
+				}
+				fmt.Fprintln(a.Out)
 			}
 			if len(out) > 0 {
 				fmt.Fprintf(a.Out, "credentials: %s\n", keyNote())
@@ -499,14 +516,14 @@ debug it: an agent that runs this command sees that output too.`,
 				fmt.Fprintf(a.Err, "ctxtra mcp show: no MCP server %q in %s\n", args[0], paths.Tilde(cfg.File))
 				return exitCode(1)
 			}
-			fmt.Fprintf(a.Out, "%s: %s\n", s.Name, describeServer(s))
+			fmt.Fprintf(a.Out, "%s: %s\n", s.ID, describeServer(s))
 			if s.Notes != "" {
 				fmt.Fprintf(a.Out, "notes: %s\n", s.Notes)
 			}
 			wd, _ := os.Getwd()
 			tools, err := serverTools(s, wd, true)
 			if err != nil {
-				fmt.Fprintf(a.Err, "ctxtra mcp show: %s: %v\n", s.Name, err)
+				fmt.Fprintf(a.Err, "ctxtra mcp show: %s: %v\n", s.ID, err)
 				return exitCode(1)
 			}
 			printTools(a.Out, tools)
@@ -525,6 +542,12 @@ func (a *app) mcpRemoveCmd() *cobra.Command {
 		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			s := newSources(a.IO)
+			if strings.Contains(name, "/") {
+				if err := a.removeMCPLeftover(name, dryRun); err != nil {
+					return exitCode(s.fail("mcp remove", err))
+				}
+				return nil
+			}
 			change := func(old []byte) ([]byte, error) { return config.RemoveMCPServer(old, name) }
 			// Its credentials go with it, also when its definition was
 			// broken: after the config is written, under its lock, so a

@@ -293,11 +293,53 @@ session folder: a binding for `~/dev/mono/billing/**` doesn't reach a session st
 
 ctxtra can give your sessions MCP servers by folder, like instructions and skills, through one MCP server named
 `ctxtra` that `ctxtra setup` adds to each agent but Muse. It is work in progress and off unless
-`CTXTRA_EXPERIMENTAL_MCP=1` is set in your environment, for setup and for your agents. How the config declares
-servers isn't decided yet; [spec.md](spec.md#experimental-mcp-servers) describes what works so far.
+`CTXTRA_EXPERIMENTAL_MCP=1` is set in your environment, for commands, setup and your agents.
+[spec.md](spec.md#experimental-mcp-servers) describes the format and current limits.
+
+For a server you declare yourself:
+
+```bash
+ctxtra mcp add linear https://mcp.linear.app/mcp --notes 'Choose the work workspace'
+ctxtra binding add work-linear --dir '~/work/**' --mcp linear
+ctxtra setup
+```
+
+Run add in your own terminal. It authorizes in your browser if needed; then start a new matching agent session.
+The definition, sign-in, binding and agent setup are separate. Adding another remote server needs its own sign-in
+and binding, but no new native agent entry. The model sees each upstream tool and description, with a prefix such
+as `linear__`, not a single opaque ctxtra tool.
+
+A source can supply definitions in its root `mcp-servers.yaml`, using `schema: ctxtra/v1` and an `mcp-servers` map.
+A server named `linear` in source `work` is `work/linear`. Its bindings use bare `linear`; your config can bind
+`work/linear` directly without including package bindings. Sources cannot borrow your config's servers or another
+source's sign-in, including trusted sources.
+
+Pinned definitions need your separate terminal approval before even an unauthenticated request or command startup:
+
+```bash
+ctxtra mcp approve work/linear   # inspect and consent; connects to nothing
+ctxtra mcp login work/linear    # authorize this identity if needed
+```
+
+Login offers that separate approval first if missing. Source-version acceptance, server approval, provider
+consent and each agent's tool permissions are different decisions. A no-auth server needs approval, not a browser.
+Config and trusted-path definitions need no extra approval. Trust only live source content you would run as your own
+configuration.
+
+Use `mcp list`, `context explain` and `mcp status` to check selection, sign-in and approval. Tools still use the
+short prefix `linear__`. If two identities with that prefix match one folder, the first binding wins and ctxtra
+reports the other. It never falls back to the other account if the winner fails or lacks approval. Narrow a global
+binding or use distinctly named config servers if you need both accounts in one session.
+
+Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
+changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already
+approved unchanged server to more folders. `mcp revoke REF` withdraws local approval, not credentials or provider
+grants. Close affected sessions to stop old connections; live revocation is not guaranteed.
 
 Each agent asks before it runs an MCP tool, as for its own servers. Allowing `ctxtra` allows every server that
-ctxtra binds to that folder:
+ctxtra binds to that folder, including servers bound later. A rule for a short tool prefix can match different
+source identities or accounts in different folders. Check the full identity with `ctxtra mcp status DIR`.
+Setup keeps existing native entries for the same provider, so both tool sets can appear:
 
 - Claude Code: allow `mcp__ctxtra` in `permissions.allow`, or a pattern such as `mcp__ctxtra__linear_work__*`.
 - Codex: add `default_tools_approval_mode = "approve"` to the `[mcp_servers.ctxtra]` table; setup keeps it.
@@ -324,7 +366,24 @@ ctxtra mcp logout linear_work               # deletes the sign-in on this machin
 - GitHub and Slack don't let ctxtra register itself. Create an OAuth app there with the redirect address
   `http://127.0.0.1:PORT/callback`, and add the server with `--client-id` (with `--client-secret` for Slack) and
   `--callback-port PORT`.
-- `logout` doesn't tell the provider: remove the grant in the provider's settings to end it there.
+- Retry an interrupted authorization with `login REF`. If add already saved the definition, don't add it again.
+  Use a fresh browser link; an old callback cannot complete the new attempt.
+- Login can replace an existing sign-in. Cancelling or failing replacement keeps the old credentials, including
+  when `--secrets` asks for new values. Start new sessions after switching accounts; login does not reset an agent's
+  conversation or a provider's open session. Restart local servers after rotating environment secrets.
+- A shorter configured scope list does not revoke old permissions. Provider access and agent tool rules are separate.
+- Another config with the same identity, origin and target shares the sign-in. Add cannot silently replace its
+  credentials with another target; explicit login replacement asks first and affects all configs sharing that identity.
+  To replace after a refused add, declare the intended definition in your config, then run `login REF`.
+  If the new endpoint needs neither sign-in nor secret values, login leaves the old credentials alone and reports
+  how to delete the old sign-in with `logout REF`.
+- `logout` doesn't tell the provider or withdraw connection approval. Remove the grant in the provider's settings
+  to end it there. `mcp remove` cannot edit package definitions. Source removal keeps credentials and prints explicit
+  cleanup commands; another config may still use them. Removing credentials also cancels pending logins for that
+  identity, including logins started from another config. A small, secret-free cancellation marker remains locally.
+- On another machine, restore source content, approve pinned servers there, sign in and run setup. Config and source
+  copies do not transfer credentials or machine-local approval. Source aliases and origins are part of the binding;
+  renaming a source or converting it to trusted requires a new sign-in, not copied refresh tokens.
 
 What to keep in mind:
 

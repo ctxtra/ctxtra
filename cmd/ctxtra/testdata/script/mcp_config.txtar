@@ -32,7 +32,7 @@ stdout '"path": "pg",\s+"status": "added"'
 stdout '^- work'
 ! stdout 'MCP servers'
 
-# source check reads no user config: it checks names only.
+# source check reads the package manifest, not the user's config.
 ! exec ctxtra source check team
 stdout 'server name "Bad"'
 ! stdout 'linear'
@@ -60,3 +60,7 @@ bindings:
 schema: ctxtra/v1
 bindings:
   - {name: a, match: {global: true}, mcp-servers: [linear, Bad]}
+-- team/mcp-servers.yaml --
+schema: ctxtra/v1
+mcp-servers:
+  linear: {url: https://example.com/mcp}

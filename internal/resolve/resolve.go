@@ -43,6 +43,11 @@ type MCPServer struct {
 	Origin string // the binding that added it
 }
 
+// MCPConflict records why one selected identity was suppressed.
+type MCPConflict struct {
+	Winner, Loser, Prefix, Origin string
+}
+
 // Trace explains one binding, for `explain`.
 type Trace struct {
 	Origin  string
@@ -66,7 +71,9 @@ type Result struct {
 	Skills []Hit
 	// MCPServers are the bound MCP servers, in binding order, each once.
 	MCPServers []MCPServer
-	Dropped    []Hit // over budget.max-chars or the agent's capacity, see Hit.Over
+	// MCPConflicts are suppressed identities sharing an earlier tool prefix.
+	MCPConflicts []MCPConflict
+	Dropped      []Hit // over budget.max-chars or the agent's capacity, see Hit.Over
 	// Known are files that apply here too, which the session already has
 	// from another folder: listed after the files, without their text.
 	Known    []Hit
@@ -146,7 +153,7 @@ func CheckBinding(cfg *config.Config, b config.Binding) []string {
 func (r *Result) addNotices(cfg *config.Config) {
 	var st *state.State
 	for _, src := range cfg.Sources {
-		if !src.Pinned() || src.Commit == "" || !r.uses(src.Gen()) {
+		if !src.Pinned() || src.Commit == "" || !r.uses(src.Gen()) && !slices.ContainsFunc(r.MCPServers, func(s MCPServer) bool { return s.Source == src.Name }) {
 			continue
 		}
 		if st == nil {
@@ -213,9 +220,17 @@ func (r *Result) apply(t *Trace, b config.Binding, l *loader) {
 	for _, name := range b.MCPServers {
 		t.MCPServers = append(t.MCPServers, name)
 		s, ok := l.cfg.MCPServer(name)
-		if ok && !slices.ContainsFunc(r.MCPServers, func(m MCPServer) bool { return m.Name == name }) {
-			r.MCPServers = append(r.MCPServers, MCPServer{s, t.Origin})
+		if !ok || slices.ContainsFunc(r.MCPServers, func(m MCPServer) bool { return m.ID == s.ID }) ||
+			slices.ContainsFunc(r.MCPConflicts, func(c MCPConflict) bool { return c.Loser == s.ID }) {
+			continue
 		}
+		if i := slices.IndexFunc(r.MCPServers, func(m MCPServer) bool { return m.Name == s.Name }); i >= 0 {
+			winner := r.MCPServers[i].ID
+			r.MCPConflicts = append(r.MCPConflicts, MCPConflict{Winner: winner, Loser: s.ID, Prefix: s.Name, Origin: t.Origin})
+			t.Problems = append(t.Problems, fmt.Sprintf("MCP server %s is shadowed by %s: both use tool prefix %s; the first binding wins, without fallback", s.ID, winner, s.Name))
+			continue
+		}
+		r.MCPServers = append(r.MCPServers, MCPServer{s, t.Origin})
 	}
 	for _, f := range b.ExcludedInstructions {
 		t.ExcludedFiles = append(t.ExcludedFiles, paths.Real(f))

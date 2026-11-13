@@ -9,6 +9,12 @@ type Server struct {
 	ID string
 	// Name is the prefix of its tools in sessions.
 	Name string
+	// Source is the source alias, empty for config declarations. Origin
+	// binds credentials to that source independently of its accepted commit.
+	Source string
+	Origin string
+	// Pinned servers require machine-local approval before connection.
+	Pinned bool
 	// URL is a remote server's address; "" for a local server.
 	URL string
 	// Command is a local server's program and arguments; nil for a remote

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 )
 
 func (a *app) mcpStatusCmd() *cobra.Command {
@@ -39,7 +41,25 @@ tools in time, later, or none, and why. Reads local files only.`,
 }
 
 func (a *app) mcpStatus(dir string) int {
-	servers, _ := sessionServers(dir)
+	res, cfg := resolve.Session(dir, paths.ConfigPath())
+	for i, binding := range cfg.Bindings {
+		if !res.Trace[i].Matched {
+			continue
+		}
+		for _, ref := range binding.MCPListed {
+			id := ref
+			if binding.MCPScope != "" {
+				id = binding.MCPScope + "/" + ref
+			}
+			if !slices.Contains(binding.MCPServers, id) {
+				fmt.Fprintf(a.Out, "unavailable MCP reference %q in binding %s; see ctxtra doctor\n", ref, binding.ID())
+			}
+		}
+	}
+	servers := res.MCPServers
+	for _, conflict := range res.MCPConflicts {
+		fmt.Fprintf(a.Out, "  %s shadowed by %s (tool prefix %s, binding %s); no fallback\n", conflict.Loser, conflict.Winner, conflict.Prefix, conflict.Origin)
+	}
 	if len(servers) == 0 {
 		fmt.Fprintf(a.Out, "no MCP servers are bound to %s\n", paths.Tilde(dir))
 		return 0
@@ -50,7 +70,7 @@ func (a *app) mcpStatus(dir string) int {
 	}
 	fmt.Fprintf(a.Out, "MCP servers of %s:\n", paths.Tilde(dir))
 	for _, s := range servers {
-		fmt.Fprintf(a.Out, "  %s  %s, %s\n", s.Name, shortServer(s), signIn(s))
+		fmt.Fprintf(a.Out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approvalState(s.Server))
 	}
 	if !ok {
 		fmt.Fprintln(a.Out, "\nno session has started here with ctxtra's MCP server yet")

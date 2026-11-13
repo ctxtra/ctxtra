@@ -69,6 +69,11 @@ type Options struct {
 	// such as Codex and Muse: tools that come later reach a new session
 	// only.
 	KeepsFirstList bool
+	// Notices are identity conflicts produced by Servers, read only after
+	// resolution, for the agent's instructions.
+	Notices func() []string
+	// Approval is checked before connection; nil uses the default store.
+	Approval func(upstream.Server) error
 }
 
 // Run serves the agent over t until the agent closes it or ctx ends, then
@@ -78,8 +83,11 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 	if o.Deadline == 0 {
 		o.Deadline = Deadline
 	}
+	if o.Approval == nil {
+		o.Approval = creds.Open().RequireApproval
+	}
 	if o.Connect == nil {
-		o.Connect = Dialer{Secrets: o.Secrets, Tokens: o.Tokens}.Dial
+		o.Connect = Dialer{Secrets: o.Secrets, Tokens: o.Tokens, Approval: o.Approval}.Dial
 	}
 	if o.SignInPoll == 0 {
 		o.SignInPoll = 3 * time.Second
@@ -235,11 +243,21 @@ func (p *proxy) instructions() string {
 	}
 	var names []string
 	for _, s := range p.bound {
-		names = append(names, s.Name)
+		names = append(names, s.ID)
 	}
 	text := "This server gives the session the tools of the MCP servers that ctxtra binds to this folder (" +
 		strings.Join(names, ", ") + "). When an expected tool of theirs is missing or a call fails, run " +
 		"`ctxtra mcp status` in the session folder: it says why."
+	if p.o.Notices != nil {
+		for _, notice := range p.o.Notices() {
+			text += "\n" + notice
+		}
+	}
+	for _, s := range p.bound {
+		if p.o.Approval != nil && p.o.Approval(s) != nil {
+			text += "\n" + s.ID + " needs approval: run ctxtra mcp approve " + s.ID
+		}
+	}
 	if p.o.NeedsSignIn == nil {
 		return text
 	}
@@ -249,7 +267,7 @@ func (p *proxy) instructions() string {
 			if p.o.KeepsFirstList {
 				then = "; its tools come in a new session."
 			}
-			text += "\n" + s.Name + " needs sign-in and has no tools now: the user runs `ctxtra mcp login " + s.Name +
+			text += "\n" + s.ID + " needs sign-in and has no tools now: the user runs `ctxtra mcp login " + s.ID +
 				"` in a terminal" + then
 		}
 	}
@@ -274,7 +292,7 @@ func newReport(o Options, servers []upstream.Server) *report {
 	r := &report{write: o.Report, rec: status.Record{Dir: o.Dir, Agent: o.Agent, Started: o.Start.UTC(),
 		DeadlineMs: o.Deadline.Milliseconds()}}
 	for _, s := range servers {
-		r.rec.Servers = append(r.rec.Servers, status.Server{Name: s.Name, State: status.Missing})
+		r.rec.Servers = append(r.rec.Servers, status.Server{Name: s.ID, State: status.Missing})
 	}
 	return r
 }
@@ -417,7 +435,7 @@ func (p *proxy) start(ctx context.Context) {
 		// The first list was answered while the servers were being found:
 		// each is missing from it, and may follow.
 		for _, s := range servers {
-			p.report.set(s.Name, status.Missing, "too slow for the first tool list: finding the folder's servers took too long", 0)
+			p.report.set(s.ID, status.Missing, "too slow for the first tool list: finding the folder's servers took too long", 0)
 		}
 		p.report.flush()
 	}
@@ -446,14 +464,14 @@ func (p *proxy) start(ctx context.Context) {
 	}
 	waiting := map[string]bool{}
 	for _, s := range servers {
-		waiting[s.Name] = true
+		waiting[s.ID] = true
 	}
 	first := map[string][]*mcp.Tool{}
 	for len(waiting) > 0 {
 		select {
 		case r := <-results:
-			delete(waiting, r.s.Name)
-			rec := Record{Event: "connect", Server: r.s.Name, Ms: r.took.Milliseconds(), Tools: len(r.tools)}
+			delete(waiting, r.s.ID)
+			rec := Record{Event: "connect", Server: r.s.ID, Ms: r.took.Milliseconds(), Tools: len(r.tools)}
 			if r.err != nil {
 				rec.Error = errorKind(r.err)
 				p.o.Log(rec)
@@ -461,7 +479,7 @@ func (p *proxy) start(ctx context.Context) {
 				// about the server: it keeps what the record says, such as
 				// too slow for the first list.
 				if ctx.Err() == nil {
-					p.report.set(r.s.Name, status.Missing, rec.Error, 0)
+					p.report.set(r.s.ID, status.Missing, rec.Error, 0)
 				}
 				var login *creds.LoginError
 				if errors.As(r.err, &login) && p.o.SignInState != nil {
@@ -472,12 +490,12 @@ func (p *proxy) start(ctx context.Context) {
 			p.o.Log(rec)
 			if p.isOpen() {
 				late := time.Since(p.o.Start).Milliseconds()
-				p.o.Log(Record{Event: "late", Server: r.s.Name, Ms: late})
-				p.report.set(r.s.Name, status.Late, "too slow for the first tool list", late)
+				p.o.Log(Record{Event: "late", Server: r.s.ID, Ms: late})
+				p.report.set(r.s.ID, status.Late, "too slow for the first tool list", late)
 				p.setTools(r.up, r.tools)
 				continue
 			}
-			p.report.set(r.s.Name, status.Ready, "", time.Since(p.o.Start).Milliseconds())
+			p.report.set(r.s.ID, status.Ready, "", time.Since(p.o.Start).Milliseconds())
 			first[r.s.Name] = r.tools
 		case <-deadline.C:
 			var slow []string
@@ -535,7 +553,7 @@ func (p *proxy) awaitSignIn(ctx context.Context, s upstream.Server) {
 			continue
 		}
 		if err != nil {
-			p.o.Log(Record{Event: "connect", Server: s.Name, Error: errorKind(err)})
+			p.o.Log(Record{Event: "connect", Server: s.ID, Error: errorKind(err)})
 			return
 		}
 		if !p.add(up) {
@@ -543,8 +561,8 @@ func (p *proxy) awaitSignIn(ctx context.Context, s upstream.Server) {
 			return
 		}
 		p.wg.Go(func() { p.watchExit(up) })
-		p.o.Log(Record{Event: "signed-in", Server: s.Name, Tools: len(tools)})
-		p.report.restart(s.Name, "signed in during the session", time.Since(p.o.Start).Milliseconds())
+		p.o.Log(Record{Event: "signed-in", Server: s.ID, Tools: len(tools)})
+		p.report.restart(s.ID, "signed in during the session", time.Since(p.o.Start).Milliseconds())
 		select {
 		case <-p.ready:
 		case <-ctx.Done():
@@ -566,6 +584,9 @@ func (p *proxy) isOpen() bool {
 
 // connect starts a session with s and lists its tools.
 func (p *proxy) connect(ctx context.Context, s upstream.Server) (*Upstream, []*mcp.Tool, error) {
+	if err := p.o.Approval(s); err != nil {
+		return nil, nil, err
+	}
 	// A list change only marks the list as changed: one worker lists the
 	// tools again, so a server that sends many changes, or doesn't answer
 	// the list, costs one pending list at most.
@@ -672,7 +693,7 @@ func (p *proxy) add(up *Upstream) bool {
 func (p *proxy) logStart(servers []upstream.Server, problems []string) {
 	var bound []string
 	for _, s := range servers {
-		bound = append(bound, s.Name)
+		bound = append(bound, s.ID)
 	}
 	p.o.Log(Record{Event: "start", Dir: p.o.Dir, Servers: bound, Problems: len(problems)})
 }
@@ -753,7 +774,7 @@ func (p *proxy) setToolsLocked(up *Upstream, tools []*mcp.Tool) {
 	p.tools = want
 	for _, t := range add {
 		if err := p.addTool(t); err != nil {
-			p.o.Log(Record{Event: "tool", Server: want[t.Name].up.Server.Name, Error: err.Error()})
+			p.o.Log(Record{Event: "tool", Server: want[t.Name].up.Server.ID, Error: err.Error()})
 			delete(p.tools, t.Name)
 			// An earlier definition of the tool would stay listed.
 			p.server.RemoveTools(t.Name)
@@ -785,7 +806,7 @@ func (p *proxy) call(ctx context.Context, req *mcp.CallToolRequest) (res *mcp.Ca
 	if !ok {
 		return nil, fmt.Errorf("unknown tool %q", shown)
 	}
-	server := r.up.Server.Name
+	server := r.up.Server.ID
 	defer func() {
 		if x := recover(); x != nil {
 			err = fmt.Errorf("ctxtra: the call to %s failed", server)
@@ -859,7 +880,7 @@ func (p *proxy) stop() {
 		wg.Go(func() {
 			up.Close()
 			if st := up.ExitState(); st != "" {
-				p.o.Log(Record{Event: "stopped", Server: up.Server.Name, Error: st})
+				p.o.Log(Record{Event: "stopped", Server: up.Server.ID, Error: st})
 			}
 		})
 	}
@@ -895,8 +916,8 @@ func (p *proxy) watchExit(up *Upstream) {
 	if st == "" {
 		st = "connection closed"
 	}
-	p.o.Log(Record{Event: "server ended", Server: up.Server.Name, Error: st})
-	p.report.end(up.Server.Name, "ended during the session: "+st)
+	p.o.Log(Record{Event: "server ended", Server: up.Server.ID, Error: st})
+	p.report.end(up.Server.ID, "ended during the session: "+st)
 	// A remote server whose sign-in ended with it comes back after a login.
 	if !up.Server.Local() && p.o.SignInState != nil {
 		if _, ok := p.o.SignInState(up.Server); !ok {
@@ -976,7 +997,7 @@ func (p *proxy) relist(ctx context.Context, up *Upstream, changed <-chan struct{
 		tools, err := listTools(lctx, up.Session)
 		cancel()
 		if err != nil {
-			p.o.Log(Record{Event: "list", Server: up.Server.Name, Error: errorKind(err)})
+			p.o.Log(Record{Event: "list", Server: up.Server.ID, Error: errorKind(err)})
 			continue
 		}
 		// Kept for when the server's tools are shown, or shown now when

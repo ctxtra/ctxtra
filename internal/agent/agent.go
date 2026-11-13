@@ -327,6 +327,9 @@ func Summary(res *resolve.Result) string {
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
 	signIn := needSignIn(res.MCPServers)
+	for _, conflict := range res.MCPConflicts {
+		signIn = append(signIn, fmt.Sprintf("MCP server %s is shadowed by %s (tool prefix %s); the first binding wins, without fallback", conflict.Loser, conflict.Winner, conflict.Prefix))
+	}
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 {
 		return ""
 	}
@@ -354,10 +357,8 @@ func Summary(res *resolve.Result) string {
 	return s
 }
 
-// needSignIn are the lines for the bound MCP servers whose state file
-// says only ctxtra mcp login can make them work: from state files only,
-// never the keychain or the network. A server that no session has tried
-// yet has no state, and no line.
+// needSignIn reads approval and sign-in state locally, never the keychain.
+// An explicit decline suppresses its repeated approval summary line.
 func needSignIn(servers []resolve.MCPServer) []string {
 	if len(servers) == 0 {
 		return nil
@@ -365,8 +366,18 @@ func needSignIn(servers []resolve.MCPServer) []string {
 	store := creds.Open()
 	var out []string
 	for _, m := range servers {
+		if m.Pinned {
+			a, err := store.Approval(m.Server)
+			if err != nil || a.Version == 0 {
+				out = append(out, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
+				continue
+			}
+			if !a.Allowed {
+				continue
+			}
+		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
-			out = append(out, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.Name, m.Name))
+			out = append(out, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))
 		}
 	}
 	return out

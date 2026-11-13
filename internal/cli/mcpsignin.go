@@ -42,14 +42,20 @@ func openStore() *creds.Store {
 var errNeedsTerminal = errors.New("signing in needs a terminal")
 
 type signInOptions struct {
-	noBrowser    bool
-	callbackPort int
-	clientSecret string
+	noBrowser          bool
+	callbackPort       int
+	clientSecret       string
+	expectedGeneration *int64
+	replace            bool
+	secrets            *creds.Secrets
 }
 
 // detectOAuth reports the 401 challenge of the remote server s, nil when
 // it needs no sign-in. It sends s's headers, its secret ones from headers.
 func detectOAuth(ctx context.Context, s upstream.Server, secretHeaders map[string]string) (*oauth.Challenge, error) {
+	if err := creds.Open().RequireApproval(s); err != nil {
+		return nil, err
+	}
 	p, err := netguard.For(ctx, s.URL)
 	if err != nil {
 		return nil, err
@@ -90,12 +96,12 @@ func signInTo(ctx context.Context, stdio IO, store *creds.Store, s upstream.Serv
 	scopes = append(scopes, st.Scopes...)
 	f := &oauth.SignIn{Server: s, Store: store, HTTP: p.Client(), Out: stdio.Err, In: stdio.In,
 		OpenBrowser: openBrowser, NoBrowser: o.noBrowser, CallbackPort: port, ClientSecret: o.clientSecret, Scopes: scopes,
-		Commit: stillDeclared(s)}
+		ExpectedGeneration: o.expectedGeneration, Replace: o.replace, Secrets: o.secrets, Commit: stillDeclared(s)}
 	res, err := f.Run(ctx, ch)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdio.Out, "signed in to %s with %s\n", s.Name, res.Issuer)
+	fmt.Fprintf(stdio.Out, "signed in to %s with %s\n", s.ID, res.Issuer)
 	if res.Account != "" {
 		fmt.Fprintf(stdio.Out, "account: %s\n", res.Account)
 	}
@@ -103,7 +109,7 @@ func signInTo(ctx context.Context, stdio IO, store *creds.Store, s upstream.Serv
 		fmt.Fprintf(stdio.Out, "notes: %s\n", s.Notes)
 	}
 	if res.NoRefresh {
-		fmt.Fprintf(stdio.Out, "The provider gave no refresh token: when this sign-in expires, run ctxtra mcp login %s again.\n", s.Name)
+		fmt.Fprintf(stdio.Out, "The provider gave no refresh token: when this sign-in expires, run ctxtra mcp login %s again.\n", s.ID)
 	}
 	return nil
 }
@@ -114,13 +120,33 @@ func signInTo(ctx context.Context, stdio IO, store *creds.Store, s upstream.Serv
 func stillDeclared(s upstream.Server) func(save func() error) error {
 	return func(save func() error) error {
 		return config.WithLock(func() error {
-			cur, ok := config.Load(paths.ConfigPath(), newReader()).MCPServer(s.Name)
-			if !ok || cur.ID != s.ID || creds.CanonicalURL(cur.URL) != creds.CanonicalURL(s.URL) {
-				return fmt.Errorf("%s was removed or changed while you signed in; nothing was saved", s.Name)
+			cur, ok := config.Load(paths.ConfigPath(), newReader()).MCPServer(s.ID)
+			if !ok || creds.Fingerprint(cur) != creds.Fingerprint(s) {
+				return fmt.Errorf("%s was removed or changed while you signed in; nothing was saved", s.ID)
+			}
+			if err := creds.Open().RequireApproval(cur); err != nil {
+				return err
 			}
 			return save()
 		})
 	}
+}
+
+// confirmReplacement obtains terminal consent before reusing an identity
+// whose saved credentials belong to another target or source.
+func confirmReplacement(stdio IO, prompts bool, srv upstream.Server, old *creds.Record) error {
+	if !prompts {
+		return fmt.Errorf("%s has stored credentials for another source, address or command; run ctxtra mcp login %s in your terminal to explicitly replace them", srv.ID, srv.ID)
+	}
+	fmt.Fprintf(stdio.Err, "%s has credentials for another definition (origin %q, URL %q, command %q).\nReplacing them affects every agent and config sharing this identity.\n", srv.ID, old.Origin, old.URL, old.Command)
+	accepted, err := mcpConsent(stdio, "Replace these stored credentials? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !accepted {
+		return errors.New("replacement declined; stored credentials unchanged")
+	}
+	return nil
 }
 
 // openBrowser opens u in the user's browser: $BROWSER if set, else the
@@ -179,23 +205,45 @@ func (a *app) mcpLogin(name string, withSecrets bool, o signInOptions) int {
 	if !ok {
 		return fail(fmt.Errorf("no MCP server %q in %s", name, paths.Tilde(cfg.File)))
 	}
+	if err := a.requireMCPApproval(s); err != nil {
+		return fail(err)
+	}
 	store := openStore()
 	ctx, stop := signalContext()
 	defer stop()
-	r, _ := store.Load(s)
-	hasClientSecret := r != nil && r.Matches(s) && r.Client.Secret != ""
-	ask := func() error {
-		v, err := askSecrets(a.IO, a.noInput, name, s.SecretEnv, s.SecretHeaders, false)
-		if err != nil || v.empty() {
-			return err
+	r, generation, err := store.Inspect(s)
+	if err != nil && !errors.Is(err, creds.ErrUnreadable) {
+		return fail(err)
+	}
+	if r != nil && !r.Matches(s) {
+		if err := confirmReplacement(a.IO, a.prompts(), s, r); err != nil {
+			return fail(err)
 		}
-		return stillDeclared(s)(func() error { return storeSecrets(a.Err, store, s, v) })
+		o.replace = true
+	}
+	o.expectedGeneration = &generation
+	hasClientSecret := r != nil && r.Matches(s) && r.Client.Secret != ""
+	reader := &secretReader{stdio: a.IO, noInput: a.noInput}
+	var values secretValues
+	ask := func() error {
+		var err error
+		values, err = askSecretsWithReader(reader, name, s.SecretEnv, s.SecretHeaders, false)
+		return err
+	}
+	save := func() error {
+		return stillDeclared(s)(func() error {
+			_, err := storeSecrets(a.Err, store, s, values, 0, creds.WriteGuard{ExpectedGeneration: o.expectedGeneration, Replace: o.replace})
+			return err
+		})
 	}
 	if s.Local() {
 		if len(s.SecretEnv) == 0 {
 			return fail(fmt.Errorf("%s is a local server without secret values: there is nothing to sign in to", name))
 		}
 		if err := ask(); err != nil {
+			return fail(err)
+		}
+		if err := save(); err != nil {
 			return fail(err)
 		}
 		fmt.Fprintf(a.Out, "stored the secret values of %s\n", name)
@@ -211,7 +259,17 @@ func (a *app) mcpLogin(name string, withSecrets bool, o signInOptions) int {
 			return fail(err)
 		}
 		if ch == nil {
-			fmt.Fprintf(a.Out, "%s needs no sign-in; stored its secret values\n", name)
+			if len(s.SecretHeaders) == 0 {
+				if o.replace {
+					return fail(fmt.Errorf("%s needs no sign-in or secret values; stored credentials were not replaced. Run ctxtra mcp logout %s to delete the old sign-in without copying it", name, name))
+				}
+				fmt.Fprintf(a.Out, "%s needs no sign-in or secret values\n", name)
+			} else {
+				if err := save(); err != nil {
+					return fail(err)
+				}
+				fmt.Fprintf(a.Out, "%s needs no sign-in; stored its secret values\n", name)
+			}
 			return 0
 		}
 	}
@@ -222,9 +280,13 @@ func (a *app) mcpLogin(name string, withSecrets bool, o signInOptions) int {
 	// (after a logout), or again with --secrets. The sign-in stores it,
 	// with the callback port.
 	if s.ClientID != "" && (withSecrets || !hasClientSecret) {
-		if o.clientSecret, err = askClientSecret(a.IO, a.noInput, name); err != nil {
+		reader.optional = true
+		if o.clientSecret, err = reader.read("client secret for " + name + " (empty for an app without one)"); err != nil {
 			return fail(err)
 		}
+	}
+	if !values.empty() {
+		o.secrets = &creds.Secrets{Env: values.env, Headers: values.headers}
 	}
 	if err := signInTo(ctx, a.IO, store, s, ch, o); err != nil {
 		return fail(err)
@@ -245,12 +307,15 @@ the config.`,
 		Args:    exactly("NAME"),
 		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
 			name := args[0]
+			if err := config.CheckMCPRef(name); err != nil {
+				return err
+			}
 			cfg := config.Load(paths.ConfigPath(), newReader())
 			s, ok := cfg.MCPServer(name)
 			if !ok {
 				s = upstream.Server{ID: config.MCPServerID(name), Name: name}
 			}
-			if err := openStore().Logout(s); err != nil {
+			if err := config.WithLock(func() error { return openStore().Logout(s) }); err != nil {
 				fmt.Fprintf(a.Err, "ctxtra mcp logout: %v\n", err)
 				return exitCode(1)
 			}

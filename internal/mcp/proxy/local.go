@@ -102,6 +102,8 @@ type Dialer struct {
 	// Tokens has remote servers' OAuth tokens; without it, requests go
 	// without one.
 	Tokens Tokens
+	// Approval checks machine-local consent; nil uses the default store.
+	Approval func(upstream.Server) error
 	// Stderr gets a local server's stderr, for debugging; nil drops it.
 	Stderr io.Writer
 }
@@ -109,6 +111,13 @@ type Dialer struct {
 // Dial starts a session with s, a server bound to a session in dir. Only s
 // gets its own secret values.
 func (d Dialer) Dial(ctx context.Context, s upstream.Server, dir string, c *mcp.Client) (*Upstream, error) {
+	approval := d.Approval
+	if approval == nil {
+		approval = creds.Open().RequireApproval
+	}
+	if err := approval(s); err != nil {
+		return nil, err
+	}
 	if !s.Local() {
 		return d.dialRemote(ctx, s, c)
 	}
@@ -250,6 +259,7 @@ func errorKind(err error) string {
 	var rpc *jsonrpc.Error
 	var ended exited
 	var login *creds.LoginError
+	var approval *creds.ApprovalError
 	switch {
 	case errors.As(err, &ended):
 		return "server " + ended.state
@@ -260,6 +270,8 @@ func errorKind(err error) string {
 	case errors.Is(err, ErrSecrets), errors.Is(err, ErrTooManyTools):
 		// These say why without the server's own words.
 		return err.Error()
+	case errors.As(err, &approval):
+		return "approval needed"
 	case errors.As(err, &login):
 		return "needs sign-in: " + login.Reason
 	case errors.Is(err, netguard.ErrRefused):

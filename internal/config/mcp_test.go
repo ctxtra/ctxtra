@@ -212,10 +212,10 @@ include: [b.yaml, ctxtra://team/b.yaml]
 		"line 10: server pg is listed twice; skipped",
 		`line 10: server name "Bad-Name"`,
 		"line 10: server broken has an error in mcp-servers; skipped",
-		"line 3: server pg: binding files of pinned sources can't turn on the config's servers; skipped",
-		"line 3: server github: binding files of pinned sources can't turn on the config's servers",
-		"line 3: server broken: binding files of pinned sources can't turn on the config's servers",
-		"line 3: server theirs is not in mcp-servers",
+		"line 3: server team/pg is not in mcp-servers of source team",
+		"line 3: server team/github is not in mcp-servers of source team",
+		"line 3: server team/broken is not in mcp-servers of source team",
+		"line 3: server team/theirs is not in mcp-servers of source team",
 	)
 	if len(cfg.Bindings) != 4 {
 		t.Fatalf("bindings %v", cfg.Bindings)
@@ -233,12 +233,13 @@ include: [b.yaml, ctxtra://team/b.yaml]
 func TestSourceCheckServerNames(t *testing.T) {
 	mcpOnForTest(t)
 	dir := t.TempDir()
+	testenv.Write(t, filepath.Join(dir, MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.com/mcp}\n")
 	testenv.Write(t, filepath.Join(dir, "b.yaml"), head+"  - {name: a, match: {global: true}, mcp-servers: [linear, Bad]}\n")
 	cfg := LoadSource(dir, "team", []string{filepath.Join(dir, "b.yaml")})
 	if len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], `server name "Bad"`) {
-		t.Errorf("only names are checked: %v", cfg.Problems)
+		t.Errorf("manifest references and names: %v", cfg.Problems)
 	}
-	if len(cfg.Bindings) != 1 || !slices.Equal(cfg.Bindings[0].MCPServers, []string{"linear"}) {
+	if len(cfg.Bindings) != 1 || !slices.Equal(cfg.Bindings[0].MCPServers, []string{"team/linear"}) {
 		t.Errorf("bindings %+v", cfg.Bindings)
 	}
 }

@@ -50,12 +50,24 @@ func WithLock(fn func() error) error {
 // EditThen is Edit that runs then after the config was written, still
 // under the config's lock, so that no other edit comes in between.
 func EditThen(path string, fn func(old []byte) ([]byte, error), then func() error) error {
+	return editThen(path, fn, then, nil)
+}
+
+// EditWithCommit lets commit coordinate the config write with another local
+// store while the config lock is held. If commit fails after writing, the
+// previous config is restored. The callback must invoke write at most once.
+func EditWithCommit(path string, fn func(old []byte) ([]byte, error), commit func(write func() error) error) error {
+	return editThen(path, fn, nil, commit)
+}
+
+func editThen(path string, fn func(old []byte) ([]byte, error), then func() error, commit func(write func() error) error) error {
 	unlock, err := fsutil.Lock(filepath.Join(paths.StateDir(), "config.lock"))
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	old, err := fsutil.ReadBounded(path, MaxFileBytes)
+	existed := err == nil
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -64,17 +76,44 @@ func EditThen(path string, fn func(old []byte) ([]byte, error), then func() erro
 			return fmt.Errorf("%s: %v; fix it first", paths.Tilde(path), err)
 		}
 	}
-	data, err := fn(old)
+	input := old
+	if commit != nil {
+		input = bytes.Clone(old)
+	}
+	data, err := fn(input)
 	if err != nil {
 		return err
 	}
 	if err := Check(data); err != nil {
 		return fmt.Errorf("the changed config would be invalid (%v); nothing changed", err)
 	}
-	if _, _, err = fsutil.WriteAtomic(path, data, paths.BackupDir(), false); err != nil || then == nil {
+	if commit == nil {
+		if _, _, err = fsutil.WriteAtomic(path, data, paths.BackupDir(), false); err != nil || then == nil {
+			return err
+		}
+		return then()
+	}
+	var written bool
+	var target string
+	err = commit(func() error {
+		var changed bool
+		target, changed, err = fsutil.WriteAtomic(path, data, paths.BackupDir(), false)
+		written = err == nil && changed
+		return err
+	})
+	if err == nil || !written {
 		return err
 	}
-	return then()
+	var restoreErr error
+	if existed {
+		_, _, restoreErr = fsutil.WriteAtomic(target, old, paths.BackupDir(), false)
+	} else {
+		restoreErr = os.Remove(target)
+	}
+	if restoreErr != nil {
+		return errors.Join(err, fmt.Errorf("could not restore %s: %w", paths.Tilde(path), restoreErr))
+	}
+	return err
 }
 
 // Check reports whether data is a valid config document. Binding files are
@@ -247,7 +286,7 @@ type NewBinding struct {
 	Global               bool
 	Dirs, Repos          []string // match
 	Instructions, Skills []string
-	MCPServers           []string // provisional, see mcpedit.go
+	MCPServers           []string // full MCP server references
 }
 
 // AddBinding appends b to the config's own bindings. It doesn't check b:

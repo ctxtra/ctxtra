@@ -134,7 +134,7 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	drain(resp)
 	if t.tokens == nil {
-		return nil, &creds.LoginError{Name: t.srv.Name, Reason: "the server wants a sign-in"}
+		return nil, &creds.LoginError{Name: t.srv.ID, Reason: "the server wants a sign-in"}
 	}
 	if token == "" {
 		return nil, t.tokens.NeedsLogin(t.srv, "not signed in", gen)

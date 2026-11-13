@@ -17,20 +17,25 @@ import (
 	"github.com/ctxtra/ctxtra/internal/paths"
 )
 
-// The format of mcp-servers is provisional: how servers are declared and
-// bound to folders is not decided yet, so it works only with
-// experimental.MCP.
-
 // MaxServerName is the longest server name: it leaves room for tool names
 // in the 38 characters that every agent accepts.
 const MaxServerName = 20
 
-// MCPServer returns the valid server called name.
+// MCPServer returns a valid server by full reference, loading its source
+// manifest on demand. It never connects or fetches source content.
 func (c *Config) MCPServer(name string) (upstream.Server, bool) {
+	if c.Ignored() {
+		return upstream.Server{}, false
+	}
+	if scope, _, ok := strings.Cut(name, "/"); ok {
+		if src, found := c.Source(scope); found {
+			c.loadMCPManifest(src)
+		}
+	}
 	if c.mcpBroken[name] {
 		return upstream.Server{}, false
 	}
-	i := slices.IndexFunc(c.MCPServers, func(s upstream.Server) bool { return s.Name == name })
+	i := slices.IndexFunc(c.MCPServers, func(s upstream.Server) bool { return s.ID == name })
 	if i < 0 {
 		return upstream.Server{}, false
 	}
@@ -71,20 +76,30 @@ var (
 // server is skipped alone, with a problem: without it, sessions get fewer
 // tools, never more.
 func (c *Config) decodeMCPServers(n *yaml.Node) {
-	c.mcpBroken = map[string]bool{}
+	c.decodeServerMap(n, c.File, nil)
+}
+
+func (c *Config) decodeServerMap(n *yaml.Node, file string, src *Source) {
+	if c.mcpBroken == nil {
+		c.mcpBroken = map[string]bool{}
+	}
 	if n.Kind != yaml.MappingNode {
-		c.problem(c.File, fmt.Errorf("line %d: mcp-servers must be a map of servers by name; no server is used", n.Line))
+		c.problem(file, fmt.Errorf("line %d: mcp-servers must be a map of servers by name; no server is used", n.Line))
 		return
 	}
 	seen := map[string]bool{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
 		name := k.Value
+		id := name
+		if src != nil {
+			id = src.Name + "/" + name
+		}
 		err := CheckServerName(name)
 		if err == nil && seen[name] {
 			// Neither declaration is used: which one is meant isn't clear.
 			err = fmt.Errorf("server %q is there twice", name)
-			c.MCPServers = slices.DeleteFunc(c.MCPServers, func(s upstream.Server) bool { return s.Name == name })
+			c.MCPServers = slices.DeleteFunc(c.MCPServers, func(s upstream.Server) bool { return s.ID == id })
 		}
 		seen[name] = true
 		var s upstream.Server
@@ -92,15 +107,19 @@ func (c *Config) decodeMCPServers(n *yaml.Node) {
 			s, err = c.decodeMCPServer(name, v)
 		}
 		if err != nil {
-			c.mcpBroken[name] = true
+			c.mcpBroken[id] = true
 			line, msg := k.Line, flat(err)
 			if m := reLine.FindStringSubmatch(msg); m != nil {
 				line, _ = strconv.Atoi(m[1])
 				msg = msg[len(m[0]):]
 			}
-			c.problem(c.File, fmt.Errorf("line %d: mcp-servers.%s: %s; server skipped", line, name, msg))
+			c.problem(file, fmt.Errorf("line %d: mcp-servers.%s: %s; server skipped", line, name, msg))
 			continue
 		}
+		if src != nil {
+			s.ID, s.Source, s.Origin, s.Pinned = id, src.Name, src.mcpOrigin(), src.Pinned()
+		}
+		c.secretLooking(id, s)
 		c.MCPServers = append(c.MCPServers, s)
 	}
 }
@@ -192,7 +211,6 @@ func (c *Config) decodeMCPServer(name string, n *yaml.Node) (upstream.Server, er
 	if err := overlap(s.Headers, nil, s.SecretHeaders, "header"); err != nil {
 		return s, err
 	}
-	c.secretLooking(name, s)
 	return s, nil
 }
 
@@ -291,14 +309,18 @@ func nameList(n *yaml.Node, what string, re *regexp.Regexp) ([]string, error) {
 // secretLooking adds a note for each header or variable whose value looks
 // like a secret, which belongs in the credential store.
 func (c *Config) secretLooking(name string, s upstream.Server) {
+	owner := "config"
+	if s.Source != "" {
+		owner = "manifest"
+	}
 	for _, h := range sortedKeys(s.Headers) {
 		if SecretHeader(h) {
-			c.Notes = append(c.Notes, fmt.Sprintf("mcp-servers.%s: headers.%s looks like a secret, which the config shouldn't hold; use secret-headers: [%s]", name, h, h))
+			c.Notes = append(c.Notes, fmt.Sprintf("mcp-servers.%s: headers.%s looks like a secret, which the %s shouldn't hold; use secret-headers: [%s]", name, h, owner, h))
 		}
 	}
 	for _, v := range sortedKeys(s.Env) {
 		if SecretVar(v) {
-			c.Notes = append(c.Notes, fmt.Sprintf("mcp-servers.%s: env.%s looks like a secret, which the config shouldn't hold; use secret-env: [%s]", name, v, v))
+			c.Notes = append(c.Notes, fmt.Sprintf("mcp-servers.%s: env.%s looks like a secret, which the %s shouldn't hold; use secret-env: [%s]", name, v, owner, v))
 		}
 	}
 }
@@ -326,37 +348,64 @@ func sortedKeys(m map[string]string) []string {
 
 // mcpNames resolves a binding's mcp-servers. A name that can't be used is
 // skipped alone, with a problem: the binding's other entries still apply.
-// in is the pinned source of the binding's file, or nil.
+// in restricts file references to a pinned source. MCP scope additionally
+// applies to trusted sources without changing their file-reference rules.
 func (c *Config) mcpNames(n *yaml.Node, file string, in *Source) ([]string, error) {
 	list, err := strList(n, "mcp-servers")
 	if err != nil {
 		return nil, err
 	}
+	scope := c.mcpScope(file, in)
 	var out []string
 	for _, name := range list {
+		id := name
 		var err error
-		_, declared := c.MCPServer(name)
-		switch {
-		case CheckServerName(name) != nil:
-			err = CheckServerName(name)
-		case slices.Contains(out, name):
-			err = fmt.Errorf("server %s is listed twice", name)
-		case c.checking:
-			// source check reads no user config: it can't know the names.
-		case in != nil && (declared || c.mcpBroken[name]):
-			err = fmt.Errorf("server %s: binding files of pinned sources can't turn on the config's servers", name)
-		case c.mcpBroken[name]:
-			err = fmt.Errorf("server %s has an error in mcp-servers", name)
-		case !declared:
-			err = fmt.Errorf("server %s is not in mcp-servers of %s", name, paths.Tilde(c.File))
+		if scope != "" {
+			if strings.Contains(name, "/") {
+				err = fmt.Errorf("server %s: binding files in source %s can name only their own servers by bare name", name, scope)
+			} else {
+				err = CheckServerName(name)
+				id = scope + "/" + name
+			}
+		} else {
+			err = CheckMCPRef(name)
+		}
+		if err == nil {
+			_, declared := c.MCPServer(id)
+			switch {
+			case slices.Contains(out, id):
+				err = fmt.Errorf("server %s is listed twice", name)
+			case c.mcpBroken[id]:
+				err = fmt.Errorf("server %s has an error in mcp-servers", id)
+			case !declared:
+				owner := paths.Tilde(c.File)
+				if source, _, qualified := strings.Cut(id, "/"); qualified {
+					owner = "source " + source
+				}
+				err = fmt.Errorf("server %s is not in mcp-servers of %s", id, owner)
+			}
 		}
 		if err != nil {
 			c.problem(file, fmt.Errorf("line %d: %w; skipped", n.Line, err))
 			continue
 		}
-		out = append(out, name)
+		out = append(out, id)
 	}
 	return out, nil
+}
+
+func (c *Config) mcpScope(file string, in *Source) string {
+	var scope string
+	if file != c.File {
+		scope = c.mcpScopes[file]
+		if scope == "" && in != nil {
+			scope = in.Name
+		}
+		if scope == "" {
+			scope, _ = c.SourceOf(file)
+		}
+	}
+	return scope
 }
 
 // mcpOn reports whether MCP servers are on: everything about them is off
