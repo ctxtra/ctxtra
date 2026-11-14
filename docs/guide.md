@@ -23,6 +23,10 @@ that adds the text to the first message of each session.
 DSH's command hooks need an extra package, so setup writes a plugin, `~/.dsh/ctxtra.mjs`, and adds the row that
 loads it to `~/.dsh/cordis.patch.yml`, which applies to every profile.
 
+For Claude Code, setup also writes a small plugin, `~/.claude/skills/ctxtra/`, that offers the bound skills as
+slash commands: type `/` in a session to see them, each with its description and `(ctxtra)`. See
+[Skills as slash commands in Claude Code](#skills-as-slash-commands-in-claude-code).
+
 At session start, Claude Code, Codex, Muse and Pi also show you a summary, for example:
 
 ```text
@@ -289,6 +293,35 @@ agent gets only your own bound files, read with the same trust rules as at sessi
 folder below the one the agent ran the command for doesn't reach it. That includes folders under the
 session folder: a binding for `~/dev/mono/billing/**` doesn't reach a session started in `~/dev/mono`.
 
+## Skills as slash commands in Claude Code
+
+`ctxtra setup --agent claude` writes a plugin named `ctxtra` to `~/.claude/skills/ctxtra/` (or
+`$CLAUDE_CONFIG_DIR/skills/ctxtra/`). Claude Code loads a plugin from that folder as it is: nothing is
+installed from a marketplace. When a session starts, the plugin asks ctxtra for the skills bound to the
+session folder and adds a command for each. Type `/` to see them; their descriptions end with `(ctxtra)`.
+
+`/deploy staging` gives Claude the skill's `SKILL.md` and starts a turn with your arguments. `$ARGUMENTS` in
+the skill is replaced with them; without it, they are added at the end. Claude reads the skill's other files
+as it reads any file.
+
+- They are commands, not Claude's own skills. Claude's `Skill` tool can't load them, and Claude doesn't apply
+  frontmatter such as `allowed-tools`, `context: fork` or `disable-model-invocation`. Claude still reads a
+  skill's `SKILL.md` on its own when a task needs it, as in the other agents.
+- A command that is already there wins: a built-in, your own skill or command, another plugin's. The bound
+  skill with that name then has no command. Names other than letters, digits, `_` and `-` have none either.
+- A session has the commands of the skills bound when it started. A skill bound later gets its command in
+  the next session; `/clear` doesn't add it. A command reads its `SKILL.md` each time you run it, so a change
+  to a skill applies at once.
+- `claude -p` gets no commands: there a command that is the whole prompt ends the run. `/deploy staging`
+  reaches Claude as text, which then finds the skill in ctxtra's list.
+- An organization can stop such plugins (`strictPluginOnlyCustomization`, `strictKnownMarketplaces`). The
+  hooks still give Claude the skill list.
+- A folder `~/.claude/skills/ctxtra` that ctxtra didn't write, such as a skill of your own with that name, is
+  left alone: setup says so, and Claude Code gets no commands.
+
+`ctxtra setup --remove` removes the plugin. After an upgrade that added it, every ctxtra command reminds you
+to run `ctxtra setup --agent claude` until you do.
+
 ## Experimental: MCP servers
 
 ctxtra can give your sessions MCP servers by folder, like instructions and skills, through one MCP server named
@@ -366,6 +399,7 @@ Logs are in `~/.ctxtra/log.jsonl`.
   agent reads a skill's `SKILL.md` at its listed location with its file tool when a task needs it or an
   instruction names it. This also applies to skills listed by `ctxtra-follow`: the agent's skill tool and
   slash commands can't load them. Frontmatter keys other than `name` and `description` have no effect.
+  Claude Code also offers the bound skills as slash commands, which you run yourself (see below).
 - Codex gets the text in full only from version 0.145.0, which reads the hook's `additionalContextLimit`;
   older versions show the model about 10,000 characters, and `doctor` warns.
 - Resumed sessions don't get the text again, because the transcript already has it. `/compact` and
