@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A new Homebrew formula, `atelpis/tap/ctxtra-rc`, gets release candidates before each release, and every
+  release. It installs the same `ctxtra` command. Its update notices include release candidates, with
+  `brew upgrade atelpis/tap/ctxtra-rc`. `atelpis/tap/ctxtra` stays on releases.
+
 - The release archives include `THIRD_PARTY_NOTICES.md`, with the licenses of the software that ctxtra
   includes.
 

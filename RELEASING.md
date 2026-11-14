@@ -1,9 +1,19 @@
 # Releasing
 
 A `v*` tag runs [release.yml](.github/workflows/release.yml): CI, a check of the setup snapshot, GoReleaser
-(archives and checksums in a draft release), provenance attestations, then the release is published. For a
-tag without a `-` it then opens a PR in the Homebrew tap. A pushed tag is installable with `go install` at
-once, even while the release is a draft, so tag only a commit that passed CI on `main`.
+(archives and checksums in a draft release), provenance attestations, then the release is published. It then
+opens a PR in the Homebrew tap that moves `ctxtra` to the newest release (`vX.Y.Z`), and `ctxtra-rc` to
+the newest release or release candidate (`vX.Y.Z-rc.N`). Other tags, such as `-beta.1`, go to neither. A
+formula never moves to an older version. A pushed tag is installable with `go install` at once, even while
+the release is a draft, so tag only a commit that passed CI on `main`.
+
+## Release candidates
+
+Tag a release candidate to try a change in real use before users get it. Install `atelpis/tap/ctxtra-rc`
+to get it: users of `atelpis/tap/ctxtra` don't see release candidates, in the tap or in update notices.
+When the candidate works, tag the release on the same commit. Its users then get exactly what you tested.
+Tags are in one line: while a candidate is out, the next release includes it. To release a fix without an
+unfinished feature, keep the feature off behind an experimental variable (see `internal/experimental`).
 
 The workflow verifies every archive and the checksum file against the release workflow, tag and commit.
 It attaches their signed attestation bundle as `ctxtra.sigstore.json` before publishing the draft.
@@ -38,13 +48,16 @@ Availability after the transfer must be checked; a failed lookup is not successf
    its version: `v0.2.0-rc.1` takes `## v0.2.0`. Merge the changelog change into `main` and wait for
    CI and e2e to pass on that commit before tagging it. Do not tag an unmerged release branch.
 5. `git tag vX.Y.Z && git push origin vX.Y.Z`. For a release candidate, use `vX.Y.Z-rc.N`: it becomes a
-   prerelease and doesn't touch the tap. Never move or delete a pushed tag: the Go module proxy keeps the
-   first one. Fix a bad release with the next patch version.
+   prerelease, and `ctxtra-rc` in the tap moves to it. `ctxtra` stays on the newest release. To release a
+   tested candidate, tag the release on the candidate's commit. Never move or delete a pushed tag: the Go
+   module proxy keeps the first one. Fix a bad release with the next patch version.
 6. In the tap, wait until every check of the PR has passed, then publish its bottles with the tap's
    publish workflow: `gh workflow run publish.yml --repo atelpis/homebrew-tap -f pull_request=N -f head_sha=SHA`, with the PR's
    number and head commit. It adds the bottles to the formula, pushes to `main` and closes the PR: don't
-   merge the PR in GitHub.
-7. Check it: `brew update && brew upgrade ctxtra`, `ctxtra version`, `ctxtra doctor`, and one agent session.
+   merge the PR in GitHub. A new tap PR closes the older ones that aren't published yet: it bumps to the
+   newest versions. A re-run of the `homebrew` job, for a failed or cancelled one, does the same.
+7. Check it: `brew update && brew upgrade ctxtra` (or `ctxtra-rc`), `ctxtra version`, `ctxtra doctor`, and one
+   agent session.
 
 ## Homebrew tap
 
@@ -52,6 +65,9 @@ release.yml opens the PR in `atelpis/homebrew-tap` with the `HOMEBREW_TAP_TOKEN`
 token with Contents and Pull requests write access to the tap only. Without it, the release only warns, and
 the formula's `url` and `sha256` need the same change by hand. The formula never runs `ctxtra setup`: setup
 changes the agents' configs in your home folder, so it stays a command you run.
+
+`ctxtra-rc` is the same formula as `ctxtra` under another name, with `conflicts_with "ctxtra"`. Keep their
+builds and tests the same. Without `Formula/ctxtra-rc.rb` in the tap, the job bumps only `ctxtra` and warns.
 
 The tap stays at `atelpis/homebrew-tap` even though ctxtra's source lives at `ctxtra/ctxtra`. When changing
 the source repository, update the formula's `homepage` and `head` too: the release workflow changes only
