@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,16 @@ func TestNewer(t *testing.T) {
 		{"v0.3.0", "dev", false},
 		{"v0.3.0", "v0.2.4-0.20261104010203-abcdefabcdef", false},
 		{"v0.3.0-rc1", "v0.2.3", false},
+		{"v0.3.0-rc.0", "v0.2.3", false},
+		{"v0.3.0-beta.1", "v0.2.3", false},
+		{"v0.3.0-rc.1", "v0.2.3", true},
+		{"v0.3.0-rc.2", "v0.3.0-rc.1", true},
+		{"v0.3.0-rc.10", "v0.3.0-rc.9", true},
+		{"v0.3.0", "v0.3.0-rc.2", true},
+		{"v0.3.0-rc.2", "v0.3.0", false},
+		{"v0.3.0-rc.1", "v0.3.0-rc.1", false},
+		{"v0.3.1", "v0.4.0-rc.1", false},
+		{"v0.4.0-rc.1", "v0.3.1", true},
 		{"", "v0.2.3", false},
 	} {
 		if got := newer(c.a, c.b); got != c.want {
@@ -78,6 +89,7 @@ func TestLatestRelease(t *testing.T) {
 	}{
 		{200, `{"tag_name": "v0.3.0", "body": "\u001b[31mignored"}`, "v0.3.0", ""},
 		{200, `{"tag_name": "v0.3.0\u001b[31m"}`, "", "no version ctxtra can read"},
+		{200, `{"tag_name": "v0.3.0-rc.1"}`, "", "no version ctxtra can read"},
 		{200, `not json`, "", "not a release"},
 		{404, `{}`, "", "GitHub answered 404"},
 	} {
@@ -86,6 +98,115 @@ func TestLatestRelease(t *testing.T) {
 		if got != c.want || (c.wantErrSubstr == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), c.wantErrSubstr) {
 			t.Errorf("%d %s: %q, %v", c.status, c.answer, got, err)
 		}
+	}
+}
+
+// A ctxtra from the ctxtra-rc formula takes the newer of GitHub's latest
+// release and the newest release candidate in the list. Others don't ask
+// for the list.
+func TestLatestReleaseCandidates(t *testing.T) {
+	h := testenv.Home(t)
+	var answer string
+	lists := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lists++
+		fmt.Fprint(w, answer)
+	}))
+	t.Cleanup(srv.Close)
+	oldURL := releasesURL
+	releasesURL = srv.URL
+	t.Cleanup(func() { releasesURL = oldURL })
+
+	stable := filepath.Join(h, "Cellar", "ctxtra", "0.2.3", "bin", "ctxtra")
+	testenv.Write(t, stable, "")
+	old := executable
+	executable = func() string { return stable }
+	t.Cleanup(func() { executable = old })
+	release(t, 200, `{"tag_name": "v0.2.3"}`)
+	answer = `[{"tag_name": "v0.3.0-rc.1"}]`
+	if got, err := latestRelease(context.Background(), "v0.2.3"); got != "v0.2.3" || err != nil || lists != 0 {
+		t.Errorf("ctxtra formula: %q, %v, %d lists", got, err, lists)
+	}
+
+	rc := filepath.Join(h, "Cellar", "ctxtra-rc", "0.3.0-rc.1", "bin", "ctxtra")
+	testenv.Write(t, rc, "")
+	executable = func() string { return rc }
+	betas := "["
+	for i := range 30 {
+		betas += fmt.Sprintf(`{"tag_name": "v0.4.0-beta.%d"},`, 30-i)
+	}
+	betas = strings.TrimSuffix(betas, ",") + "]"
+	for _, c := range []struct {
+		status                      int
+		latest, list, want, wantErr string
+	}{
+		{200, "v0.2.3", `[{"tag_name": "v0.3.0-rc.2"}, {"tag_name": "v0.3.0-rc.1"}, {"tag_name": "v0.2.3"}]`, "v0.3.0-rc.2", ""},
+		{200, "v0.3.0", `[{"tag_name": "v0.3.0"}, {"tag_name": "v0.3.0-rc.2"}]`, "v0.3.0", ""},
+		{200, "v0.2.4", `[{"tag_name": "v0.3.0-rc.1"}, {"tag_name": "v0.2.4"}]`, "v0.3.0-rc.1", ""},
+		{200, "v0.2.4", `[{"tag_name": "v0.2.4"}, {"tag_name": "v0.2.4-rc.1"}, {"tag_name": "v0.3.0-rc.1"}]`, "v0.3.0-rc.1", ""},
+		{200, "v0.3.0", betas, "v0.3.0", ""},
+		{200, "v0.3.0", `[{"tag_name": "nightly"}, {"tag_name": "v0.2.0-rc.1"}]`, "v0.3.0", ""},
+		{200, "v0.3.0", `[]`, "v0.3.0", ""},
+		{200, "v0.3.0", `{"tag_name": "v0.3.0"}`, "", "not a release"},
+		{404, "", `[{"tag_name": "v0.3.0-rc.1"}]`, "", "GitHub answered 404"},
+	} {
+		release(t, c.status, `{"tag_name": "`+c.latest+`"}`)
+		answer = c.list
+		got, err := latestRelease(context.Background(), "v0.3.0-rc.1")
+		if got != c.want || (c.wantErr == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), c.wantErr) {
+			t.Errorf("%s, %.60s: %q, %v", c.latest, c.list, got, err)
+		}
+	}
+}
+
+// The release list is read page by page until the page of the latest
+// release, and only from the same server. A longer list is an error.
+func TestNewestCandidatePages(t *testing.T) {
+	testenv.Home(t)
+	var srv *httptest.Server
+	var pages []string
+	// Page 1 has only betas, page 2 the latest release, v0.2.4.
+	tags := map[string][]string{"2": {"v0.3.0-rc.2", "v0.2.4"}, "3": {"v0.2.4-rc.1"}}
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		if page == "" {
+			page = "1"
+		}
+		pages = append(pages, page)
+		list := tags[page]
+		if page == "1" || page >= "4" {
+			for i := range 100 {
+				list = append(list, fmt.Sprintf("v0.4.0-beta.%d", i+1))
+			}
+		}
+		n, _ := strconv.Atoi(page)
+		next := srv.URL
+		if r.URL.Query().Get("other") != "" {
+			next = "https://example.com"
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/releases?page=%d>; rel="next", <%s/releases?page=9>; rel="last"`, next, n+1, next))
+		rels := make([]string, len(list))
+		for i, tag := range list {
+			rels[i] = fmt.Sprintf(`{"tag_name": %q}`, tag)
+		}
+		fmt.Fprint(w, "["+strings.Join(rels, ",")+"]")
+	}))
+	t.Cleanup(srv.Close)
+	old := releasesURL
+	t.Cleanup(func() { releasesURL = old })
+
+	releasesURL = srv.URL + "/releases"
+	if got, err := newestCandidate(context.Background(), "v0.2.4", "v0.2.4"); got != "v0.3.0-rc.2" || err != nil || strings.Join(pages, ",") != "1,2" {
+		t.Errorf("until the latest release: %q, %v, pages %v", got, err, pages)
+	}
+	pages = nil
+	if got, err := newestCandidate(context.Background(), "v0.2.4", "v0.1.0"); got != "" || err == nil || !strings.Contains(err.Error(), "more than 5 pages") || len(pages) != maxReleasePages {
+		t.Errorf("no latest release: %q, %v, pages %v", got, err, pages)
+	}
+	pages = nil
+	releasesURL = srv.URL + "/releases?other=1"
+	if got, err := newestCandidate(context.Background(), "v0.2.4", "v0.2.4"); got != "" || err != nil || len(pages) != 1 {
+		t.Errorf("next page on another server: %q, %v, pages %v", got, err, pages)
 	}
 }
 
@@ -336,6 +457,28 @@ func TestReleaseNotice(t *testing.T) {
 	if got := ReleaseNotice(off, st, "v0.2.3"); got != "" {
 		t.Errorf("check-updates: false: %q", got)
 	}
+
+	// A release candidate is offered only to a ctxtra from the ctxtra-rc
+	// formula, with its upgrade command.
+	cand := state.State{Ctxtra: state.Release{Latest: "v0.3.0-rc.2"}}
+	executable = func() string { return brew }
+	if got := ReleaseNotice(on, cand, "v0.2.3"); got != "" {
+		t.Errorf("candidate for the ctxtra formula: %q", got)
+	}
+	rc := filepath.Join(h, "Cellar", "ctxtra-rc", "0.3.0-rc.1", "bin", "ctxtra")
+	testenv.Write(t, rc, "")
+	executable = func() string { return rc }
+	if got := ReleaseNotice(on, cand, "v0.3.0-rc.1"); got != "ctxtra update v0.3.0-rc.2 is available - "+Releases+"\nrun `brew upgrade atelpis/tap/ctxtra-rc` to update." {
+		t.Errorf("ctxtra-rc: %q", got)
+	}
+	if got := ReleaseNotice(on, st, "v0.3.0-rc.1"); got != "ctxtra update v0.3.0 is available - "+Releases+"\nrun `brew upgrade atelpis/tap/ctxtra-rc` to update." {
+		t.Errorf("ctxtra-rc, final release: %q", got)
+	}
+	// A release candidate build compares with final releases too.
+	executable = func() string { return gobin }
+	if got := ReleaseNotice(on, st, "v0.3.0-rc.1"); got != "ctxtra update v0.3.0 is available - "+Releases+"\nrun `go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest` to update." {
+		t.Errorf("Go, candidate build: %q", got)
+	}
 }
 
 func TestUpgradeCommand(t *testing.T) {
@@ -347,12 +490,14 @@ func TestUpgradeCommand(t *testing.T) {
 	if err := os.Symlink(brew, link); err != nil {
 		t.Fatal(err)
 	}
+	rc := filepath.Join(h, "brew", "Cellar", "ctxtra-rc", "0.3.0-rc.1", "bin", "ctxtra")
+	testenv.Write(t, rc, "")
 	gobin := filepath.Join(h, "gobin", "ctxtra")
 	testenv.Write(t, gobin, "")
 	other := filepath.Join(h, "opt", "ctxtra")
 	testenv.Write(t, other, "")
 	t.Setenv("GOBIN", filepath.Dir(gobin))
-	for exe, want := range map[string]string{link: brewUpgrade, gobin: goInstall, other: "", filepath.Join(h, "none"): ""} {
+	for exe, want := range map[string]string{link: brewUpgrade, rc: brewUpgradeRC, gobin: goInstall, other: "", filepath.Join(h, "none"): ""} {
 		if got := upgradeCommand(exe); got != want {
 			t.Errorf("%s: %q, want %q", exe, got, want)
 		}

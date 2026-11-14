@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,13 +40,17 @@ const (
 	// Releases is where users download ctxtra.
 	Releases = "https://github.com/ctxtra/ctxtra/releases"
 
-	brewUpgrade = "brew upgrade atelpis/tap/ctxtra"
-	goInstall   = "go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest"
+	brewUpgrade   = "brew upgrade atelpis/tap/ctxtra"
+	brewUpgradeRC = "brew upgrade atelpis/tap/ctxtra-rc"
+	goInstall     = "go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest"
 )
 
 // Variables for tests.
 var (
-	releaseURL     = "https://api.github.com/repos/ctxtra/ctxtra/releases/latest"
+	releaseURL = "https://api.github.com/repos/ctxtra/ctxtra/releases/latest"
+	// releasesURL lists the releases, newest first and prereleases
+	// included, for the ctxtra-rc formula.
+	releasesURL    = "https://api.github.com/repos/ctxtra/ctxtra/releases?per_page=100"
 	releaseTimeout = 10 * time.Second
 	sourceTimeout  = 30 * time.Second
 	claimWait      = 200 * time.Millisecond
@@ -56,47 +61,76 @@ var (
 	spawn = start
 )
 
-// reRelease is a release version: what goreleaser and go install report
-// for a tag. Pseudo-versions, dirty builds and "dev" don't match.
-var reRelease = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+// reRelease is a release version, or a release candidate (v0.6.0-rc.1):
+// what goreleaser and go install report for a tag. Pseudo-versions, dirty
+// builds and "dev" don't match.
+var reRelease = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$`)
+
+// version is a parsed release version. rc is 0 for a final release.
+type version struct {
+	core [3]int
+	rc   int
+}
 
 // parse reads a release version.
-func parse(v string) ([3]int, bool) {
+func parse(v string) (version, bool) {
 	m := reRelease.FindStringSubmatch(v)
 	if m == nil {
-		return [3]int{}, false
+		return version{}, false
 	}
-	var out [3]int
-	for i := range out {
+	var out version
+	for i := range out.core {
 		n, err := strconv.Atoi(m[i+1])
 		if err != nil {
-			return [3]int{}, false
+			return version{}, false
 		}
-		out[i] = n
+		out.core[i] = n
+	}
+	if m[4] != "" {
+		n, err := strconv.Atoi(m[4])
+		if err != nil || n == 0 {
+			return version{}, false
+		}
+		out.rc = n
 	}
 	return out, true
 }
 
-// IsRelease reports whether version is a release, which a check can compare
-// with the latest one.
+// IsRelease reports whether version is a release or a release candidate,
+// which a check can compare with the latest one.
 func IsRelease(version string) bool {
 	_, ok := parse(version)
 	return ok
 }
 
-// newer reports whether release version a is newer than b.
+// isCandidate reports whether version is a release candidate.
+func isCandidate(version string) bool {
+	v, ok := parse(version)
+	return ok && v.rc != 0
+}
+
+// newer reports whether release version a is newer than b. A release
+// candidate is older than its final release: v0.6.0-rc.2 < v0.6.0.
 func newer(a, b string) bool {
 	x, ok1 := parse(a)
 	y, ok2 := parse(b)
 	if !ok1 || !ok2 {
 		return false
 	}
-	for i := range x {
-		if x[i] != y[i] {
-			return x[i] > y[i]
+	for i := range x.core {
+		if x.core[i] != y.core[i] {
+			return x.core[i] > y.core[i]
 		}
 	}
-	return false
+	switch {
+	case x.rc == y.rc:
+		return false
+	case x.rc == 0:
+		return true
+	case y.rc == 0:
+		return false
+	}
+	return x.rc > y.rc
 }
 
 // Sources are the sources of cfg that have check-updates on. A config that
@@ -174,7 +208,13 @@ func Available(cfg *config.Config, st state.State, version string) (latest, comm
 	if !cfg.CheckCtxtra || !newer(latest, version) {
 		return "", ""
 	}
-	return latest, upgradeCommand(executable())
+	// A release candidate found by a ctxtra-rc install isn't offered to a
+	// ctxtra that was installed from another channel since.
+	exe := executable()
+	if isCandidate(latest) && !candidates(exe) {
+		return "", ""
+	}
+	return latest, upgradeCommand(exe)
 }
 
 // ReleaseNotice is the notice about a newer ctxtra release that an earlier
@@ -199,8 +239,11 @@ func upgradeCommand(exe string) string {
 	if err != nil {
 		return ""
 	}
-	if strings.Contains(real, string(filepath.Separator)+"Cellar"+string(filepath.Separator)+"ctxtra"+string(filepath.Separator)) {
+	switch {
+	case inCellar(real, "ctxtra"):
 		return brewUpgrade
+	case inCellar(real, "ctxtra-rc"):
+		return brewUpgradeRC
 	}
 	gobin := os.Getenv("GOBIN")
 	if gobin == "" {
@@ -217,6 +260,19 @@ func upgradeCommand(exe string) string {
 		}
 	}
 	return ""
+}
+
+// candidates reports whether the ctxtra at exe follows release candidates:
+// it was installed with the ctxtra-rc formula.
+func candidates(exe string) bool {
+	real, err := filepath.EvalSymlinks(exe)
+	return err == nil && inCellar(real, "ctxtra-rc")
+}
+
+// inCellar reports whether path is in the Homebrew Cellar folder of formula.
+func inCellar(path, formula string) bool {
+	sep := string(filepath.Separator)
+	return strings.Contains(path, sep+"Cellar"+sep+formula+sep)
 }
 
 // executable is the path this ctxtra was started by, as the hook command
@@ -331,13 +387,83 @@ var errNoTime = errors.New("not checked: the background check ran out of time")
 // maxReleaseBytes limits the API's answer; a release is a few KB.
 const maxReleaseBytes = 1 << 20
 
-// latestRelease asks GitHub for the latest ctxtra release, prereleases and
-// drafts left out, and returns its version. Only the version is read from
-// the answer.
+// maxReleasesBytes limits each page of the release list, which includes
+// each release's notes.
+const maxReleasesBytes = 16 << 20
+
+// maxReleasePages limits how many pages of the release list a check reads.
+const maxReleasePages = 5
+
+// latestRelease asks GitHub for the latest ctxtra release and returns its
+// version: GitHub's latest release, which leaves prereleases out. A ctxtra
+// installed with the ctxtra-rc formula takes the newer of that and the
+// newest release candidate. Drafts are never listed. Only the versions are
+// read from the answers.
 func latestRelease(ctx context.Context, version string) (string, error) {
+	var rel ghRelease
+	if _, err := getJSON(ctx, releaseURL, version, maxReleaseBytes, &rel); err != nil {
+		return "", err
+	}
+	if !IsRelease(rel.Tag) || isCandidate(rel.Tag) {
+		return "", errors.New("GitHub's latest release has no version ctxtra can read")
+	}
+	if !candidates(executable()) {
+		return rel.Tag, nil
+	}
+	rc, err := newestCandidate(ctx, version, rel.Tag)
+	if err != nil {
+		return "", err
+	}
+	if newer(rc, rel.Tag) {
+		return rc, nil
+	}
+	return rel.Tag, nil
+}
+
+// newestCandidate returns the newest release candidate in GitHub's list of
+// releases, or "" when it lists none. Other prereleases, which the
+// ctxtra-rc formula doesn't follow, are skipped. The list is newest first,
+// and tags are made in version order, so it ends with the page of the
+// latest release, stable: what comes after it is older. A list that is
+// longer than maxReleasePages before that page is an error, not a result.
+func newestCandidate(ctx context.Context, version, stable string) (string, error) {
+	newest := ""
+	url := releasesURL
+	for range maxReleasePages {
+		var rels []ghRelease
+		next, err := getJSON(ctx, url, version, maxReleasesBytes, &rels)
+		if err != nil {
+			return "", err
+		}
+		end := next == ""
+		for _, r := range rels {
+			end = end || r.Tag == stable
+			if isCandidate(r.Tag) && (newest == "" || newer(r.Tag, newest)) {
+				newest = r.Tag
+			}
+		}
+		if end {
+			return newest, nil
+		}
+		url = next
+	}
+	return "", fmt.Errorf("GitHub lists more than %d pages of releases after the latest release", maxReleasePages)
+}
+
+// reNext is the next page in a Link header.
+var reNext = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
+
+// ghRelease is the part of GitHub's answer about a release that is read.
+type ghRelease struct {
+	Tag string `json:"tag_name"`
+}
+
+// getJSON reads GitHub's answer at url, at most limit bytes, into v. It
+// returns the URL of the answer's next page, or "" when there is none.
+func getJSON(ctx context.Context, url, version string, limit int64, v any) (next string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -360,14 +486,14 @@ func latestRelease(ctx context.Context, version string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub answered %s", resp.Status)
 	}
-	var rel struct {
-		Tag string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseBytes)).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, limit)).Decode(v); err != nil {
 		return "", errors.New("GitHub's answer is not a release")
 	}
-	if !IsRelease(rel.Tag) {
-		return "", errors.New("GitHub's latest release has no version ctxtra can read")
+	// A next page is followed only on the same server.
+	if m := reNext.FindStringSubmatch(resp.Header.Get("Link")); m != nil {
+		if u, err := neturl.Parse(m[1]); err == nil && u.Scheme == req.URL.Scheme && u.Host == req.URL.Host {
+			next = u.String()
+		}
 	}
-	return rel.Tag, nil
+	return next, nil
 }
