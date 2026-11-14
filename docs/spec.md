@@ -561,6 +561,15 @@ any of them matches.
   and read a `SKILL.md` when a task needs it. The list says that these skills are not the agent's own: its skill
   tool and slash commands can't load them. Pi gets instruction files as context files and skills as native skills.
   OpenCode gets instruction files in the system prompt and skills as native skills, which its `skill` tool loads.
+- Claude Code also gets the skills as slash commands, from the plugin that setup writes to
+  `~/.claude/skills/ctxtra/` (`$CLAUDE_CONFIG_DIR/skills/ctxtra/`), which Claude loads as `ctxtra@skills-dir`.
+  Its mod runs `ctxtra hook claude PluginStart` at session start, with `ctxtra_plugin` in the input, and
+  registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). A command name
+  that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
+  `/NAME ARGS` gives the model the `SKILL.md` text after its frontmatter as hidden context, with `$ARGUMENTS`
+  replaced by `ARGS` (or `ARGS` added at the end), and starts a turn. A session without a surface (`claude -p`,
+  the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
+  and their frontmatter has no effect. Setup leaves a folder there that isn't ctxtra's alone, with a warning.
 
 ## Order and budget
 
@@ -995,7 +1004,7 @@ shows the same lines under each agent instead:
 | The binary in the setup is gone | `claude: the hooks run ~/Downloads/ctxtra-0.3/ctxtra, which doesn't exist; run ctxtra setup --agent claude` |
 | The setup runs another binary | `claude: the hooks run /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude` |
 | An older version set it up, with less room (after a capacity change) | `codex: set up by an older ctxtra, with Codex's limit of 1,000,000 bytes; run ctxtra setup --agent codex (Codex will then ask you to trust the hooks again)` |
-| Part of the setup is missing | `claude: SessionStart has 3 of the 40 ctxtra hooks; run ctxtra setup --agent claude`, `dsh: the patch row that loads ctxtra's plugin is missing; run ctxtra setup --agent dsh` |
+| Part of the setup is missing | `claude: SessionStart has 3 of the 40 ctxtra hooks; run ctxtra setup --agent claude`, `dsh: the patch row that loads ctxtra's plugin is missing; run ctxtra setup --agent dsh`, `claude: ctxtra's plugin, which offers the skills as slash commands, is missing from ~/.claude/skills/ctxtra; run ctxtra setup --agent claude` |
 | The Hermes plugin isn't enabled | `hermes: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra` |
 | A setup is gone from its file | `claude: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice` |
 | An agent was found since the last setup | `cursor: found since the last ctxtra setup; to add ctxtra to it, run ctxtra setup --agent cursor` |

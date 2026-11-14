@@ -1,6 +1,6 @@
-// Package extfile manages the extension files that ctxtra writes for agents
-// without command hooks: a TypeScript module (Pi, OpenCode) or a Python
-// plugin (Hermes) that runs the binary. The first line marks the file as
+// Package extfile manages the extension files that ctxtra writes for agents:
+// a TypeScript module (Pi, OpenCode), a Python plugin (Hermes) or a Claude
+// Code mod that runs the binary. The first line marks the file as
 // ctxtra's; the second names the binary, for Status; the third the version
 // of ctxtra's plugin protocol that the file speaks, which it also sends as
 // ctxtra_plugin.
@@ -32,8 +32,11 @@ var (
 	TypeScript = Syntax{"//", "join(homedir(), %s)"}
 	// Python bodies import os.
 	Python = Syntax{"#", `os.path.join(os.path.expanduser("~"), %s)`}
+	// Mod is a Claude Code mod, which has no Node.js APIs: a path under the
+	// home folder is an object that the body joins with $HOME when it runs.
+	Mod = Syntax{"//", "{ home: %s }"}
 
-	syntaxes = []Syntax{TypeScript, Python}
+	syntaxes = []Syntax{TypeScript, Python, Mod}
 )
 
 // Mark is the first line of every file that ctxtra writes in this syntax.

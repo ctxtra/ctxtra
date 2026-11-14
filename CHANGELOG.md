@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Claude Code offers the bound skills as slash commands: type `/` in a session to see them, marked
+  `(ctxtra)`. `ctxtra setup --agent claude` writes a small plugin to `~/.claude/skills/ctxtra/` that adds
+  them. They are commands, not Claude's own skills: Claude's `Skill` tool can't load them, and their
+  frontmatter has no effect. See [the guide](docs/guide.md#skills-as-slash-commands-in-claude-code).
+
+  **Upgrade:** run `ctxtra setup --agent claude` to add the plugin. Until then, ctxtra commands remind you.
+
 - The release archives include `THIRD_PARTY_NOTICES.md`, with the licenses of the software that ctxtra
   includes.
 
