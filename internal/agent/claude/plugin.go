@@ -62,8 +62,10 @@ const modules = `{
 `
 
 // foreign is why the plugin folder isn't ctxtra's, "" when it is or there
-// is none: a file there that the plugin doesn't have, a mod that ctxtra
-// didn't write, or a folder that is a symlink.
+// is none. A folder with ctxtra's mod is ctxtra's, also with other files in
+// it, so that setup still updates and removes the mod. Without the mod, a
+// file there that the plugin doesn't have makes it someone else's, as does
+// a mod that ctxtra didn't write, or a folder that is a symlink.
 func foreign() (string, error) {
 	root := pluginDir()
 	st, err := os.Lstat(root)
@@ -74,6 +76,13 @@ func foreign() (string, error) {
 		return "", err
 	case !st.IsDir():
 		return fmt.Sprintf("%s is not a folder of ctxtra's", paths.Tilde(root)), nil
+	}
+	mod := Agent{}.PluginPath()
+	if _, err := os.Lstat(mod); err == nil {
+		if extfile.Owned(mod) != nil {
+			return fmt.Sprintf("%s is not ctxtra's", paths.Tilde(mod)), nil
+		}
+		return "", nil
 	}
 	ours := []string{".claude-plugin", "hooks"}
 	for _, f := range pluginFiles("") {
@@ -100,13 +109,7 @@ func foreign() (string, error) {
 		}
 		return nil
 	})
-	if err != nil || why != "" {
-		return why, err
-	}
-	if err := extfile.Owned(Agent{}.PluginPath()); err != nil {
-		return fmt.Sprintf("%s is not ctxtra's", paths.Tilde(Agent{}.PluginPath())), nil
-	}
-	return "", nil
+	return why, err
 }
 
 // setupPlugin writes the plugin's files, or removes them with o.Remove. A

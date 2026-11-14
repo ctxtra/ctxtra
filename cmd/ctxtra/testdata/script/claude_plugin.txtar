@@ -48,6 +48,18 @@ stdout '^ctxtra is removed from Claude Code:$'
 ! exists .claude/skills/ctxtra
 exists .claude/skills/mine/SKILL.md
 
+# A file of the user's in ctxtra's plugin folder: the folder is still
+# ctxtra's, setup updates it, and --remove deletes ctxtra's files only.
+exec ctxtra setup --agent claude
+cp mine.md .claude/skills/ctxtra/notes.md
+exec ctxtra setup --agent claude
+! stderr .
+exec ctxtra setup --remove --agent claude
+! exists .claude/skills/ctxtra/hooks/ctxtra.js
+! exists .claude/skills/ctxtra/.claude-plugin
+cmp .claude/skills/ctxtra/notes.md mine.md
+rm .claude/skills/ctxtra
+
 # A skill of the user's own named ctxtra: setup warns and leaves it alone,
 # and the hooks still work; no notice about the plugin.
 mkdir .claude/skills/ctxtra
