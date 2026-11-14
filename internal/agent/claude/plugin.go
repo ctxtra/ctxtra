@@ -62,20 +62,37 @@ const modules = `{
 `
 
 // foreign is why the plugin folder isn't ctxtra's, "" when it is or there
-// is none. A folder with ctxtra's mod is ctxtra's, also with other files in
-// it, so that setup still updates and removes the mod. Without the mod, a
-// file there that the plugin doesn't have makes it someone else's, as does
-// a mod that ctxtra didn't write, or a folder that is a symlink.
+// is none. Setup writes and removes only in a folder of ctxtra's:
+//
+//   - The folder, its subfolders and ctxtra's files are no symlinks, so a
+//     write or a removal never reaches another place.
+//   - With a mod, the mod is ctxtra's; other files of the user's may be
+//     there, and stay.
+//   - Without one (a setup that didn't finish), the plugin's other files
+//     have ctxtra's content and the folder has no other file.
 func foreign() (string, error) {
 	root := pluginDir()
-	st, err := os.Lstat(root)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return "", nil
-	case err != nil:
-		return "", err
-	case !st.IsDir():
-		return fmt.Sprintf("%s is not a folder of ctxtra's", paths.Tilde(root)), nil
+	files := pluginFiles("")
+	ours := []string{".", ".claude-plugin", "hooks"}
+	for _, f := range files {
+		ours = append(ours, f.rel)
+	}
+	for i, rel := range ours {
+		p := filepath.Join(root, rel)
+		st, err := os.Lstat(p)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			if i == 0 {
+				return "", nil
+			}
+			continue
+		case err != nil:
+			return "", err
+		case st.Mode()&fs.ModeSymlink != 0:
+			return fmt.Sprintf("%s is a symlink", paths.Tilde(p)), nil
+		case i < 3 && !st.IsDir(), i >= 3 && !st.Mode().IsRegular():
+			return fmt.Sprintf("%s is not a %s of ctxtra's", paths.Tilde(p), map[bool]string{true: "folder", false: "file"}[i < 3]), nil
+		}
 	}
 	mod := Agent{}.PluginPath()
 	if _, err := os.Lstat(mod); err == nil {
@@ -84,13 +101,18 @@ func foreign() (string, error) {
 		}
 		return "", nil
 	}
-	ours := []string{".claude-plugin", "hooks"}
-	for _, f := range pluginFiles("") {
-		ours = append(ours, f.rel)
+	for _, f := range files {
+		b, err := fsutil.ReadBounded(filepath.Join(root, f.rel), agent.MaxConfig)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || string(b) != f.content {
+			return fmt.Sprintf("%s has %s, which ctxtra didn't write", paths.Tilde(root), f.rel), nil
+		}
 	}
 	why := ""
 	n := 0
-	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -100,7 +122,7 @@ func foreign() (string, error) {
 			return fs.SkipAll
 		}
 		rel, _ := filepath.Rel(root, p)
-		if rel == "." || d.Name() == ".DS_Store" {
+		if d.Name() == ".DS_Store" {
 			return nil
 		}
 		if !slices.Contains(ours, filepath.ToSlash(rel)) {
