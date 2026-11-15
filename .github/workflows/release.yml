@@ -75,6 +75,9 @@ jobs:
           args: release --clean --release-notes ${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # A release tagged on its candidate's commit shares it with the
+          # candidate's tag, and GoReleaser would pick the candidate.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         id: attest
