@@ -535,7 +535,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 		fmt.Fprintln(r.Out, "\nMCP servers:")
 		fmt.Fprintf(r.Out, "  credentials: %s\n", keyNote())
 		for _, s := range mcpInfos(cfg) {
-			fmt.Fprintf(r.Out, "  %s: %s, %s", s.ID, s.Kind, s.SignIn)
+			fmt.Fprintf(r.Out, "  %s: %s, %s", s.ID, s.Kind, term.Sanitize(s.SignIn))
 			if s.Source != "" {
 				fmt.Fprintf(r.Out, ", %s", s.Approval)
 			}

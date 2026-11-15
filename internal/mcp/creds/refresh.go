@@ -75,6 +75,9 @@ func (s *Store) fresh(r *Record) bool {
 	if r.Token.Expiry.IsZero() {
 		return true
 	}
+	if r.Token.Refresh == "" {
+		return s.now().Before(r.Token.Expiry)
+	}
 	margin := refreshMargin
 	if !r.Token.Obtained.IsZero() {
 		margin = min(margin, r.Token.Expiry.Sub(r.Token.Obtained)/2)

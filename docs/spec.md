@@ -903,7 +903,13 @@ No command copies rotating refresh grants between identities.
 
 Two configs (`$CTXTRA_CONFIG`) with the same identity, origin and target share credentials. Use different names or
 source aliases for separate accounts. Add rejects a conflicting stored binding before changing config, secrets or
-callback settings. Login alone can replace it after explicit terminal consent explaining the shared effects.
+callback settings. For a matching stored binding, add reuses the shared record without starting authorization, and
+reports that reuse. It asks only for declared secret names the record has no value for, and merges them into the
+record under the generation check. It never replaces stored values or tokens. Without those values, for example with
+`--no-input` or empty stdin, add fails and changes nothing. A retained registration alone is not reported as usable
+credentials. Add rejects explicit client-secret or callback-port changes; use login after declaring the definition
+to change shared credentials. Login alone can replace a conflicting binding after explicit terminal consent
+explaining the shared effects.
 Binding and generation checks run under the same identity lock as the credential write, so an intervening sign-in
 cannot be silently replaced. Add keeps that lock while writing config, then saves secret settings only if the config
 write succeeds. If the settings save fails, it restores the previous config; a failure to restore it is reported.
@@ -912,18 +918,22 @@ A versioned, secret-free generation marker survives removal. It invalidates pend
 credentials existed yet or the removed legacy record had generation zero. Generations never move backwards,
 even after removal and re-addition or when the clock does not advance. Markers do not count as stored credentials.
 An interrupted authorization can be retried with login, not add. A definition saved before OAuth fails remains;
-command success alone is not proof of a completed sign-in.
+command success alone is not proof of a completed sign-in. Human-readable server descriptions, notes and sign-in
+metadata escape terminal control characters. JSON catalog output preserves the metadata values.
 
 Removing a config server deletes its credentials and reports dangling bindings. Package definitions are read-only
 to mcp remove. Removing a source removes its includes, reports remaining references and cleanup commands, but keeps
 credentials because another config may use them. `mcp remove SOURCE/NAME` can delete leftover credentials once that
 identity is undeclared in the selected config. That deletion can still affect another config sharing the identity.
-It is not provider-side grant revocation.
+It is not provider-side grant revocation. Logout without a stored credential record only advances cancellation
+history and clears local sign-in state. It does not create a placeholder binding.
 
 Sessions in every agent refresh a server's tokens at the same time safely: a refresh holds that server's lock
 while it reads the credentials again, asks for new tokens and saves them, and other sessions wait for it and
-use the new tokens. Every other change of a server's credentials takes the same lock. The locks use `flock`,
-which can be unreliable on a network home folder (NFS).
+use the new tokens. Reads of credential generations and usable tokens take shared locks and retain the cached
+encryption key. They do not create authorization markers. An unexpired token without a refresh grant stays usable
+until its expiry. Refresh attempts and credential or sign-in state changes take the exclusive lock.
+The locks use `flock`, which can be unreliable on a network home folder (NFS).
 
 The hook never reads the credentials or the key. Like the agents' own MCP sign-ins, the credentials protect
 against backups, sync tools and casual reads, not against the user's own processes: any process of the user

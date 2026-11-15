@@ -64,6 +64,19 @@ func (s *Store) currentGeneration(id string, r *Record) (int64, error) {
 	return generation, err
 }
 
+// CredentialGeneration labels the credentials used by a request. Shared
+// reads retain the cached key and never create authorization markers.
+func (s *Store) CredentialGeneration(srv upstream.Server) (int64, error) {
+	r, err := s.loadShared(srv)
+	if errors.Is(err, errUnreadable) {
+		return 0, &LoginError{Name: srv.ID, Reason: "its credentials can't be read"}
+	}
+	if err != nil || r == nil {
+		return 0, err
+	}
+	return r.Generation, nil
+}
+
 // Inspect captures the record and its generation together, before prompts.
 // It retains a legacy record's generation so deletion can invalidate it
 // without needing its encryption key.

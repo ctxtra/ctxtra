@@ -347,20 +347,24 @@ func (s *Store) CheckBinding(srv upstream.Server) error {
 // BindingGeneration reads a matching record before prompts or config edits.
 // The caller must pass this generation to the guarded credential write.
 func (s *Store) BindingGeneration(srv upstream.Server) (int64, error) {
+	_, generation, err := s.Binding(srv)
+	return generation, err
+}
+
+// Binding captures an existing matching record and its generation before
+// prompting. Unreadable records can be recovered by an explicit writer.
+func (s *Store) Binding(srv upstream.Server) (*Record, int64, error) {
 	r, generation, err := s.Inspect(srv)
 	if errors.Is(err, errUnreadable) {
-		return generation, nil
+		return nil, generation, nil
 	}
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	if r == nil {
-		return generation, nil
+	if r != nil && !r.Matches(srv) {
+		return nil, 0, bindingConflict(srv)
 	}
-	if !r.Matches(srv) {
-		return 0, bindingConflict(srv)
-	}
-	return generation, nil
+	return r, generation, nil
 }
 
 func bindingConflict(srv upstream.Server) error {

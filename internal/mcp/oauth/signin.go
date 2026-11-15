@@ -58,6 +58,7 @@ type SignIn struct {
 	// before authorization starts; nil accepts the current generation.
 	ExpectedGeneration *int64
 	Replace            bool
+	CreateOnly         bool
 	Secrets            *creds.Secrets
 	// Commit runs save, which stores the sign-in; nil runs it as it is.
 	// The caller can check there, under its own lock, that the server is
@@ -96,11 +97,17 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	gen, err := f.Store.Generation(f.Server)
+	existing, gen, err := f.Store.Inspect(f.Server)
+	if errors.Is(err, creds.ErrUnreadable) {
+		err = nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	if f.ExpectedGeneration != nil && gen != *f.ExpectedGeneration {
+		return nil, creds.ErrSignInChanged
+	}
+	if f.CreateOnly && existing != nil {
 		return nil, creds.ErrSignInChanged
 	}
 	resource := creds.CanonicalURL(f.Server.URL)
@@ -200,7 +207,7 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	var r *creds.Record
 	save := func() error {
 		var err error
-		r, err = f.Store.SaveSignIn(f.Server, gen, issuer, client, tok, creds.SignInChange{Replace: f.Replace, Secrets: f.Secrets})
+		r, err = f.Store.SaveSignIn(f.Server, gen, issuer, client, tok, creds.SignInChange{Replace: f.Replace, CreateOnly: f.CreateOnly, Secrets: f.Secrets})
 		return err
 	}
 	if f.Commit != nil {

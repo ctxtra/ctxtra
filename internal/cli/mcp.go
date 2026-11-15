@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"slices"
@@ -27,6 +28,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/setup"
 	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/term"
 )
 
 // errMCPOff is the error of the mcp commands while MCP servers are off.
@@ -214,20 +216,39 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 		return 0
 	}
 	store := openStore()
-	generation, err := store.BindingGeneration(added)
+	existing, generation, err := store.Binding(added)
 	if err != nil {
 		return fail(err)
 	}
-	secrets, err := askSecrets(stdio, o.noInput, name, added.SecretEnv, added.SecretHeaders, o.clientSecret)
-	if err != nil {
-		return fail(err)
+	reuse := existing != nil
+	if reuse && (o.clientSecret || o.signIn.callbackPort != 0) {
+		return fail(fmt.Errorf("%s already has credentials shared by other configs and agents; add does not replace secrets or callback settings. Add without --client-secret and --callback-port, then use ctxtra mcp login %s to change them", name, name))
+	}
+	var secrets secretValues
+	filled := false
+	if reuse {
+		// Values for secret names the shared record lacks are added; the
+		// generation guard makes sure no other write came in between.
+		if env, headers := existing.MissingSecrets(added); len(env)+len(headers) > 0 {
+			if secrets, err = askSecrets(stdio, o.noInput, name, env, headers, false); err != nil {
+				return fail(err)
+			}
+			maps.Copy(secrets.env, existing.Secrets.Env)
+			maps.Copy(secrets.headers, existing.Secrets.Headers)
+			filled = true
+		}
+	} else {
+		secrets, err = askSecrets(stdio, o.noInput, name, added.SecretEnv, added.SecretHeaders, o.clientSecret)
+		if err != nil {
+			return fail(err)
+		}
 	}
 	ctx, stop := signalContext()
 	defer stop()
 	// A remote server that answers a request without a token with 401
 	// uses OAuth: sign in now, in the terminal, or later with login.
 	var ch *oauth.Challenge
-	if !added.Local() && !o.noLogin {
+	if !reuse && !added.Local() && !o.noLogin {
 		if ch, err = detectOAuth(ctx, added, secrets.headers); err != nil {
 			return fail(fmt.Errorf("can't reach %s: %w; to add it anyway, add --no-login", name, err))
 		}
@@ -238,7 +259,7 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 	// Validate shared credentials before writing config, then save settings
 	// only after that write succeeds, keeping both locks until completion.
 	commit := func(write func() error) error {
-		guard := creds.WriteGuard{ExpectedGeneration: &generation}
+		guard := creds.WriteGuard{ExpectedGeneration: &generation, CreateOnly: !reuse}
 		if secrets.empty() && o.signIn.callbackPort == 0 {
 			_, err := store.CommitSettings(added, guard, nil, write)
 			return err
@@ -253,13 +274,23 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 		return fail(err)
 	}
 	fmt.Fprintf(s.Out, "added the MCP server %s to %s: %s\n", name, paths.Tilde(s.file), describeServer(added))
-	if !secrets.empty() {
+	switch {
+	case filled:
+		fmt.Fprintf(s.Out, "reusing the existing shared credentials of %s; stored the values of its new secret names, without changing other values or the authorization\n", name)
+	case reuse:
+		if existing.Token.Access == "" && len(existing.Secrets.Env) == 0 && len(existing.Secrets.Headers) == 0 {
+			fmt.Fprintf(s.Out, "retained the shared registration of %s; no access token or secret values are stored. Run ctxtra mcp login %s if sign-in is needed.\n", name, name)
+		} else {
+			fmt.Fprintf(s.Out, "reusing the existing shared credentials of %s; no secret values or authorization changed. Run ctxtra mcp login %s to change them.\n", name, name)
+		}
+	case !secrets.empty():
 		fmt.Fprintf(s.Out, "stored its secret values, encrypted, in %s\n", paths.Tilde(store.Dir))
 	}
 	signedIn := ch == nil
 	if ch != nil {
 		o.signIn.clientSecret = secrets.clientSecret
 		o.signIn.expectedGeneration = &generation
+		o.signIn.createOnly = secrets.empty() && o.signIn.callbackPort == 0
 		if err := signInTo(ctx, stdio, store, added, ch, o.signIn); err != nil {
 			fmt.Fprintf(s.Err, "ctxtra mcp add: the sign-in failed: %v\nThe server is added; sign in with ctxtra mcp login %s\n", err, name)
 		} else {
@@ -329,9 +360,9 @@ func storeSecretsAfter(errOut io.Writer, store *creds.Store, srv upstream.Server
 
 func describeServer(s upstream.Server) string {
 	if s.Local() {
-		return "local, " + strings.Join(s.Command, " ")
+		return "local, " + term.Sanitize(strings.Join(s.Command, " "))
 	}
-	return "remote, " + s.URL
+	return "remote, " + term.Sanitize(s.URL)
 }
 
 // serverTools connects to s, started in dir, and names its tools as
@@ -481,7 +512,7 @@ func (a *app) mcpListCmd() *cobra.Command {
 				fmt.Fprintf(a.Out, "no MCP servers in %s\n", paths.Tilde(cfg.File))
 			}
 			for _, s := range out {
-				fmt.Fprintf(a.Out, "%s  %s, %s", s.ID, s.Kind, s.SignIn)
+				fmt.Fprintf(a.Out, "%s  %s, %s", s.ID, s.Kind, term.Sanitize(s.SignIn))
 				if s.Source != "" {
 					fmt.Fprintf(a.Out, ", %s", s.Approval)
 				}
@@ -518,7 +549,7 @@ debug it: an agent that runs this command sees that output too.`,
 			}
 			fmt.Fprintf(a.Out, "%s: %s\n", s.ID, describeServer(s))
 			if s.Notes != "" {
-				fmt.Fprintf(a.Out, "notes: %s\n", s.Notes)
+				fmt.Fprintf(a.Out, "notes: %s\n", term.Sanitize(s.Notes))
 			}
 			wd, _ := os.Getwd()
 			tools, err := serverTools(s, wd, true)

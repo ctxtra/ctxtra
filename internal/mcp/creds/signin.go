@@ -28,8 +28,9 @@ func (s *Store) Generation(srv upstream.Server) (int64, error) {
 // SignInChange is staged until authorization succeeds. Replace permits
 // replacing the conflicting record whose generation the user approved.
 type SignInChange struct {
-	Replace bool
-	Secrets *Secrets
+	Replace    bool
+	CreateOnly bool
+	Secrets    *Secrets
 }
 
 // SaveSignIn commits the authorization and staged secrets in one write.
@@ -55,7 +56,7 @@ func (s *Store) SaveSignIn(srv upstream.Server, gen int64, issuer string, c Clie
 		}
 		r.Generation = s.nextGeneration(r.Generation)
 		return nil
-	}, WriteGuard{ExpectedGeneration: &gen, Replace: change.Replace})
+	}, WriteGuard{ExpectedGeneration: &gen, Replace: change.Replace, CreateOnly: change.CreateOnly})
 	if err != nil {
 		return nil, err
 	}
@@ -100,27 +101,34 @@ func (s *Store) Secrets(srv upstream.Server) (env, headers map[string]string, er
 	case !r.Matches(srv):
 		return nil, nil, &LoginError{Name: srv.ID, Reason: "its secret values were set for another address or command"}
 	}
-	env, headers = map[string]string{}, map[string]string{}
-	var missing []string
-	for _, k := range srv.SecretEnv {
-		v, ok := r.Secrets.Env[k]
-		if !ok {
-			missing = append(missing, k)
-		}
-		env[k] = v
-	}
-	for _, k := range srv.SecretHeaders {
-		v, ok := lookupHeader(r.Secrets.Headers, k)
-		if !ok {
-			missing = append(missing, k)
-		}
-		headers[k] = v
-	}
-	if len(missing) > 0 {
+	if missingEnv, missingHeaders := r.MissingSecrets(srv); len(missingEnv)+len(missingHeaders) > 0 {
+		missing := slices.Concat(missingEnv, missingHeaders)
 		slices.Sort(missing)
 		return nil, nil, &LoginError{Name: srv.ID, Reason: fmt.Sprintf("no value is set for %s", strings.Join(missing, ", "))}
 	}
+	env, headers = map[string]string{}, map[string]string{}
+	for _, k := range srv.SecretEnv {
+		env[k] = r.Secrets.Env[k]
+	}
+	for _, k := range srv.SecretHeaders {
+		headers[k], _ = lookupHeader(r.Secrets.Headers, k)
+	}
 	return env, headers, nil
+}
+
+// MissingSecrets are the names srv declares that r has no value for.
+func (r *Record) MissingSecrets(srv upstream.Server) (env, headers []string) {
+	for _, k := range srv.SecretEnv {
+		if _, ok := r.Secrets.Env[k]; !ok {
+			env = append(env, k)
+		}
+	}
+	for _, k := range srv.SecretHeaders {
+		if _, ok := lookupHeader(r.Secrets.Headers, k); !ok {
+			headers = append(headers, k)
+		}
+	}
+	return env, headers
 }
 
 // lookupHeader finds a header's value; header names ignore case.
@@ -161,17 +169,21 @@ func (s *Store) Logout(srv upstream.Server) error {
 	if existing != nil {
 		srv.Origin, srv.URL, srv.Command = existing.Origin, existing.URL, existing.Command
 	}
-	// A new generation: a sign-in that started before the logout can't
-	// save.
-	// Also without a record: an empty one with a new generation, so a
-	// first sign-in that is still waiting for the browser can't save.
-	_, err = s.updateLocked(srv, true, func(r *Record) error {
-		r.Token, r.Secrets, r.Client.Secret = Token{}, Secrets{}, ""
-		r.Generation = s.nextGeneration(r.Generation)
-		return nil
-	})
+	if existing == nil && err == nil {
+		// Cancel even a first sign-in without creating a credential binding.
+		var generation int64
+		generation, err = s.currentGeneration(srv.ID, nil)
+		if err == nil {
+			err = s.rememberGeneration(srv.ID, s.nextGeneration(generation))
+		}
+	} else {
+		_, err = s.updateLocked(srv, true, func(r *Record) error {
+			r.Token, r.Secrets, r.Client.Secret = Token{}, Secrets{}, ""
+			r.Generation = s.nextGeneration(r.Generation)
+			return nil
+		})
+	}
 	if errors.Is(err, ErrNoKey) {
-		// No key, so no sign-in has started: nothing to cancel.
 		err = nil
 	}
 	if err != nil {

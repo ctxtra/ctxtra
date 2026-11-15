@@ -98,6 +98,10 @@ func TestLoadCannotUseCredentialsFromFailedSave(t *testing.T) {
 	if err := s.SetClientSecret(srv, "old-client-secret"); err != nil {
 		t.Fatal(err)
 	}
+	oldGeneration, err := s.CredentialGeneration(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var once, releaseOnce sync.Once
 	oldSync := syncDir
@@ -125,9 +129,23 @@ func TestLoadCannotUseCredentialsFromFailedSave(t *testing.T) {
 	}
 	read := make(chan result, 1)
 	go func() { r, err := (&Store{Dir: s.Dir}).Load(srv); read <- result{r, err} }()
+	type generationResult struct {
+		generation int64
+		err        error
+	}
+	generationRead := make(chan generationResult, 1)
+	go func() {
+		g, err := (&Store{Dir: s.Dir}).CredentialGeneration(srv)
+		generationRead <- generationResult{g, err}
+	}()
 	select {
 	case <-read:
 		t.Fatal("credential reader passed a writer before its save finished")
+	case <-time.After(200 * time.Millisecond):
+	}
+	select {
+	case <-generationRead:
+		t.Fatal("request generation reader passed a pending save")
 	case <-time.After(200 * time.Millisecond):
 	}
 	releaseOnce.Do(func() { close(release) })
@@ -141,5 +159,13 @@ func TestLoadCannotUseCredentialsFromFailedSave(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("credential reader did not finish after rollback")
+	}
+	select {
+	case got := <-generationRead:
+		if got.err != nil || got.generation != oldGeneration {
+			t.Fatalf("request used rolled-back generation: %+v; want %d", got, oldGeneration)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("request generation reader did not finish after rollback")
 	}
 }

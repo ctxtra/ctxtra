@@ -55,9 +55,6 @@ func TestMCPAddRechecksBindingAtCredentialWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := upstream.Server{ID: "shared", Name: "shared", URL: "https://a.example/mcp"}
-	if _, err := store.Update(target, true, func(r *creds.Record) error { r.Token.Access = "initial"; return nil }); err != nil {
-		t.Fatal(err)
-	}
 	file := testenv.Config(t, h, "schema: ctxtra/v1\n")
 	before, _ := os.ReadFile(file)
 	other := target

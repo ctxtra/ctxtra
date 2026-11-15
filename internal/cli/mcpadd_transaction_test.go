@@ -41,7 +41,7 @@ func TestMCPAddConfigFailurePreservesSharedCredentials(t *testing.T) {
 	beforeConfig, _ := os.ReadFile(file)
 	testenv.Write(t, paths.BackupDir(), "backup directory is unavailable")
 	var output bytes.Buffer
-	n := Run([]string{"mcp", "add", "shared", srv.URL, "--no-login", "--client-id", "new-app", "--client-secret", "--callback-port", "9999"}, IO{In: strings.NewReader("new-secret\n"), Out: &output, Err: &output}, "test")
+	n := Run([]string{"mcp", "add", "shared", srv.URL, "--no-login"}, IO{In: strings.NewReader(""), Out: &output, Err: &output}, "test")
 	if n != 1 {
 		t.Fatalf("add unexpectedly succeeded: %s", &output)
 	}

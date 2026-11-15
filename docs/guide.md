@@ -305,6 +305,12 @@ ctxtra setup
 ```
 
 Run add in your own terminal. It authorizes in your browser if needed; then start a new matching agent session.
+If another config already uses the same identity and target, add reuses its shared credentials without
+authorizing again. It reports that reuse. If your definition declares secret names that have no stored value, add
+asks for those values only and adds them to the shared credentials. It keeps the stored values and the sign-in.
+Other configs send only the secrets they declare, so they don't change. Add rejects `--client-secret` and
+`--callback-port` in that case; add the definition without those flags, then use login to change the shared
+credentials.
 The definition, sign-in, binding and agent setup are separate. Adding another remote server needs its own sign-in
 and binding, but no new native agent entry. The model sees each upstream tool and description, with a prefix such
 as `linear__`, not a single opaque ctxtra tool.

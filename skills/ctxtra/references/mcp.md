@@ -19,6 +19,11 @@ Source definitions live in root `mcp-servers.yaml`. Every source binding, includ
 own bare server names. Your config can bind a full source reference without including its package bindings.
 There are no package settings or rename overrides. Do not edit pinned store files or copy tokens between identities.
 
+Configs with the same identity and target share credentials. Add reuses a matching stored record without
+authorization. It asks only for declared secret names that have no stored value, and adds them to the record. It
+never replaces stored values or tokens. It refuses client-secret or callback-port changes to that record; use login
+after adding the definition to change shared credentials. Use different names for separate accounts.
+
 Logout deletes local credentials, not provider grants or connection approval. Revoke withdraws approval for new
 connections, not an immediate live-session kill. Recommend new sessions after account changes or local-secret
 rotation. Removing a source leaves credentials and prints cleanup commands; another config may share them.

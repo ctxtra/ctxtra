@@ -21,6 +21,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/oauth"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/term"
 )
 
 // openStore is the credential store, sending token requests under each
@@ -47,6 +48,7 @@ type signInOptions struct {
 	clientSecret       string
 	expectedGeneration *int64
 	replace            bool
+	createOnly         bool
 	secrets            *creds.Secrets
 }
 
@@ -94,24 +96,28 @@ func signInTo(ctx context.Context, stdio IO, store *creds.Store, s upstream.Serv
 		}
 	}
 	scopes = append(scopes, st.Scopes...)
-	f := &oauth.SignIn{Server: s, Store: store, HTTP: p.Client(), Out: stdio.Err, In: stdio.In,
+	f := &oauth.SignIn{Server: s, Store: store, HTTP: p.Client(), Out: term.Writer{W: stdio.Err}, In: stdio.In,
 		OpenBrowser: openBrowser, NoBrowser: o.noBrowser, CallbackPort: port, ClientSecret: o.clientSecret, Scopes: scopes,
-		ExpectedGeneration: o.expectedGeneration, Replace: o.replace, Secrets: o.secrets, Commit: stillDeclared(s)}
+		ExpectedGeneration: o.expectedGeneration, Replace: o.replace, CreateOnly: o.createOnly, Secrets: o.secrets, Commit: stillDeclared(s)}
 	res, err := f.Run(ctx, ch)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdio.Out, "signed in to %s with %s\n", s.ID, res.Issuer)
+	printSignInResult(stdio.Out, s, res)
+	return nil
+}
+
+func printSignInResult(out io.Writer, s upstream.Server, res *oauth.Result) {
+	fmt.Fprintf(out, "signed in to %s with %s\n", s.ID, term.Sanitize(res.Issuer))
 	if res.Account != "" {
-		fmt.Fprintf(stdio.Out, "account: %s\n", res.Account)
+		fmt.Fprintf(out, "account: %s\n", term.Sanitize(res.Account))
 	}
 	if s.Notes != "" {
-		fmt.Fprintf(stdio.Out, "notes: %s\n", s.Notes)
+		fmt.Fprintf(out, "notes: %s\n", term.Sanitize(s.Notes))
 	}
 	if res.NoRefresh {
-		fmt.Fprintf(stdio.Out, "The provider gave no refresh token: when this sign-in expires, run ctxtra mcp login %s again.\n", s.ID)
+		fmt.Fprintf(out, "The provider gave no refresh token: when this sign-in expires, run ctxtra mcp login %s again.\n", s.ID)
 	}
-	return nil
 }
 
 // stillDeclared saves a sign-in or secret values only while the config

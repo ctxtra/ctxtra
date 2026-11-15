@@ -2,6 +2,7 @@ package creds
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
@@ -9,9 +10,11 @@ import (
 
 // WriteGuard binds a write to the record inspected before prompting.
 // Replacement requires both explicit consent and an expected generation.
+// CreateOnly also rejects records written without advancing a legacy generation.
 type WriteGuard struct {
 	ExpectedGeneration *int64
 	Replace            bool
+	CreateOnly         bool
 }
 
 func (g WriteGuard) check(srv upstream.Server, r *Record, generation int64) error {
@@ -23,6 +26,9 @@ func (g WriteGuard) check(srv upstream.Server, r *Record, generation int64) erro
 	}
 	if r != nil && !r.Matches(srv) && !g.Replace {
 		return bindingConflict(srv)
+	}
+	if g.CreateOnly && r != nil {
+		return fmt.Errorf("%s already has shared credentials; use ctxtra mcp login %s to change them", srv.ID, srv.ID)
 	}
 	return nil
 }
