@@ -2,8 +2,9 @@ name: release
 
 # A v* tag publishes a GitHub release: the archives as a draft, their
 # provenance attestations, then the release itself. A tag with a "-" (such as
-# v0.2.0-rc.1) is a prerelease and leaves the Homebrew tap alone. RELEASING.md
-# has the steps around it.
+# v0.2.0-rc.1) is a prerelease. The Homebrew tap's ctxtra-rc formula follows
+# every release and release candidate, its ctxtra formula only releases.
+# RELEASING.md has the steps around it.
 
 on:
   push:
@@ -107,39 +108,141 @@ jobs:
       - name: Publish the release
         run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
-  # Opens a PR in the tap; the tap's CI builds the bottles, and its publish
-  # workflow, run by hand, adds them and closes the PR.
+  # Opens a PR in the tap that moves each formula to its newest release:
+  # ctxtra to the newest release, ctxtra-rc to the newest release or release
+  # candidate. The result doesn't depend on the tag that started the job, so
+  # a job that ran late, or was cancelled for a newer one, changes nothing.
+  # The tap's CI builds the bottles, and its publish workflow, run by hand,
+  # adds them and closes the PR.
   homebrew:
     needs: release
-    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
+    # One job at a time, so each one sees the PRs of the ones before it.
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
     env:
       TAG: ${{ github.ref_name }}
       TAP: atelpis/homebrew-tap
       # A fine-grained token with contents and pull requests write access to
       # the tap repository only.
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      # Read access to this repository, which lists published releases and
+      # leaves drafts out.
+      RELEASES_TOKEN: ${{ github.token }}
     steps:
-      - name: Open a PR that bumps the formula
+      - name: Open a PR that bumps the formulas
         run: |
+          release_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          candidate_re='^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]{0,8}$'
+          if [[ ! $TAG =~ $release_re && ! $TAG =~ $candidate_re ]]; then
+            echo "::notice::$TAG is neither a release nor a release candidate: the tap stays as it is"
+            exit 0
+          fi
           if [ -z "$TAP_TOKEN" ]; then
             echo "::warning::no HOMEBREW_TAP_TOKEN secret: update the tap by hand (RELEASING.md)"
             exit 0
           fi
+
+          # A version as a string that sorts like the version: a release
+          # after all of its release candidates.
+          key() {
+            local v=${1#v} final=1 rc=0
+            if [[ $v == *-rc.* ]]; then final=0 rc=${v##*-rc.}; fi
+            IFS=. read -r a b c <<<"${v%%-*}"
+            printf '%06d%06d%06d%d%09d' "$a" "$b" "$c" "$final" "$rc"
+          }
+
+          # The newest release, and the newest release or release candidate.
+          # Other tags, such as v0.5.0-beta.1, go to neither formula.
+          tags=$(GH_TOKEN=$RELEASES_TOKEN gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name')
+          release="" newest=""
+          while read -r t; do
+            if [[ $t =~ $release_re ]]; then
+              if [ -z "$release" ] || [[ $(key "$t") > $(key "$release") ]]; then release=$t; fi
+            elif [[ ! $t =~ $candidate_re ]]; then
+              continue
+            fi
+            if [ -z "$newest" ] || [[ $(key "$t") > $(key "$newest") ]]; then newest=$t; fi
+          done <<<"$tags"
+          declare -A target=([ctxtra]=$release [ctxtra-rc]=$newest)
+
           export GH_TOKEN="$TAP_TOKEN"
-          url="https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$TAG.tar.gz"
-          sha=$(curl -fsSL "$url" | sha256sum | cut -d ' ' -f 1)
-          version=${TAG#v}
           gh repo clone "$TAP" tap -- --depth 1
           cd tap
-          branch="ctxtra-$version"
-          git checkout -b "$branch"
-          sed -i -E \
-            -e "s|^  url \".*\"$|  url \"$url\"|" \
-            -e "s|^  sha256 \".*\"$|  sha256 \"$sha\"|" \
-            Formula/ctxtra.rb
-          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-            commit -am "ctxtra $version"
-          git push "https://x-access-token:$TAP_TOKEN@github.com/$TAP.git" "$branch"
-          gh pr create --repo "$TAP" --head "$branch" --title "ctxtra $version" \
-            --body "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          git checkout -b bump
+          changed=() title="" branch="bump/"
+          for f in ctxtra ctxtra-rc; do
+            to=${target[$f]}
+            file="Formula/$f.rb"
+            if [ -z "$to" ]; then
+              continue
+            fi
+            if [ ! -f "$file" ]; then
+              echo "::warning::the tap has no $file: add it by hand (RELEASING.md)"
+              continue
+            fi
+            # A formula never moves to an older version, or again to its own.
+            current=$(sed -n -E 's|^  url ".*/refs/tags/(v[^"]+)\.tar\.gz"$|\1|p' "$file")
+            if [ -z "$current" ]; then
+              echo "::warning::$file has no tag url: update it by hand"
+              continue
+            fi
+            if [[ ! $(key "$to") > $(key "$current") ]]; then
+              echo "::notice::$f is at $current, the newest it follows"
+              continue
+            fi
+            url="https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$to.tar.gz"
+            sha=$(curl -fsSL "$url" | sha256sum | cut -d ' ' -f 1)
+            sed -i -E \
+              -e "s|^  url \".*\"$|  url \"$url\"|" \
+              -e "s|^  sha256 \".*\"$|  sha256 \"$sha\"|" \
+              "$file"
+            git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+              commit -am "$f ${to#v}"
+            changed+=("$f")
+            title+="${title:+, }$f ${to#v}"
+            branch+="${changed[1]:+_}$f-${to#v}"
+          done
+
+          # Earlier bumps that aren't published yet change the same lines,
+          # and move formulas to versions no newer than these: this PR
+          # replaces them. The branch names each bump, so an open PR on it
+          # makes the same changes: a re-run uses that one. Branches named
+          # ctxtra-X.Y.Z are bumps from before ctxtra-rc.
+          open=$(gh pr list --repo "$TAP" --state open --limit 100 --json number,headRefName \
+            --jq '.[] | select(.headRefName | test("^bump/ctxtra|^ctxtra-[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                  | "\(.number) \(.headRefName)"')
+          existing="" replaced=()
+          while read -r n head; do
+            [ -n "$n" ] || continue
+            if [ ${#changed[@]} -gt 0 ] && [ "$head" = "$branch" ]; then
+              existing=$n
+            else
+              replaced+=("$n")
+            fi
+          done <<<"$open"
+
+          if [ ${#changed[@]} -eq 0 ]; then
+            for n in "${replaced[@]}"; do
+              gh pr close "$n" --repo "$TAP" --comment "The formulas are at their newest versions."
+            done
+            echo "::notice::no formula to update"
+            exit 0
+          fi
+          if [ -n "$existing" ]; then
+            pr="#$existing"
+            echo "::notice::tap PR $pr already bumps to these versions"
+          else
+            # The branch is this job's alone, and no open PR uses it: a
+            # failed run may have pushed it, with other commits.
+            git branch -m "$branch"
+            git push --force "https://x-access-token:$TAP_TOKEN@github.com/$TAP.git" "$branch"
+            pr=$(gh pr create --repo "$TAP" --head "$branch" --title "$title" \
+              --body "Releases: https://github.com/$GITHUB_REPOSITORY/releases")
+            echo "$pr"
+          fi
+          for n in "${replaced[@]}"; do
+            gh pr close "$n" --repo "$TAP" --comment "Replaced by $pr."
+          done

@@ -125,6 +125,14 @@ tells you when there is one, with the command that upgrades it. The check sends 
 version to GitHub. To turn it off, add `check-updates: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
 one environment, such as CI. See [Update checks](spec.md#update-checks).
 
+To get release candidates before each release, install the `ctxtra-rc` formula instead:
+`brew uninstall ctxtra && brew install atelpis/tap/ctxtra-rc`. A release candidate, such as
+`v0.6.0-rc.1`, may still change before its release. The formula installs the same `ctxtra` command at the
+same path, so the hooks keep working. It also follows every release, and its update notice includes release
+candidates. Update it with `brew upgrade atelpis/tap/ctxtra-rc`. You can't install both formulas. To go
+back, run `brew uninstall ctxtra-rc && brew install atelpis/tap/ctxtra`. The older release may not serve
+what a release candidate set up: if you ran `ctxtra setup` with it, run `ctxtra setup` again.
+
 ## Let your agent help
 
 ctxtra comes with a skill that teaches agents its commands, how to change the config safely, and the

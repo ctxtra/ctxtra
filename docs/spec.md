@@ -425,7 +425,7 @@ nothing: you still upgrade ctxtra and review commits yourself.
 
 | Check | Default | Turn it on or off | What it asks |
 |---|---|---|---|
-| New ctxtra release | on | `check-updates: false` at the top of the config | GitHub's API, for the latest release (prereleases left out) |
+| New ctxtra release | on | `check-updates: false` at the top of the config | GitHub's API, for the latest release (prereleases left out); from the `ctxtra-rc` formula, also for the list of releases, for the newest release candidate |
 | New commits of a source | off | `check-updates: true` on the source | the source's remote, with `git ls-remote` of its branch; a `local-git` source, the clone's `HEAD` |
 
 Sessions never wait for a check. At session start, the hook shows what earlier checks found, and starts a
@@ -447,6 +447,11 @@ The notices go only to you, never to the model, in the agents that show a messag
 - The release notice comes first. It compares with the version of the ctxtra that runs, so it goes away
   after an upgrade. Its second line, the upgrade command, is there only when ctxtra was installed with
   Homebrew or `go install`. Development builds (`dev`, or a version from a commit) aren't checked at session start.
+- A release candidate, such as `v0.6.0-rc.1`, is a version too. It is older than its release: `v0.6.0-rc.2`
+  comes before `v0.6.0`. Other prerelease names (`-beta.1`) are development builds.
+- A ctxtra installed with the `ctxtra-rc` formula is told about release candidates too, with
+  `brew upgrade atelpis/tap/ctxtra-rc`. Other installs are told only about releases, and a release candidate
+  that an earlier `ctxtra-rc` check found is no notice for them.
 - The source notice compares with the accepted commit. A commit you dismissed is no new notice.
 - A failed check adds no notice and never counts as up to date: the notice from the last check that worked
   stays. `doctor` shows why the check failed, or couldn't start, and when the last one that worked ran and
