@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-## v0.5.0
+## v0.5.1
+
+v0.5.0 was tagged, but its release failed: v0.5.1 is the first release with these changes.
 
 - Claude Code offers the bound skills as slash commands: type `/` in a session to see them, marked
   `(ctxtra)`. `ctxtra setup --agent claude` writes a small plugin to `~/.claude/skills/ctxtra/` that adds
