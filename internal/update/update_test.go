@@ -250,10 +250,10 @@ func TestRun(t *testing.T) {
 	release(t, 200, `{"tag_name": "v0.3.0"}`)
 	cfg := load(t, testenv.Config(t, h, `schema: ctxtra/v1
 sources:
-  team: {git: '`+url+`', branch: main, commit: '`+accepted+`', check-updates: true}
+  team: {git: '`+url+`', branch: main, commit: '`+accepted+`'}
   gone: {git: 'https://127.0.0.1:1/gone', branch: main, check-updates: true}
-  quiet: {git: 'https://127.0.0.1:1/quiet', branch: main}
-  local: {local-git: '`+dir+`', check-updates: true}
+  quiet: {git: 'https://127.0.0.1:1/quiet', branch: main, check-updates: false}
+  local: {local-git: '`+dir+`'}
 `))
 	results, err := Run(context.Background(), cfg, "v0.2.3", nil)
 	if err != nil {
@@ -281,7 +281,7 @@ sources:
 		t.Errorf("failed check state %+v", gone)
 	}
 	if e := st.Get(source.ID("https://127.0.0.1:1/quiet"), "https://127.0.0.1:1/quiet", "main"); !e.Attempt.IsZero() {
-		t.Errorf("a source without check-updates was checked: %+v", e)
+		t.Errorf("a source with checks disabled was checked: %+v", e)
 	}
 
 	// A failed check keeps what the last one that worked found.
@@ -327,10 +327,10 @@ func TestStartDue(t *testing.T) {
 	release := []string{"check-updates", "--background", "--release"}
 	want("first session", "v0.2.3", release...)
 	want("second session", "v0.2.3")
-	at = at.Add(Interval - time.Minute)
+	at = at.Add(59 * time.Minute)
 	want("before the interval", "v0.2.3")
-	at = at.Add(2 * time.Minute)
-	want("after the interval", "v0.2.3", release...)
+	at = at.Add(time.Minute)
+	want("at one hour", "v0.2.3", release...)
 
 	at = at.Add(2 * Interval)
 	t.Setenv(EnvOff, "1")
@@ -348,7 +348,7 @@ func TestStartDue(t *testing.T) {
 
 	// A source with check-updates on is due on its own, also in a dev build,
 	// and the check checks only that source.
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: 'https://h/team', branch: main, check-updates: true}\n")
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: 'https://h/team', branch: main}\n")
 	want("a source to check", "dev", "check-updates", "--background", "--source", "team")
 	want("the source was just claimed", "dev")
 	at = at.Add(Interval)
@@ -364,6 +364,9 @@ func TestStartDue(t *testing.T) {
 	if e := st.Get(source.ID("https://h/team"), "https://h/team", "main"); e.Error != "can't start the check: no such file" || st.Ctxtra.Error != e.Error {
 		t.Errorf("failed start: source %q, release %q", e.Error, st.Ctxtra.Error)
 	}
+	want("failed start is throttled", "v0.2.3")
+	at = at.Add(59 * time.Minute)
+	want("failed start before one hour", "v0.2.3")
 	// A check that started after the claim keeps its result.
 	spawn = func([]string) error {
 		if err := state.UpdateRelease(func(r *state.Release) { r.Attempt, r.Error = at.Add(time.Second), "" }); err != nil {
@@ -371,7 +374,7 @@ func TestStartDue(t *testing.T) {
 		}
 		return fmt.Errorf("no such file")
 	}
-	at = at.Add(Interval)
+	at = at.Add(time.Minute)
 	_ = StartDue(load(t, cfgPath), "v0.2.3")
 	if st := state.Load(); st.Ctxtra.Error != "" {
 		t.Errorf("a failed start replaced a newer result: %q", st.Ctxtra.Error)

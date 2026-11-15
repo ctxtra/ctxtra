@@ -125,25 +125,28 @@ type addOptions struct {
 	includes             []string // binding files of the source to include, slash-separated
 	dryRun               bool
 	checkUpdates         bool // --check-updates
+	checkUpdatesSet      bool
 }
 
-// checkKV is the check-updates entry of a new pinned source, if o asks for
-// it.
+// checkKV records an opt-out from the default source checks.
 func (o addOptions) checkKV() [][2]string {
-	if !o.checkUpdates {
+	if o.checkUpdates {
 		return nil
 	}
-	return [][2]string{{"check-updates", "true"}}
+	return [][2]string{{"check-updates", "false"}}
 }
 
 // checkHint says how sessions learn about new commits of the pinned source
 // name.
-func (s *sources) checkHint(name string, o addOptions) {
+func (s *sources) checkHint(name string, o addOptions, remote bool) {
 	if o.checkUpdates {
-		fmt.Fprintf(s.Out, "sessions check %s for new commits every 4 hours and tell you when there are some (check-updates: true)\n", name)
+		fmt.Fprintf(s.Out, "sessions check %s for new commits at most once an hour and tell you when there are some (check-updates: true)\n", name)
+		if remote {
+			fmt.Fprintln(s.Out, "checks use your git credentials; credential helpers or hardware keys may ask for approval or a touch. To turn checks off, set check-updates: false on this source")
+		}
 		return
 	}
-	fmt.Fprintf(s.Out, "to have sessions tell you about new commits, add check-updates: true to the source %s in the config (ctxtra help config)\n", name)
+	fmt.Fprintf(s.Out, "update checks are off for %s (check-updates: false)\n", name)
 }
 
 // cleanIncludes checks the --include paths and cleans them, without
@@ -335,7 +338,7 @@ func (s *sources) addGitURL(url string, o addOptions) error {
 	s.added(name, gen, o.includes)
 	s.showExecutables(r, commit)
 	s.checkAdded(name, commit, gen)
-	s.checkHint(name, o)
+	s.checkHint(name, o, true)
 	return nil
 }
 
@@ -445,7 +448,7 @@ func (s *sources) addGitClone(dir string, o addOptions) error {
 	s.added(name, gen, o.includes)
 	s.showExecutables(r, commit)
 	s.checkAdded(name, commit, gen)
-	s.checkHint(name, o)
+	s.checkHint(name, o, true)
 	fmt.Fprintf(s.Out, "if the repository is yours, read it from disk instead: ctxtra source trust %s\n", name)
 	return nil
 }
@@ -479,8 +482,8 @@ func (s *sources) mapToSource(same []config.Source, top, url string, o addOption
 		return err
 	}
 	fmt.Fprintf(s.Out, "%s is a clone of %s, the source %s: its paths are read from the source's commit\n", paths.Tilde(top), url, src.Name)
-	if o.checkUpdates && !src.CheckUpdates {
-		fmt.Fprintf(s.Out, "--check-updates doesn't change the source %s, which exists; to turn its checks on, add check-updates: true to it in the config\n", src.Name)
+	if o.checkUpdatesSet && o.checkUpdates != src.CheckUpdates {
+		fmt.Fprintf(s.Out, "--check-updates doesn't change the source %s, which exists; set check-updates: %t on it in the config\n", src.Name, o.checkUpdates)
 	}
 	if len(o.includes) > 0 {
 		if err := s.includeFrom(src, o.includes, false); err != nil {
@@ -544,7 +547,7 @@ func (s *sources) addLocalGit(dir string, o addOptions) error {
 	s.added(name, gen, o.includes)
 	s.showExecutables(r, commit)
 	s.checkAdded(name, commit, gen)
-	s.checkHint(name, o)
+	s.checkHint(name, o, false)
 	return nil
 }
 

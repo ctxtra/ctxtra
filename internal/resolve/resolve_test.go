@@ -284,7 +284,7 @@ func TestNotices(t *testing.T) {
 	config := func(check string) string {
 		return testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: '"+url+"', branch: main, commit: '"+commit+"'"+check+"}\ninclude: [b.yaml]\n")
 	}
-	cfgPath := config(", check-updates: true")
+	cfgPath := config("")
 	notices := func(dir string) []string {
 		t.Helper()
 		res, _ := Session(dir, cfgPath)
@@ -322,10 +322,10 @@ func TestNotices(t *testing.T) {
 	if got := notices(work); !slices.Equal(got, want) {
 		t.Errorf("state of another branch: %v", got)
 	}
-	// Without check-updates, a commit that an earlier check or fetch found
+	// With checks disabled, a commit that an earlier check or fetch found
 	// is no notice.
 	state.Update(id, url, "main", func(e *state.Source) { e.Head = strings.Repeat("c", 40); e.Dismissed = "" })
-	cfgPath = config("")
+	cfgPath = config(", check-updates: false")
 	if got := notices(work); len(got) != 0 {
 		t.Errorf("checks off: %v", got)
 	}

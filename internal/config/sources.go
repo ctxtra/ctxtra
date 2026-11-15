@@ -211,6 +211,7 @@ func decodeSource(n *yaml.Node) (Source, error) {
 			return Source{}, fmt.Errorf("line %d: commit must be a full commit ID in quotes: 40 or 64 lower-case hex digits", v.Line)
 		}
 	}
+	s.CheckUpdates = true
 	if v := f["check-updates"]; v != nil {
 		if s.CheckUpdates, err = boolean(v, "check-updates"); err != nil {
 			return Source{}, err
