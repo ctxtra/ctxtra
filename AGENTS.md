@@ -20,7 +20,7 @@ cd e2e && go test -count=1 ./...      # agent contract tests, a separate module:
 - `docs/` and `skills/` are embedded in the binary (`embed.go`): `ctxtra help` and `ctxtra skill` serve
   them. A change there is a change of the binary.
 - `e2e/`: real agents against a mock model.
-- `testdata/clients/<release>`: what each release's `ctxtra setup` wrote, for the upgrade tests.
+- `testdata/clients/<id>`: what `ctxtra setup` wrote, one fixture for each setup, for the upgrade tests.
 
 ## Rules
 
