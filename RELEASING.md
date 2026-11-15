@@ -1,6 +1,6 @@
 # Releasing
 
-A `v*` tag runs [release.yml](.github/workflows/release.yml): CI, a check of the setup snapshot, GoReleaser
+A `v*` tag runs [release.yml](.github/workflows/release.yml): CI, with the setup contract tests, GoReleaser
 (archives and checksums in a draft release), provenance attestations, then the release is published. It then
 opens a PR in the Homebrew tap that moves `ctxtra` to the newest release (`vX.Y.Z`), and `ctxtra-rc` to
 the newest release or release candidate (`vX.Y.Z-rc.N`). Other tags, such as `-beta.1`, go to neither. A
@@ -39,9 +39,10 @@ Availability after the transfer must be checked; a failed lookup is not successf
    understood.
 2. Do the checks that the tests don't cover: [e2e/README.md](e2e/README.md), "checked by hand before a
    release".
-3. If `internal/setup/testdata/contract` changed since the last release, copy it with each agent's
-   `client.json` to `testdata/clients/<version>` (for example `0.2`), and say in the changelog that users
-   should run `ctxtra setup` (and trust the hooks again in Codex). The release fails without the snapshot.
+3. If `internal/setup/testdata/contract` changed since the last release, say in the changelog that users
+   should run `ctxtra setup` (and trust the hooks again in Codex). Each setup needs a fixture in
+   `testdata/clients/<id>/<agent>` with its files and `client.json`, named after the change (for example
+   `claude-plugin`): the upgrade tests run them. Without one, `TestContract` fails, and so does the release.
 4. In `CHANGELOG.md`, rename `## Unreleased` to `## vX.Y.Z` and add a new empty `## Unreleased`.
    Add an **Upgrade** note only when users need to take action. Omit no-action notes.
    The release fails without the version section. A release candidate uses the section of

@@ -48,16 +48,6 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      # A release that changes what setup writes needs its own snapshot, which
-      # the upgrade tests run (docs/spec.md, Setup compatibility).
-      - name: Check the setup snapshot
-        run: |
-          latest=$(ls testdata/clients | sort -V | tail -n 1)
-          if ! diff -r -x client.json internal/setup/testdata/contract "testdata/clients/$latest"; then
-            echo "::error::setup writes something other than testdata/clients/$latest: add a snapshot for $TAG (RELEASING.md)"
-            exit 1
-          fi
-
       # A release candidate takes the notes of its version: v0.2.0-rc.1 those
       # of "## v0.2.0". The release page turns every line break into a <br>, so
       # each wrapped paragraph and list item becomes one line.
