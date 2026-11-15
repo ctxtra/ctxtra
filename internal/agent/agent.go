@@ -130,6 +130,14 @@ type PluginClient interface {
 	Protocol() int
 }
 
+// PluginEvents is an agent with hooks and, next to them, a plugin of
+// ctxtra's (Claude Code). The plugin's events send ctxtra_plugin and get an
+// answer of their own, without slots.
+type PluginEvents interface {
+	// PluginEvent reports whether ctxtra's plugin sends event.
+	PluginEvent(event string) bool
+}
+
 // Skipper is an agent whose hook can also run in another agent's session,
 // which that agent's own hook serves. Skip is why the hook adds nothing, or
 // "" when it runs as usual.

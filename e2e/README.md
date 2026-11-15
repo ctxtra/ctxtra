@@ -58,6 +58,8 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestStartup` | Bound files reach the model at session start, once each, in config order after the repo's `AGENTS.md`, in a worktree outside the project folder; a binding for another repo adds nothing; the hook ran; no checkout changed |
 | `TestSubagent` | A subagent gets the files; the main agent still has them once after tool calls. In Antigravity a subagent is a session of its own, so the hook runs twice |
 | `TestSkills` | The skill's name and description are listed, its body isn't, until the agent reads `SKILL.md` (or loads it with OpenCode's `skill` tool); a skill bound to another repo isn't listed |
+| `TestSkillCommand` | Claude Code in tmux: the `/` menu lists the bound skills with their descriptions, not another repo's, and the user's own skill of the same name wins; running `/deploy ARGS` gives the model the skill's body with the arguments and starts a turn. Needs tmux |
+| `TestSkillCommandHeadless` | Claude Code with `-p`: ctxtra adds no commands, and `/deploy ARGS` reaches the model as text, with the skill list |
 | `TestCtxtraSkill` | The ctxtra skill that `ctxtra skill install ctxtra` binds is listed like any other skill, and its body reaches the model only when the agent loads it |
 | `TestCoexist` | Another tool's session-start hook keeps working next to ctxtra's and after `setup --remove` |
 | `TestUntrustedHookAddsNothing` | Codex without hook trust: the session works and gets nothing from ctxtra |
@@ -91,7 +93,8 @@ The test still handles folder trust and runs the import against the real interac
 Not covered here, and checked by hand before a release:
 
 - What the interactive TUI shows (the session-start message on screen), `/clear`, `/compact`, and resume in
-  Claude, Codex, Pi and OpenCode. These need a pseudo-terminal runner.
+  Claude, Codex, Pi and OpenCode. These need a pseudo-terminal runner. Also ctxtra's slash commands in
+  Claude Code's desktop app and VS Code extension.
 - What a real model makes of the import that `ctxtra import --start` starts: the merged file,
   its questions, and the cleanup of the old files.
 - Codex hook trust through `/hooks`. The other tests run Codex with `--dangerously-bypass-hook-trust`;

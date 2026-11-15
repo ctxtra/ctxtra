@@ -1,0 +1,127 @@
+# Claude Code: setup writes ctxtra's plugin to the skills folder next to the
+# hooks. Its mod gets the session's skills from the hook's PluginStart
+# event. A missing plugin is a setup notice, --remove deletes only ctxtra's
+# files, and a folder that isn't ctxtra's is left alone.
+
+exec ctxtra setup --agent claude
+stdout '^ctxtra is set up for Claude Code:$'
+stdout '\.claude/skills/ctxtra/hooks/ctxtra\.js$'
+grep '^// @ctxtra-managed$' .claude/skills/ctxtra/hooks/ctxtra.js
+grep '^// binary: '$BIN'$' .claude/skills/ctxtra/hooks/ctxtra.js
+grep '"name": "ctxtra"' .claude/skills/ctxtra/.claude-plugin/plugin.json
+grep '"modules": \["./ctxtra.js"\]' .claude/skills/ctxtra/hooks/hooks.json
+
+exec ctxtra setup --agent claude
+stdout 'is already set up for'
+
+exec ctxtra doctor
+stdout 'claude: set up for \[SessionStart SubagentStart\], runs .*/ctxtra \(ok\)'
+! stderr .
+
+# The skills of the session, with the plugin's protocol version; without
+# it, none, and the log says why.
+stdin plugin.json
+exec ctxtra hook claude PluginStart
+stdout '^\{"skills":\[\{"name":"deploy","description":"Ship the service","path":"[^"]*/skills/deploy/SKILL.md"\}\]\}$'
+stdin noversion.json
+exec ctxtra hook claude PluginStart
+stdout '^\{"skills":\[\]\}$'
+grep '"event":"PluginStart".*"error":"bad hook input: no ctxtra_plugin"' .ctxtra/log.jsonl
+
+# Without the plugin, every command says to run setup; doctor too.
+rm .claude/skills/ctxtra/hooks/ctxtra.js
+exec ctxtra context files
+stderr '^claude: ctxtra''s plugin, which offers the skills as slash commands, is missing from ~/.claude/skills/ctxtra; run ctxtra setup --agent claude$'
+! exec ctxtra doctor
+stdout 'is missing from ~/.claude/skills/ctxtra'
+exec ctxtra setup --agent claude
+exec ctxtra context files
+! stderr .
+
+cp other.json .claude/skills/ctxtra/hooks/hooks.json
+exec ctxtra context files
+stderr '^claude: ctxtra''s plugin in ~/.claude/skills/ctxtra is incomplete; run ctxtra setup --agent claude$'
+exec ctxtra setup --agent claude
+
+exec ctxtra setup --remove --agent claude
+stdout '^ctxtra is removed from Claude Code:$'
+! exists .claude/skills/ctxtra
+exists .claude/skills/mine/SKILL.md
+
+# A file of the user's in ctxtra's plugin folder: the folder is still
+# ctxtra's, setup updates it, and --remove deletes ctxtra's files only.
+exec ctxtra setup --agent claude
+cp mine.md .claude/skills/ctxtra/notes.md
+exec ctxtra setup --agent claude
+! stderr .
+exec ctxtra setup --remove --agent claude
+! exists .claude/skills/ctxtra/hooks/ctxtra.js
+! exists .claude/skills/ctxtra/.claude-plugin
+cmp .claude/skills/ctxtra/notes.md mine.md
+rm .claude/skills/ctxtra
+
+# A skill of the user's own named ctxtra: setup warns and leaves it alone,
+# and the hooks still work; no notice about the plugin.
+mkdir .claude/skills/ctxtra
+cp mine.md .claude/skills/ctxtra/SKILL.md
+exec ctxtra setup --agent claude
+stderr '~/.claude/skills/ctxtra has SKILL.md, which ctxtra didn''t write; left alone, so Claude Code doesn''t offer the skills as slash commands'
+! exists .claude/skills/ctxtra/hooks
+exec ctxtra context files
+! stderr .
+exec ctxtra setup --remove --agent claude
+cmp .claude/skills/ctxtra/SKILL.md mine.md
+rm .claude/skills/ctxtra
+
+# A plugin of someone else's with the same files but no mod of ctxtra's:
+# setup and --remove leave its files alone.
+mkdir .claude/skills/ctxtra/hooks
+cp other.json .claude/skills/ctxtra/hooks/hooks.json
+exec ctxtra setup --agent claude
+stderr '~/.claude/skills/ctxtra has hooks/hooks.json, which ctxtra didn''t write; left alone'
+! exists .claude/skills/ctxtra/hooks/ctxtra.js
+exec ctxtra setup --remove --agent claude
+cmp .claude/skills/ctxtra/hooks/hooks.json other.json
+rm .claude/skills/ctxtra
+
+# A symlinked folder in it: setup writes nothing through the link, and
+# --remove deletes nothing there.
+mkdir .claude/skills/ctxtra elsewhere
+cp other.json elsewhere/hooks.json
+symlink .claude/skills/ctxtra/hooks -> ../../../elsewhere
+exec ctxtra setup --agent claude
+stderr '~/.claude/skills/ctxtra/hooks is a symlink; left alone'
+! exists elsewhere/ctxtra.js
+cmp elsewhere/hooks.json other.json
+exec ctxtra setup --remove --agent claude
+cmp elsewhere/hooks.json other.json
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/v1
+bindings:
+  - name: everywhere
+    match:
+      global: true
+    skills: [~/skills/deploy]
+-- skills/deploy/SKILL.md --
+---
+name: deploy
+description: Ship the service
+---
+Run the deploy.
+-- .claude/skills/mine/SKILL.md --
+---
+description: The user's own
+---
+Mine.
+-- mine.md --
+---
+description: A skill the user named ctxtra
+---
+Mine.
+-- other.json --
+{"modules": []}
+-- plugin.json --
+{"ctxtra_plugin": 1}
+-- noversion.json --
+{}

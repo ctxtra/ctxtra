@@ -151,7 +151,9 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 		fmt.Fprintln(out, empty)
 		return 0
 	}
-	if sl, ok := a.(agent.Slotted); ok && slot >= 0 {
+	pe, ok := a.(agent.PluginEvents)
+	pluginEvent := ok && pe.PluginEvent(event)
+	if sl, ok := a.(agent.Slotted); ok && slot >= 0 && !pluginEvent {
 		// A slot of a setup with more slots than this version has, after a
 		// downgrade.
 		if d.Slots > 0 && slot >= d.Slots {
@@ -162,6 +164,10 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 		return 0
 	}
 	res, e := session(a, d, upgrade, args.Version, ts, event, p, dir)
+	if pluginEvent {
+		// The plugin adds no text: the agent's hooks add the files.
+		e.Files, e.Dropped, e.Chars = nil, nil, 0
+	}
 	logEntry(e)
 	for _, m := range res.Missing {
 		fmt.Fprintf(errOut, "ctxtra: bound file not found: %s\n", m)
@@ -182,6 +188,13 @@ func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, up
 		}
 	}
 	d = a.Delivery()
+	// The answer to an event of the agent's plugin has no text, so no slots.
+	if pe, ok := a.(agent.PluginEvents); ok && pe.PluginEvent(event) {
+		if in.Plugin <= 0 {
+			return d, "", errors.New("bad hook input: no ctxtra_plugin")
+		}
+		return d, "", nil
+	}
 	_, slotted := a.(agent.Slotted)
 	_, plugin := a.(agent.PluginClient)
 	switch {

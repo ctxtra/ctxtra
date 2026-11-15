@@ -13,7 +13,7 @@ type Claude struct{}
 
 func (Claude) Name() string       { return "claude" }
 func (Claude) Executable() string { return "claude" }
-func (Claude) Caps() []Cap        { return []Cap{Subagent, UserMessage} }
+func (Claude) Caps() []Cap        { return []Cap{Subagent, UserMessage, SkillCommand} }
 
 func (Claude) Command(bin, home, dir, mockURL, prompt string, _ Options, env []string) (*exec.Cmd, error) {
 	cmd := exec.Command(bin, "-p", prompt,

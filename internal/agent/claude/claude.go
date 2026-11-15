@@ -1,5 +1,6 @@
 // Package claude supports Claude Code: hooks in ~/.claude/settings.json (or
-// $CLAUDE_CONFIG_DIR) for session start and subagent start.
+// $CLAUDE_CONFIG_DIR) for session start and subagent start, and a plugin in
+// its skills folder that offers the skills as slash commands.
 package claude
 
 import (
@@ -54,11 +55,38 @@ func (a Agent) hooks() hookjson.Config {
 	return hookjson.Config{Agent: a.Name(), Path: a.ConfigPath(), Events: events, Slots: a.Delivery().Slots, Missing: a}
 }
 
-func (a Agent) Setup(o agent.Options, r *agent.Report) error { return a.hooks().Apply(o, r) }
+// Setup sets up the hooks, then the plugin, which needs them: the hooks add
+// the files, and the skill list that the model reads.
+func (a Agent) Setup(o agent.Options, r *agent.Report) error {
+	if err := a.hooks().Apply(o, r); err != nil {
+		return err
+	}
+	return setupPlugin(o, r)
+}
 
-func (a Agent) Status(bin string, known bool) agent.Status { return a.hooks().Status(bin, known) }
+func (a Agent) Status(bin string, known bool) agent.Status {
+	st := a.hooks().Status(bin, known)
+	if len(st.Details) == 0 && a.hooksSetUp() {
+		if n := checkPlugin(bin); len(n) > 0 {
+			st.OK, st.Details = false, n
+		}
+	}
+	return st
+}
 
-func (a Agent) Check(bin string, known bool) []string { return a.hooks().Check(bin, known) }
+// Check: the hooks' notices first; one setup repairs both, so the plugin's
+// come only when the hooks need nothing.
+func (a Agent) Check(bin string, known bool) []string {
+	if n := a.hooks().Check(bin, known); len(n) > 0 || !a.hooksSetUp() {
+		return n
+	}
+	return checkPlugin(bin)
+}
+
+func (a Agent) hooksSetUp() bool {
+	cmds, err := a.hooks().Commands()
+	return err == nil && len(cmds) > 0
+}
 
 // Skip: Devin and the Cursor desktop app also run the hooks in
 // ~/.claude/settings.json, and when ctxtra's own hook of that agent is set
@@ -78,6 +106,9 @@ func (Agent) Skip(in agent.Input) string {
 // Answer is the whole text in one hook. The hooks that setup writes have
 // slots, and get SlotAnswer.
 func (Agent) Answer(event string, res *resolve.Result) any {
+	if event == pluginEvent {
+		return pluginAnswer(res)
+	}
 	return agent.AdditionalContext(event, res)
 }
 

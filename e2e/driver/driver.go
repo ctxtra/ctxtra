@@ -35,6 +35,9 @@ const (
 	// Resume: the agent can continue its last session non-interactively
 	// (Options.Resume).
 	Resume Cap = "resume"
+	// SkillCommand: ctxtra's plugin offers each bound skill as a slash
+	// command.
+	SkillCommand Cap = "skill-command"
 )
 
 // Driver is one agent.
