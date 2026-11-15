@@ -256,13 +256,18 @@ func TestTokensWithoutExpiryOrRefresh(t *testing.T) {
 	if tok.RefreshToken != "" || tok.ExpiresIn != 0 {
 		t.Errorf("tokens: %+v", tok)
 	}
-	short := New(t, Options{Clients: map[string]string{"app": ""}, Lifetime: 50 * time.Millisecond})
-	tok = short.SignIn("app")
-	if resp := call(t, short, tok.AccessToken); resp.StatusCode != 200 {
+	expiring := New(t, Options{Clients: map[string]string{"app": ""}, Lifetime: time.Hour})
+	tok = expiring.SignIn("app")
+	if resp := call(t, expiring, tok.AccessToken); resp.StatusCode != 200 {
 		t.Errorf("fresh token: %d", resp.StatusCode)
 	}
-	time.Sleep(60 * time.Millisecond)
-	if resp := call(t, short, tok.AccessToken); resp.StatusCode != 401 {
+	expiring.mu.Lock()
+	if expiring.access[tok.AccessToken].expiry.IsZero() || tok.ExpiresIn != 3600 {
+		t.Error("token lifetime was not set")
+	}
+	expiring.access[tok.AccessToken].expiry = time.Now().Add(-time.Second)
+	expiring.mu.Unlock()
+	if resp := call(t, expiring, tok.AccessToken); resp.StatusCode != 401 {
 		t.Errorf("expired token: %d", resp.StatusCode)
 	}
 }

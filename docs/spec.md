@@ -33,7 +33,7 @@ sources:
     git: git@github.com:acme/team-ctx.git
     branch: main                      # where source update looks for new commits
     commit: '9f8e7d6c5b4a39281706f5e4d3c2b1a098765432'   # the accepted version; source update changes it
-    check-updates: true               # optional; sessions tell you about new commits (default: false)
+    check-updates: true               # optional; sessions tell you about new commits (default: true)
 
 bindings:                             # your own bindings, see Binding file below
   - name: me
@@ -141,8 +141,8 @@ included ctxtra://team-ctx/bindings/billing.yaml
   declare sources or include other files: only your config does.
 - Files are read from ctxtra's store (below), never from a clone. Symlinks and submodules in the
   repository are left out.
-- Sessions never fetch. With `check-updates: true`, they tell you when the branch has new commits (see
-  [Update checks](#update-checks)); without it, run `ctxtra source update` regularly.
+- Sessions never fetch. Unless `check-updates: false`, they tell you when the branch has new commits (see
+  [Update checks](#update-checks)); with checks off, run `ctxtra source update` regularly.
 
 ### Commands
 
@@ -163,8 +163,8 @@ included ctxtra://team-ctx/bindings/billing.yaml
 Every `source add` takes `--name NAME` (default: the repository or folder name), `--include PATH` to add
 binding files of the source to `include` in the same edit (repeatable), and `--dry-run`, which checks and
 fetches nothing. Without `--include`, it lists the binding files in the source. `source add git` and
-`source add local-git` also take `--check-updates`, which writes `check-updates: true` for the new source;
-without it, they say how to turn the checks on.
+`source add local-git` check for new commits by default. Pass `--check-updates=false` to write
+`check-updates: false` for the new source. `--check-updates` does not change an existing source.
 
 ### A clone you already have
 
@@ -346,7 +346,7 @@ that these patterns weren't found. Read what you accept.
 
 ### Notices
 
-A session that uses a pinned source with `check-updates: true` says when the last
+A session that uses a pinned source says when the last
 [update check](#update-checks) found new commits. It also says when you dismissed a commit:
 
 ```text
@@ -358,7 +358,7 @@ A session that uses a pinned source with `check-updates: true` says when the las
 
 Claude Code, Codex, Muse and Pi show these notices at session start, after an empty line, each with `ℹ` and
 the command to run on its own line. Notices name no commit IDs; `doctor` does. `context files` and
-`doctor` show the notices too, with the command on the same line. Without `check-updates`, there is no notice about new
+`doctor` show the notices too, with the command on the same line. With `check-updates: false`, there is no notice about new
 commits: run `ctxtra source update` when you want to look.
 
 When a new commit doesn't continue the accepted one, `source update` warns: the branch was force-pushed.
@@ -426,12 +426,12 @@ nothing: you still upgrade ctxtra and review commits yourself.
 | Check | Default | Turn it on or off | What it asks |
 |---|---|---|---|
 | New ctxtra release | on | `check-updates: false` at the top of the config | GitHub's API, for the latest release (prereleases left out); from the `ctxtra-rc` formula, also for the list of releases, for the newest release candidate |
-| New commits of a source | off | `check-updates: true` on the source | the source's remote, with `git ls-remote` of its branch; a `local-git` source, the clone's `HEAD` |
+| New commits of a source | on | `check-updates: false` on the source | the source's remote, with `git ls-remote` of its branch; a `local-git` source, the clone's `HEAD` |
 
 Sessions never wait for a check. At session start, the hook shows what earlier checks found, and starts a
-check in the background when the last one is older than 4 hours. The background check runs as a separate
+check in the background when the last one is an hour old. The background check runs as a separate
 process, `ctxtra check-updates`, which checks only what was due, and the next session shows its result.
-Parallel sessions start one check: the first one records the attempt. A failed check also waits 4 hours
+Parallel sessions start one check: the first one records the attempt. A failed check also waits an hour
 before the next try.
 
 The notices go only to you, never to the model, in the agents that show a message at session start (see
@@ -455,7 +455,7 @@ The notices go only to you, never to the model, in the agents that show a messag
 - The source notice compares with the accepted commit. A commit you dismissed is no new notice.
 - A failed check adds no notice and never counts as up to date: the notice from the last check that worked
   stays. `doctor` shows why the check failed, or couldn't start, and when the last one that worked ran and
-  what it found. For a pinned source without `check-updates`, `doctor` says that its update checks
+  what it found. For a pinned source with `check-updates: false`, `doctor` says that its update checks
   are off.
 - `ctxtra check-updates` runs the checks now and shows their results. It exits with 1 when a check fails,
   or when it can't save the results for sessions.
@@ -471,7 +471,7 @@ What a check sends:
 - A source check connects to the source's remote with your git credentials, like `source update`. git
   may not prompt there: a key with a passphrase that isn't in your ssh agent fails the check. But an ssh
   agent that asks for approval (for example 1Password) or a hardware key can still ask you to approve or
-  touch it when a session starts. Leave `check-updates` off for such a source.
+  touch it when a session starts. Set `check-updates: false` for such a source.
 
 ## Binding file
 
@@ -1209,7 +1209,7 @@ with its flags and examples. The commands that change the config are grouped by 
 | `sources.<name>.branch` | with `git` | The branch `source update` follows. |
 | `sources.<name>.local-git` | no | Your clone, pinned to its committed `HEAD`. Absolute or starts with `~`. |
 | `sources.<name>.commit` | no | With `git` or `local-git`: the accepted commit, a full ID in quotes. |
-| `sources.<name>.check-updates` | no | With `git` or `local-git`: `true` to have sessions tell you about new commits. Default `false`. |
+| `sources.<name>.check-updates` | no | With `git` or `local-git`: `false` to stop sessions checking for new commits. Default `true`. |
 | `bindings[]` | no | Your own bindings, see **Binding** below. Paths are relative to the config's folder. |
 | `include[]` | no | Binding files. Relative to the config's folder; `~` and `ctxtra://` work. |
 | `budget.max-chars` | no | Integer ≥ 0, in characters. 0 or missing: no limit. |

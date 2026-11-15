@@ -234,7 +234,8 @@ Files of a source are referenced as ctxtra://SOURCE/PATH.`,
 
 func (a *app) sourceAddCmd(kind string) *cobra.Command {
 	var o addOptions
-	c := &cobra.Command{RunE: a.run(func(_ *cobra.Command, args []string) error {
+	c := &cobra.Command{RunE: a.run(func(cmd *cobra.Command, args []string) error {
+		o.checkUpdatesSet = cmd.Flags().Changed("check-updates")
 		s := newSources(a.IO)
 		var err error
 		if o.includes, err = cleanIncludes(o.includes); err != nil {
@@ -268,6 +269,10 @@ func (a *app) sourceAddCmd(kind string) *cobra.Command {
 		c.Long = `Add a git repository as a pinned source: ctxtra fetches it and records the
 current commit, and sessions use exactly that commit until you accept a newer
 one with ctxtra source update.
+
+Sessions check for new commits in the background at most once an hour, using
+your git credentials. Credential helpers or hardware keys can ask for approval
+or a touch. Use --check-updates=false to turn checks off.
 
 DIR is your clone of the repository: its remote's URL is used, and plain paths
 under the clone are read from the pinned commit, not from disk. The source then
@@ -303,7 +308,7 @@ only for files that you alone write.`
 	c.Flags().StringArrayVar(&o.includes, "include", nil, "also include the binding file `PATH` of the source (repeatable)")
 	c.Flags().BoolVar(&o.dryRun, "dry-run", false, "check and show the change; change nothing and fetch nothing")
 	if kind != "trusted-path" {
-		c.Flags().BoolVar(&o.checkUpdates, "check-updates", false, "have sessions check the source for new commits every 4 hours (check-updates: true)")
+		c.Flags().BoolVar(&o.checkUpdates, "check-updates", true, "have sessions check the source for new commits at most once an hour; use --check-updates=false to disable")
 	}
 	return c
 }

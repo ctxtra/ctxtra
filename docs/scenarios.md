@@ -122,13 +122,14 @@ team-ctx/
 **Add it with the maintainer's binding.** You don't need a clone: ctxtra keeps its own copy.
 
 ```text
-$ ctxtra source add git git@github.com:acme/team-ctx.git --include bindings/billing.yaml --check-updates
+$ ctxtra source add git git@github.com:acme/team-ctx.git --include bindings/billing.yaml
 fetched team-ctx: main at abc1234 (git@github.com:acme/team-ctx.git)
 added source team-ctx (pinned: new commits apply after you accept them in ctxtra source update)
 included ctxtra://team-ctx/bindings/billing.yaml
   binding billing: for github.com/acme/billing
     instructions: services-overview.md
-sessions check team-ctx for new commits every 4 hours and tell you when there are some (check-updates: true)
+sessions check team-ctx for new commits at most once an hour and tell you when there are some (check-updates: true)
+checks use your git credentials; credential helpers or hardware keys may ask for approval or a touch. To turn checks off, set check-updates: false on this source
 ```
 
 The first version is accepted without review. Read a source repository before you add it, as you would
@@ -140,7 +141,6 @@ sources:
     git: git@github.com:acme/team-ctx.git
     branch: main
     commit: 'abc1234...'          # the full commit ID
-    check-updates: true
 include:
   - ctxtra://team-ctx/bindings/billing.yaml
 ```
@@ -201,10 +201,10 @@ and accepts nothing.
 
 Where it can surprise you:
 
-- The check runs at most every 4 hours, and its result shows in the session after it. Run
+- The check runs at most once an hour, and its result shows in the session after it. Run
   `ctxtra source update` yourself to get changes sooner.
 - The check connects to the remote with your git credentials. If your ssh key needs a touch or an approval,
-  it can ask for one when a session starts: leave `check-updates` off for that source.
+  it can ask for one when a session starts: set `check-updates: false` for that source.
 - Cursor, Copilot, OpenCode, Antigravity, Hermes and DSH don't show notices at session start. `ctxtra context files` and `ctxtra doctor` do.
 - If your config is in a repository, `source update` changes it (the new `commit`). Commit that like any other config
   change.

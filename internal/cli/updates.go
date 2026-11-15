@@ -29,10 +29,10 @@ func (a *app) checkUpdatesCmd() *cobra.Command {
 		Use:   "check-updates",
 		Short: "Check for a new ctxtra release and new commits of sources",
 		Long: `Check for a new ctxtra release (unless the config has check-updates: false),
-and for new commits of every pinned source with check-updates: true, and save
+and for new commits of every pinned source unless it has check-updates: false, and save
 the results for sessions. It reads only version numbers and commit IDs: it
 fetches no files, accepts nothing, and git never asks for credentials. Sessions
-run this check in the background every 4 hours at most; run it to check now. It exits
+run this check in the background at most once an hour; run it to check now. It exits
 with 1 when a check fails.`,
 		Example: "  ctxtra check-updates",
 		Args:    noArgs,
@@ -69,7 +69,7 @@ func (a *app) checkUpdates(cfg *config.Config) int {
 		fmt.Fprintln(a.Out, "nothing checked: the config can't be used (see the warning above)")
 		return 1
 	case !cfg.CheckCtxtra && len(update.Sources(cfg)) == 0:
-		fmt.Fprintln(a.Out, "nothing to check: the config has check-updates: false, and no source has check-updates: true")
+		fmt.Fprintln(a.Out, "nothing to check: the config has check-updates: false, and no source has update checks enabled")
 		return 0
 	}
 	results, werr := update.Run(context.Background(), cfg, a.version, nil)

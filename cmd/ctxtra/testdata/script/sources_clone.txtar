@@ -12,6 +12,7 @@ exec ctxtra setup --agent claude
 
 exec ctxtra source add git dev/team-ctx --include bindings/billing.yaml
 stdout '^~/dev/team-ctx is a clone of https://127.0.0.1:\d+/team-ctx, added as source team-ctx \(pinned\)$'
+stdout 'checks use your git credentials; credential helpers or hardware keys may ask for approval or a touch'
 stdout '^starts at your local commit [0-9a-f]{7}; later updates follow origin/main \(remote not checked yet\)$'
 stdout '^included ctxtra://team-ctx/bindings/billing.yaml$'
 stdout '^    instructions: services-overview.md$'
@@ -41,6 +42,11 @@ exec ctxtra binding-file add dev/team-ctx/bindings/other.yaml
 stdout '^included ctxtra://team-ctx/bindings/other.yaml$'
 exec ctxtra source add git dev/team-ctx
 stdout '^~/dev/team-ctx is a clone of https://.*, the source team-ctx:'
+! stdout 'doesn''t change'
+exec ctxtra source add git dev/team-ctx --check-updates=false
+stdout '--check-updates doesn''t change the source team-ctx, which exists; set check-updates: false on it in the config'
+exec ctxtra source show team-ctx --json
+stdout '"check_updates": true'
 
 # The clone moves: nothing changes.
 mv dev/team-ctx dev/moved
@@ -58,7 +64,16 @@ stdout '^-LOCAL-COMMIT$'
 exec ctxtra source add local-git dev/team-ctx --name team-ctx-dev
 stdout '^added source team-ctx-dev \(local-git: ~/dev/team-ctx at [0-9a-f]{7}\); updates follow the clone''s committed HEAD$'
 stdout '^executable files: tool.sh$'
+! stdout 'checks use your git credentials'
 grep '^    local-git: ~/dev/team-ctx$' .config/ctxtra/config.yaml
+exec ctxtra source show team-ctx-dev --json
+stdout '"check_updates": true'
+exec git clone -q dev/team-ctx dev/quiet
+exec ctxtra source add local-git dev/quiet --name quiet-dev --check-updates=false
+stdout '^update checks are off for quiet-dev \(check-updates: false\)$'
+exec ctxtra source show quiet-dev --json
+stdout '"check_updates": false'
+exec ctxtra source remove quiet-dev
 cp wip.md dev/team-ctx/services-overview.md
 gitcommit dev/team-ctx
 stdin yes.txt

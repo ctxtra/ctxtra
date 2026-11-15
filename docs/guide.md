@@ -120,7 +120,7 @@ setup that is incomplete or gone, an agent found since the last setup), with the
 [the spec](spec.md#setup-notices)). Until then, Claude Code, Codex, Muse, Devin and Pi say at session
 start that the binary is missing; the other agents add nothing, without a word.
 
-Every 4 hours at most, a session checks in the background for a new ctxtra release, and the next session
+At most once an hour, a session checks in the background for a new ctxtra release, and the next session
 tells you when there is one, with the command that upgrades it. The check sends your IP address and ctxtra
 version to GitHub. To turn it off, add `check-updates: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
 one environment, such as CI. See [Update checks](spec.md#update-checks).
@@ -239,11 +239,12 @@ ctxtra source update --check   # review only: for scripts and agents
 ctxtra source restore          # a new laptop: fetch exactly the accepted commits
 ```
 
-To have sessions tell you about new commits, add `--check-updates` to `source add`, or
-`check-updates: true` to the source in the config. A session then checks the branch every 4 hours in the
-background, with `git ls-remote`, and the next session says when there are new commits. It never accepts
-them. The check uses your git credentials: leave it off for a source whose ssh key asks for a touch or an
-approval. `ctxtra check-updates` checks now.
+Sessions check pinned sources for new commits by default, at most once an hour in the
+background. Git sources use `git ls-remote`; local-git sources read the clone's local `HEAD`. The next
+session says when there are new commits. Checks never accept them. Remote checks use your git
+credentials: turn them off for a source whose ssh key asks for a touch or an approval. Pass
+`--check-updates=false` to `source add`, or set `check-updates: false` on the source in the config.
+`ctxtra check-updates` checks now.
 
 `source add` and `source update` warn about text that is easy to miss in a diff: hidden characters, HTML
 comments, encoded blocks, `curl | sh`, secret paths like `~/.ssh`, and new URLs. The warnings help you read;

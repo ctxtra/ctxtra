@@ -603,7 +603,7 @@ func describeSource(s config.Source) string {
 		d = "local-git " + paths.Tilde(s.LocalGit) + ", follows its committed HEAD, "
 	}
 	e := state.Load().Get(source.ID(s.Remote()), s.Remote(), s.Branch)
-	check := "; update checks off (check-updates: true turns them on)"
+	check := "; update checks off (remove check-updates: false to turn them on)"
 	if s.CheckUpdates {
 		check = "; " + checkStatus(s, e)
 	}

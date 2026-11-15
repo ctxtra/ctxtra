@@ -34,7 +34,7 @@ import (
 const (
 	// Interval is how long a check's result is used before the next session
 	// starts another check.
-	Interval = 4 * time.Hour
+	Interval = time.Hour
 	// EnvOff set to anything but "" stops the checks that sessions start.
 	EnvOff = "CTXTRA_NO_UPDATE_CHECK"
 	// Releases is where users download ctxtra.

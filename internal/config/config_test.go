@@ -212,7 +212,7 @@ func TestStrictConfig(t *testing.T) {
 }
 
 // check-updates is on for ctxtra releases unless the config turns it off,
-// and off for each source unless the source turns it on.
+// and for pinned sources unless the source turns it off.
 func TestCheckUpdates(t *testing.T) {
 	h := testenv.Home(t)
 	if cfg := load(filepath.Join(h, "nope.yaml")); !cfg.CheckCtxtra {
@@ -225,8 +225,11 @@ sources:
   b: {git: 'https://h/b', branch: main, check-updates: true}
   c: {local-git: ~/c, check-updates: false}
   d: {git: 'https://h/d', branch: main, check-updates: TRUE}
+  e: {local-git: ~/e}
+  f: {git: 'https://h/f', branch: main, check-updates: false}
+  g: {trusted-path: ~/g}
 `))
-	if len(cfg.Problems) > 0 || cfg.CheckCtxtra || cfg.Sources[0].CheckUpdates || !cfg.Sources[1].CheckUpdates || cfg.Sources[2].CheckUpdates || !cfg.Sources[3].CheckUpdates {
+	if len(cfg.Problems) > 0 || cfg.CheckCtxtra || !cfg.Sources[0].CheckUpdates || !cfg.Sources[1].CheckUpdates || cfg.Sources[2].CheckUpdates || !cfg.Sources[3].CheckUpdates || !cfg.Sources[4].CheckUpdates || cfg.Sources[5].CheckUpdates || cfg.Sources[6].CheckUpdates {
 		t.Errorf("problems %v, release %v, sources %+v", cfg.Problems, cfg.CheckCtxtra, cfg.Sources)
 	}
 	for _, v := range []string{"'false'", "no-thanks", "{ctxtra: false}"} {
