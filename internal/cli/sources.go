@@ -75,11 +75,23 @@ func (s *sources) editThen(fn func(old []byte) ([]byte, error), then func() erro
 	return err
 }
 
+func (s *sources) editWithCommit(fn func(old []byte) ([]byte, error), commit func(write func() error) error) error {
+	created, err := s.changeUsing(func() error { return config.EditWithCommit(s.file, fn, commit) })
+	if created {
+		term.Fprintf(s.Out, term.Green, "created %s\n", paths.Tilde(s.file))
+	}
+	return err
+}
+
 // change changes the config, and reports whether it created it. The config
 // is registered, so that cleaning the store keeps its accepted commits.
 func (s *sources) change(fn func(old []byte) ([]byte, error), then func() error) (created bool, err error) {
+	return s.changeUsing(func() error { return config.EditThen(s.file, fn, then) })
+}
+
+func (s *sources) changeUsing(edit func() error) (created bool, err error) {
 	existed := source.Exists(s.file)
-	if err := config.EditThen(s.file, fn, then); err != nil {
+	if err := edit(); err != nil {
 		return false, err
 	}
 	s.register()
@@ -210,6 +222,9 @@ func (s *sources) addSource(name string, kv [][2]string, files []string) error {
 // added shows the binding files just included from the source name at
 // root, or, without any, the binding files it has.
 func (s *sources) added(name, root string, files []string) {
+	cfg := config.Load(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+	cfg.LoadMCPSource(name)
+	s.mcpDefinitionWarnings(name, nil, cfg)
 	if len(files) == 0 {
 		s.listSourceBindingFiles(name, root)
 		return
@@ -231,7 +246,7 @@ func (s *sources) wouldAdd(name string, files []string) {
 // A binding file has the ctxtra schema and none of the config's own keys.
 var (
 	reSchema    = regexp.MustCompile(`(?m)^schema:\s*['"]?ctxtra/`)
-	reConfigKey = regexp.MustCompile(`(?m)^(sources|include|budget)\s*:`)
+	reConfigKey = regexp.MustCompile(`(?m)^(sources|include|budget|mcp-servers)\s*:`)
 )
 
 var reRepoName = regexp.MustCompile(`([^/:]+?)(\.git)?/?$`)
@@ -823,8 +838,6 @@ func (s *sources) showBindings(file, root string) {
 		if len(b.Skills) > 0 {
 			fmt.Fprintf(s.Out, "    skills: %s\n", source.Sanitize(strings.Join(mapList(b.Skills, show), ", ")))
 		}
-		// As written: the user's servers of these names would reach the
-		// sessions the binding matches.
 		if len(b.MCPListed) > 0 {
 			fmt.Fprintf(s.Out, "    MCP servers: %s\n", source.Sanitize(strings.Join(b.MCPListed, ", ")))
 		}
@@ -850,7 +863,7 @@ func mapList(l []string, f func(string) string) []string {
 func (s *sources) listSourceBindingFiles(name, root string) {
 	var found []string
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
+		if err != nil || d.IsDir() || p == filepath.Join(root, config.MCPManifest) || !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
 			return nil
 		}
 		if b, err := fsutil.ReadBounded(p, config.MaxFileBytes); err == nil && reSchema.Match(b) && !reConfigKey.Match(b) {

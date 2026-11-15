@@ -54,6 +54,12 @@ type SignIn struct {
 	// Scopes are asked for besides the server's own: an earlier sign-in's,
 	// and those a 403 asked for.
 	Scopes []string
+	// ExpectedGeneration binds replacement consent to the record inspected
+	// before authorization starts; nil accepts the current generation.
+	ExpectedGeneration *int64
+	Replace            bool
+	CreateOnly         bool
+	Secrets            *creds.Secrets
 	// Commit runs save, which stores the sign-in; nil runs it as it is.
 	// The caller can check there, under its own lock, that the server is
 	// still what the sign-in was for.
@@ -74,12 +80,15 @@ type Result struct {
 
 // ErrNeedsClientID is a server that supports neither client ID metadata
 // documents nor dynamic registration.
-var ErrNeedsClientID = errors.New("the server's authorization server accepts only registered apps: create an OAuth app there and pass --client-id")
+var ErrNeedsClientID = errors.New("the server's authorization server accepts only registered apps: create an OAuth app there and declare its client ID in a config server (mcp add --client-id); login cannot override a package definition")
 
 // Run signs in: discovery, registration, the browser, the redirect, the
 // token request, and the save, which fails when another sign-in or a
 // removal finished meanwhile. ch is the server's 401 challenge.
 func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
+	if err := f.Store.RequireApproval(f.Server); err != nil {
+		return nil, err
+	}
 	// One limit for the whole sign-in, discovery and registration too, so
 	// the listener's port is never held longer.
 	timeout := f.Timeout
@@ -88,9 +97,18 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	gen, err := f.Store.Generation(f.Server)
+	existing, gen, err := f.Store.Inspect(f.Server)
+	if errors.Is(err, creds.ErrUnreadable) {
+		err = nil
+	}
 	if err != nil {
 		return nil, err
+	}
+	if f.ExpectedGeneration != nil && gen != *f.ExpectedGeneration {
+		return nil, creds.ErrSignInChanged
+	}
+	if f.CreateOnly && existing != nil {
+		return nil, creds.ErrSignInChanged
 	}
 	resource := creds.CanonicalURL(f.Server.URL)
 	m, err := Discover(ctx, f.HTTP, resource, ch)
@@ -143,11 +161,11 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	defer srv.Close()
 
 	if f.NoBrowser || f.OpenBrowser == nil {
-		fmt.Fprintf(f.Out, "Open this link to sign in to %s:\n\n  %s\n\n", f.Server.Name, authURL)
+		fmt.Fprintf(f.Out, "Open this link to sign in to %s:\n\n  %s\n\n", f.Server.ID, authURL)
 		fmt.Fprintln(f.Out, "If your browser can't reach this machine (for example over SSH), paste the address it ends at here:")
 		go f.readPasted(got)
 	} else {
-		fmt.Fprintf(f.Out, "Opening your browser to sign in to %s. If it doesn't open, use this link:\n\n  %s\n\n", f.Server.Name, authURL)
+		fmt.Fprintf(f.Out, "Opening your browser to sign in to %s. If it doesn't open, use this link:\n\n  %s\n\n", f.Server.ID, authURL)
 		if err := f.OpenBrowser(authURL); err != nil {
 			fmt.Fprintf(f.Out, "couldn't open the browser: %v\n", err)
 		}
@@ -189,7 +207,7 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	var r *creds.Record
 	save := func() error {
 		var err error
-		r, err = f.Store.SaveSignIn(f.Server, gen, issuer, client, tok)
+		r, err = f.Store.SaveSignIn(f.Server, gen, issuer, client, tok, creds.SignInChange{Replace: f.Replace, CreateOnly: f.CreateOnly, Secrets: f.Secrets})
 		return err
 	}
 	if f.Commit != nil {

@@ -47,13 +47,6 @@ func (r *secretReader) read(prompt string) (string, error) {
 	return r.check(prompt, strings.TrimRight(v, "\r\n"))
 }
 
-// askClientSecret asks for the secret of the server's own OAuth app; an
-// empty answer is an app without one.
-func askClientSecret(stdio IO, noInput bool, server string) (string, error) {
-	r := &secretReader{stdio: stdio, noInput: noInput, optional: true}
-	return r.read("client secret for " + server + " (empty for an app without one)")
-}
-
 func (r *secretReader) check(prompt, v string) (string, error) {
 	if r.optional {
 		return v, nil
@@ -77,7 +70,10 @@ func (v secretValues) empty() bool {
 // askSecrets asks for the values of server's secret variables and headers,
 // and its client secret when clientSecret is set.
 func askSecrets(stdio IO, noInput bool, server string, env, headers []string, clientSecret bool) (secretValues, error) {
-	r := &secretReader{stdio: stdio, noInput: noInput}
+	return askSecretsWithReader(&secretReader{stdio: stdio, noInput: noInput}, server, env, headers, clientSecret)
+}
+
+func askSecretsWithReader(r *secretReader, server string, env, headers []string, clientSecret bool) (secretValues, error) {
 	out := secretValues{env: map[string]string{}, headers: map[string]string{}}
 	for _, k := range env {
 		v, err := r.read("value of " + k + " for " + server)

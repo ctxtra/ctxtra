@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -53,6 +54,19 @@ func runProxy(args []string, stdio IO, version string) int {
 				log(proxy.Record{Event: "error", Error: "can't write the session's status record"})
 			}
 		}}
+	var notices []string
+	o.Servers = func(dir string) ([]upstream.Server, []string) {
+		res, _ := resolve.Session(dir, paths.ConfigPath())
+		for _, c := range res.MCPConflicts {
+			notices = append(notices, fmt.Sprintf("MCP server %s is shadowed by %s (tool prefix %s); no fallback to the other account", c.Loser, c.Winner, c.Prefix))
+		}
+		out := make([]upstream.Server, len(res.MCPServers))
+		for i, s := range res.MCPServers {
+			out[i] = s.Server
+		}
+		return out, res.Problems
+	}
+	o.Notices = func() []string { return notices }
 	switch {
 	case !experimental.MCP():
 		o.Servers = func(string) ([]upstream.Server, []string) { return nil, nil }

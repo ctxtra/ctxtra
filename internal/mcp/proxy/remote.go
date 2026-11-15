@@ -25,8 +25,8 @@ type Tokens interface {
 	Token(ctx context.Context, s upstream.Server) (string, error)
 	// Rejected refreshes after s rejected token with 401.
 	Rejected(ctx context.Context, s upstream.Server, token string) (string, error)
-	// Generation is s's sign-in generation, 0 without credentials.
-	Generation(s upstream.Server) (int64, error)
+	// CredentialGeneration is the stored sign-in generation, 0 without credentials.
+	CredentialGeneration(s upstream.Server) (int64, error)
 	// NeedsLogin and StepUp record why s needs sign-in, and are the error
 	// to return. NeedsLogin records nothing when the generation isn't gen
 	// any more: a sign-in or new secret values came meanwhile.
@@ -86,7 +86,12 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// these, not about a sign-in that comes while the request runs.
 	var gen int64
 	if t.tokens != nil {
-		gen, _ = t.tokens.Generation(t.srv)
+		var err error
+		gen, err = t.tokens.CredentialGeneration(t.srv)
+		if err != nil {
+			closeBody(req)
+			return nil, err
+		}
 	}
 	// Secret headers are read for each request, so a logout or a new
 	// value applies to running sessions too.
@@ -134,7 +139,7 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	drain(resp)
 	if t.tokens == nil {
-		return nil, &creds.LoginError{Name: t.srv.Name, Reason: "the server wants a sign-in"}
+		return nil, &creds.LoginError{Name: t.srv.ID, Reason: "the server wants a sign-in"}
 	}
 	if token == "" {
 		return nil, t.tokens.NeedsLogin(t.srv, "not signed in", gen)

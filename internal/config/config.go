@@ -65,8 +65,11 @@ type Config struct {
 	Problems    []string
 	Warnings    []string // only from LoadSource: problems that leave the binding in use
 	Notes       []string // hints, for doctor
-	// MCPServers are the valid servers of mcp-servers, in config order.
+	// MCPServers are config servers followed by loaded source definitions.
 	MCPServers  []upstream.Server
+	mcpReader   Reader
+	mcpLoaded   map[string]bool
+	mcpScopes   map[string]string // explicit include scopes, including trusted sources
 	mcpBroken   map[string]bool   // names in mcp-servers with an error
 	pinned      map[string]string // paths resolved into the store, and their references
 	mappings    *state.Mappings   // of imported clones; read when needed
@@ -93,10 +96,11 @@ type Binding struct {
 	Selector     Selector // match
 	Instructions []string // resolved paths of instruction files
 	Skills       []string // resolved paths of skill folders, each with a SKILL.md
-	MCPServers   []string // names of servers in the config's mcp-servers
+	MCPServers   []string // full server identities
 	// MCPListed are the names in mcp-servers as written, also those
 	// skipped, for the review of a source.
 	MCPListed []string
+	MCPScope  string // source namespace for bare references; empty for config scope
 	// Paths that entries starting with ! removed from Instructions and Skills.
 	ExcludedInstructions, ExcludedSkills []string
 }
@@ -120,7 +124,7 @@ func loadConfig(path string, rd Reader, name, commit string) *Config {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	c := &Config{File: path, CheckCtxtra: true, Summary: DefaultSummaryMessage}
+	c := &Config{File: path, CheckCtxtra: true, Summary: DefaultSummaryMessage, mcpReader: rd}
 	c.Trust = c.policy()
 	data, err := rd.Read(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -165,11 +169,19 @@ func loadConfig(path string, rd Reader, name, commit string) *Config {
 			c.problem(path, fmt.Errorf("line %d: %s is the config itself; its bindings apply already", e.Line, e.Value))
 			continue
 		}
-		if seen[file] {
+		physical := paths.Real(file)
+		if seen[physical] {
 			c.problem(path, fmt.Errorf("line %d: %s is listed twice", e.Line, e.Value))
 			continue
 		}
-		seen[file] = true
+		seen[physical] = true
+		if rest, explicit := strings.CutPrefix(e.Value, Scheme); explicit {
+			scope, _, _ := strings.Cut(rest, "/")
+			if c.mcpScopes == nil {
+				c.mcpScopes = map[string]string{}
+			}
+			c.mcpScopes[file] = scope
+		}
 		c.BindingFiles = append(c.BindingFiles, file)
 		c.loadBindings(file, rd, src)
 	}
@@ -181,6 +193,7 @@ func loadConfig(path string, rd Reader, name, commit string) *Config {
 func (c *Config) ignore(err error) *Config {
 	c.problem(c.File, err)
 	c.ignored, c.CheckCtxtra, c.Summary = true, false, DefaultSummaryMessage
+	c.MCPServers = nil
 	return c
 }
 
@@ -486,6 +499,7 @@ func (c *Config) decodeBinding(n *yaml.Node, file string, in *Source) (Binding, 
 		}
 	}
 	if v := f["mcp-servers"]; v != nil {
+		b.MCPScope = c.mcpScope(file, in)
 		if b.MCPServers, err = c.mcpNames(v, file, in); err != nil {
 			return Binding{}, err
 		}

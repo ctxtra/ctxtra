@@ -158,10 +158,11 @@ type Record struct {
 	// authorization server that issued the tokens. Tokens and secret
 	// values are used only while these match the server's definition.
 	ID      string   `json:"id"`
+	Origin  string   `json:"origin"`
 	URL     string   `json:"url"`
 	Command []string `json:"command"`
 	Issuer  string   `json:"issuer"`
-	// Generation counts the sign-ins; a refresh keeps it.
+	// Generation changes for sign-ins and settings; a refresh keeps it.
 	Generation int64   `json:"generation"`
 	Client     Client  `json:"client"`
 	Token      Token   `json:"token"`
@@ -212,15 +213,15 @@ type Secrets struct {
 var nested = []string{"client", "token", "secrets"}
 
 // Matches reports whether r was made for s as it is defined now: the same
-// identity, and the same canonical URL or command.
+// identity, source origin, and the same canonical URL or command.
 func (r *Record) Matches(s upstream.Server) bool {
-	if r.ID != s.ID {
+	if r.ID != s.ID || r.Origin != s.Origin {
 		return false
 	}
 	if s.Local() {
-		return slices.Equal(r.Command, s.Command)
+		return r.URL == "" && slices.Equal(r.Command, s.Command)
 	}
-	return r.URL != "" && r.URL == CanonicalURL(s.URL)
+	return len(r.Command) == 0 && r.URL != "" && r.URL == CanonicalURL(s.URL)
 }
 
 // bind makes r a record for s: the same identity, URL or command. A record
@@ -229,7 +230,7 @@ func (r *Record) bind(s upstream.Server) {
 	if r.ID != "" && !r.Matches(s) {
 		*r = Record{Generation: r.Generation}
 	}
-	r.ID = s.ID
+	r.ID, r.Origin = s.ID, s.Origin
 	if s.Local() {
 		r.URL, r.Command = "", slices.Clone(s.Command)
 	} else {
@@ -326,12 +327,48 @@ func (s *Store) decrypt(enc []byte) ([]byte, error) {
 // errUnreadable is a record the key can't read.
 var errUnreadable = errors.New("credentials can't be read")
 
-// Load reads the record of s without the lock; nil when there is none.
+// ErrUnreadable lets terminal sign-in recover credentials whose key is
+// missing. Read-only commands must not create or replace the key.
+var ErrUnreadable = errUnreadable
+
+// Load reads a durable credential record under the shared identity lock;
+// nil when there is none. Readers cannot use a write that later rolls back.
 func (s *Store) Load(srv upstream.Server) (*Record, error) {
-	if err := s.checkVersion(srv.ID, srv.Name); err != nil {
-		return nil, err
+	return s.loadShared(srv)
+}
+
+// CheckBinding refuses to replace credentials belonging to another
+// definition. Callers that may edit config must check before any mutation.
+func (s *Store) CheckBinding(srv upstream.Server) error {
+	_, err := s.BindingGeneration(srv)
+	return err
+}
+
+// BindingGeneration reads a matching record before prompts or config edits.
+// The caller must pass this generation to the guarded credential write.
+func (s *Store) BindingGeneration(srv upstream.Server) (int64, error) {
+	_, generation, err := s.Binding(srv)
+	return generation, err
+}
+
+// Binding captures an existing matching record and its generation before
+// prompting. Unreadable records can be recovered by an explicit writer.
+func (s *Store) Binding(srv upstream.Server) (*Record, int64, error) {
+	r, generation, err := s.Inspect(srv)
+	if errors.Is(err, errUnreadable) {
+		return nil, generation, nil
 	}
-	return s.load(srv.ID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if r != nil && !r.Matches(srv) {
+		return nil, 0, bindingConflict(srv)
+	}
+	return r, generation, nil
+}
+
+func bindingConflict(srv upstream.Server) error {
+	return fmt.Errorf("%s has stored credentials for another source, address or command; use a different name, or declare the intended definition in your config first, then run ctxtra mcp login %s to explicitly replace them", srv.ID, srv.ID)
 }
 
 // save writes r durably, under id's lock, and deletes record files of
@@ -407,7 +444,7 @@ func (s *Store) lock(srv upstream.Server) (func(), error) {
 	unlock, err := fsutil.LockTimeout(s.lockPath(fileID(srv.ID)), s.lockTimeout())
 	if err != nil {
 		unlockStore()
-		return nil, s.lockError("the credentials of "+srv.Name, err)
+		return nil, s.lockError("the credentials of "+srv.ID, err)
 	}
 	s.forgetKey()
 	return func() {
@@ -441,14 +478,31 @@ func (s *Store) Update(srv upstream.Server, create bool, change func(*Record) er
 	return s.updateLocked(srv, create, change)
 }
 
-func (s *Store) updateLocked(srv upstream.Server, create bool, change func(*Record) error) (*Record, error) {
-	if err := s.checkVersion(srv.ID, srv.Name); err != nil {
-		return nil, err
+func (s *Store) readGuardedLocked(srv upstream.Server, create bool, guards ...WriteGuard) (*Record, int64, error) {
+	if err := s.checkVersion(srv.ID, srv.ID); err != nil {
+		return nil, 0, err
 	}
 	r, err := s.load(srv.ID)
 	if errors.Is(err, errUnreadable) && create {
 		r, err = nil, nil
 	}
+	if err != nil {
+		return nil, 0, err
+	}
+	generation, err := s.currentGeneration(srv.ID, r)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, guard := range guards {
+		if err := guard.check(srv, r, generation); err != nil {
+			return nil, 0, err
+		}
+	}
+	return r, generation, nil
+}
+
+func (s *Store) updateLocked(srv upstream.Server, create bool, change func(*Record) error, guards ...WriteGuard) (*Record, error) {
+	r, generation, err := s.readGuardedLocked(srv, create, guards...)
 	if err != nil {
 		return nil, err
 	}
@@ -458,27 +512,40 @@ func (s *Store) updateLocked(srv upstream.Server, create bool, change func(*Reco
 		}
 		r = &Record{}
 	}
+	if r.ID != "" && !r.Matches(srv) {
+		generation = s.nextGeneration(generation)
+	}
+	r.Generation = generation
 	r.bind(srv)
 	if err := change(r); err != nil {
 		return nil, err
 	}
+	r.Generation = max(r.Generation, generation)
+	if err := s.rememberGeneration(srv.ID, r.Generation); err != nil {
+		return nil, fmt.Errorf("the credentials of %s could not be saved: %w", srv.ID, err)
+	}
 	if err := s.save(r); err != nil {
-		return nil, fmt.Errorf("the credentials of %s could not be saved: %w", srv.Name, err)
+		return nil, fmt.Errorf("the credentials of %s could not be saved: %w", srv.ID, err)
 	}
 	return r, nil
 }
 
-// Delete removes srv's record and state file, under its lock.
+// Delete removes credentials and state, retaining a generation marker
+// under the identity lock so pending authorization cannot recreate them.
 func (s *Store) Delete(srv upstream.Server) error {
-	if _, err := os.Stat(s.Dir); errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
 	unlock, err := s.lock(srv)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	if err := s.checkVersion(srv.ID, srv.Name); err != nil {
+	if err := s.checkVersion(srv.ID, srv.ID); err != nil {
+		return err
+	}
+	generation, err := s.readGeneration(srv.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.rememberGeneration(srv.ID, s.nextGeneration(generation)); err != nil {
 		return err
 	}
 	var errs []error

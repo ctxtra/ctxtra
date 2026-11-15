@@ -3,6 +3,7 @@ package creds
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,9 +20,12 @@ type State struct {
 	Version int `json:"version"`
 	// Name is the server's name, Issuer the authorization server of its
 	// sign-in.
-	Name     string `json:"name"`
-	Issuer   string `json:"issuer"`
-	SignedIn bool   `json:"signed_in"`
+	Name     string   `json:"name"`
+	Origin   string   `json:"origin"`
+	URL      string   `json:"url"`
+	Command  []string `json:"command"`
+	Issuer   string   `json:"issuer"`
+	SignedIn bool     `json:"signed_in"`
 	// NeedsLogin is set when only ctxtra mcp login can make the server
 	// work again; Reason says why.
 	NeedsLogin bool   `json:"needs_login"`
@@ -40,7 +44,13 @@ type State struct {
 func (s *Store) State(srv upstream.Server) (State, error) {
 	st, err := s.readState(fileID(srv.ID))
 	if err == nil && st.Version > stateVersion {
-		return State{}, &NewerError{srv.Name}
+		return State{}, &NewerError{srv.ID}
+	}
+	if err == nil && (st.Origin != srv.Origin || st.URL != "" || len(st.Command) > 0 || srv.Source != "") {
+		binding := Record{ID: srv.ID, Origin: st.Origin, URL: st.URL, Command: st.Command}
+		if !binding.Matches(srv) {
+			return State{}, nil
+		}
 	}
 	return st, err
 }
@@ -113,11 +123,37 @@ func (s *Store) ServersOf(issuer string, except upstream.Server) []string {
 	return out
 }
 
+// Identities lists credential-file identities without decrypting records.
+func (s *Store) Identities() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(s.Dir, "credentials"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		name := entry.Name()
+		i := strings.LastIndex(name, ".v")
+		if entry.IsDir() || i < 0 || !strings.HasSuffix(name, ".age") {
+			continue
+		}
+		id, err := url.PathUnescape(name[:i])
+		if err == nil && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
 // setState changes srv's state file, with its name. The caller holds its
 // lock.
 func (s *Store) setState(srv upstream.Server, change func(*State)) error {
 	return s.writeState(fileID(srv.ID), func(st *State) {
-		st.Name = srv.Name
+		st.Name, st.Origin = srv.ID, srv.Origin
+		st.URL, st.Command = CanonicalURL(srv.URL), slices.Clone(srv.Command)
 		change(st)
 	})
 }

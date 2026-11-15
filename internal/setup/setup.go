@@ -43,6 +43,7 @@ func LoadMCP() MCPConfig {
 		return MCPConfig{}
 	}
 	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+	cfg.LoadMCPCatalog()
 	m := MCPConfig{Want: len(cfg.MCPServers) > 0}
 	for _, s := range cfg.MCPServers {
 		m.EnvPass = append(m.EnvPass, s.EnvPass...)

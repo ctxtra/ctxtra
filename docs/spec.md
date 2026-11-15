@@ -652,12 +652,81 @@ alone that has a ctxtra hook changed by hand, and says so, instead of adding a s
 ## Experimental: MCP servers
 
 > **Experimental, off by default.** ctxtra can give sessions MCP servers, scoped by folder like instructions and
-> skills. It is work in progress: it is on only when `CTXTRA_EXPERIMENTAL_MCP=1` is set, and how the config
-> declares servers and binds them is not decided. Without the variable, ctxtra ignores everything about MCP
-> servers, and a config that declares them is an error like any unknown key.
+> skills. It is work in progress and on only when `CTXTRA_EXPERIMENTAL_MCP=1` is set, for commands and agents.
+> Without the variable, ctxtra ignores everything about MCP servers, and a config that declares them is an
+> error like any unknown key. Muse remains excluded.
 
 `ctxtra setup` adds one MCP server named `ctxtra` to each agent. The agent starts it like any local MCP server.
 It gives the session the tools of the MCP servers bound to the session folder, and forwards each call.
+
+### Declarations and references
+
+The config declares its own servers in a top-level `mcp-servers` map. Each source can declare servers in one root
+`mcp-servers.yaml`, with `schema: ctxtra/v1` and the same map. Binding files cannot declare servers. `include`
+still includes binding files, not manifests. Sources without a manifest remain valid for instructions and skills.
+A broken manifest leaves those other files usable. Catalog reads never connect, start commands or fetch content.
+
+```yaml
+schema: ctxtra/v1
+mcp-servers:
+  linear:
+    url: https://mcp.linear.app/mcp
+    notes: Choose the work workspace
+```
+
+A server has exactly one of `url` and `command`. Remote settings are `headers`, `secret-headers`, `client-id` and
+`scopes`; local settings are `env`, `env-pass` and `secret-env`. Both accept `notes`. Secret declarations list
+names, not values. Commands use an absolute program path or an installed name in `PATH`, never a relative path.
+Names are 1–20 lowercase letters, digits or `_`, start with a letter, and have neither `__` nor a trailing `_`.
+Duplicate names in a declaration map invalidate both definitions.
+
+A config server's identity is `linear`; a source `work` has `work/linear`. Each identity has its own sign-in.
+Bindings select servers with `mcp-servers: [linear, work/linear]` and existing match rules. A binding can contain
+only servers, with no instructions or skills. More specific bindings add selections; they do not override or
+exclude global selections. Adding a definition or a source alone selects nothing.
+
+Every source's binding files, including trusted sources, can name only their own servers by bare name. They cannot
+borrow config servers or another source's sign-in. Config bindings and included files outside sources can use full
+references. Explicit `ctxtra://work/...` includes carry that alias. Plain paths use their mapped pinned source,
+otherwise the innermost trusted source, otherwise config scope. One physical binding file cannot be included twice
+under different aliases. These MCP namespace rules do not change instruction-file trust rules.
+
+Tools keep the unqualified prefix: `work/linear` exports `linear__<tool>`. Repeated selections of the same identity
+add it once. Different selected identities with the same prefix keep the first: config bindings, then includes in
+order. The session summary, proxy instructions, explain, doctor and status report the suppressed identity. A winner
+that fails or lacks sign-in or approval never falls back to the other account. There are no package-definition
+rename, hide or settings overrides. To use a private OAuth app or different settings, define a config server and
+adjust your own bindings.
+
+The catalog is loaded on demand. Sessions read the manifests their bindings reference; list, doctor and setup
+can enumerate all sources. Pinned manifests use the accepted generation and store touch/size limits, never a fetch.
+`source check` validates the manifest and references without user config, credentials or network access. A source
+used only for MCP servers still participates in source-update notices.
+
+### Pinned-server approval
+
+Every pinned-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
+execution, even a remote endpoint needing no authentication. Accepting a source version is not this approval.
+Config and trusted-path definitions need no extra approval. Agent-native tool permission remains separate and
+comes too late to authorize server startup.
+
+`ctxtra mcp approve REF` shows the origin and operational declaration and asks in the user's terminal, default No.
+It connects to nothing and creates no credential key. Login offers the same separate consent before contacting an
+unapproved server. Show refuses until approved. Unattended input and `--no-input` cannot grant approval.
+
+Approval covers full identity, source origin and the operational definition: URL, headers, client ID, scopes and
+secret names, or argv, environment, inherited-variable names and secret-variable names. Notes and commit alone do
+not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
+that definition's repeated summary notice, not its state in diagnostics or any prefix-conflict warning.
+
+Source review shows operational and targeting changes. Accepting an update is all-or-nothing. A changed endpoint or
+command needs approval again, and its old credentials cannot go to the new target. A reviewed targeting expansion
+can give an unchanged approved server to more folders without another approval. Existing proxies keep their startup
+selection and definitions.
+
+`ctxtra mcp revoke REF` withdraws approval, not credentials or provider grants. New connections refuse it. Close
+existing sessions to stop their connections; immediate live revocation is not guaranteed. Logout does not revoke
+approval. Trusted sources read their manifests live without either pinned-source acceptance or this approval layer.
 
 ### The session's servers
 
@@ -765,8 +834,12 @@ mcp login NAME`. A 403 `insufficient_scope` records the scopes it asks for, for 
 the same way.
 
 `ctxtra mcp login NAME` signs in again; for a server without OAuth, or with `--secrets`, it asks for the secret
-values again. `ctxtra mcp logout NAME` deletes the tokens and secret values on this machine, like the agents'
-own logout; the provider isn't told, so the grant stays valid there until it expires or the user removes it.
+values again. Use a source server's full reference, for example `login work/linear`. Login does not override a
+package's client ID. `logout REF` deletes local tokens and secret values, including the client secret, but keeps
+client registration, callback-port settings and their stored binding, even when the selected config no longer declares
+that identity or declares a different target. The provider isn't told. Reauthorization does not reset an agent
+conversation or an already-open provider session; start new sessions after account changes. Local processes retain
+old environment secrets until they exit. A shorter configured scope list does not revoke previously granted access.
 
 ### Sign-in state and missing tools
 
@@ -810,14 +883,18 @@ reads them from stdin, one per line.
 | Path | Content |
 |---|---|
 | `credentials/<server>.v1.age` | The server's credentials, encrypted. `v1` is the format version. |
-| `state/<server>.json` | No secrets: whether the server is signed in, and why it needs sign-in. |
+| `state/<server>.json` | No secrets: binding, whether the server is signed in, and why it needs sign-in. |
+| `approval/<server>.json` | Machine-local approval or decline and its versioned operational fingerprint; no credentials. |
+| `approval/<server>.lock` | Separate lock for approval writes and reads; never held during credential or network work. |
+| `generations/<server>.json` | Secret-free generation marker that keeps pending authorization invalid after removal. |
 | `locks/<server>.lock`, `locks/.store.lock` | Locks for changes of one server's files, and for creating the key. |
 | `key.json` | No secrets: where the key is, `keychain` or `file`. |
 | `key` | The key, only when `key.json` says `file`. |
 
 The folder is readable by the user only (0700), and the files too (0600). Every save replaces the file in one
 step and is synced to the disk before ctxtra uses the new values: a failed save fails the command or the
-call.
+call. Credential readers wait for a writer to finish, including any rollback. Approval readers fail closed without
+waiting when an approval write is in progress, so hooks never wait for credential or network work.
 
 The key is an [age](https://age-encryption.org) X25519 key in the OS keychain: the login keychain on macOS, the
 Secret Service on Linux (service `ctxtra`, account `mcp-credentials`). Without a usable keychain, the key is the
@@ -832,15 +909,45 @@ proxy can't get the key, the servers that need it are left out. When the
 key is gone, the credentials can't be read: the next command that creates the key moves them to
 `credentials/unreadable`, and their servers need their values or sign-in again.
 
-Each server's credentials record its name and its URL, or its command for a local server. When the server's
-definition changes, ctxtra sends nothing and the values must be set again. Two configs (`$CTXTRA_CONFIG`) with
-a server of the same name and URL share its credentials; use different names for different accounts.
-Removing a server deletes its credentials.
+Each credential record binds full identity, source origin and canonical URL or exact command line. A mismatch sends
+nothing and needs new authorization or secret values. Config records retain an empty origin, so existing sign-ins
+need no migration. Git origin uses the remote spelling, local-git its clone identity, and trusted-path its real root;
+commit is excluded. Renaming a source, replacing its origin or converting it to trusted does not migrate credentials.
+No command copies rotating refresh grants between identities.
+
+Two configs (`$CTXTRA_CONFIG`) with the same identity, origin and target share credentials. Use different names or
+source aliases for separate accounts. Add rejects a conflicting stored binding before changing config, secrets or
+callback settings. For a matching stored binding, add reuses the shared record without starting authorization, and
+reports that reuse. It asks only for declared secret names the record has no value for, and merges them into the
+record under the generation check. It never replaces stored values or tokens. Without those values, for example with
+`--no-input` or empty stdin, add fails and changes nothing. A retained registration alone is not reported as usable
+credentials. Add rejects explicit client-secret or callback-port changes; use login after declaring the definition
+to change shared credentials. Login alone can replace a conflicting binding after explicit terminal consent
+explaining the shared effects.
+Binding and generation checks run under the same identity lock as the credential write, so an intervening sign-in
+cannot be silently replaced. Add keeps that lock while writing config, then saves secret settings only if the config
+write succeeds. If the settings save fails, it restores the previous config; a failure to restore it is reported.
+Login stages requested secret values until all prompts and OAuth succeed, then saves them with the new tokens in one write. Cancelling or failing replacement leaves the old credential record unchanged.
+A versioned, secret-free generation marker survives removal. It invalidates pending authorization even when no
+credentials existed yet or the removed legacy record had generation zero. Generations never move backwards,
+even after removal and re-addition or when the clock does not advance. Markers do not count as stored credentials.
+An interrupted authorization can be retried with login, not add. A definition saved before OAuth fails remains;
+command success alone is not proof of a completed sign-in. Human-readable server descriptions, notes and sign-in
+metadata escape terminal control characters. JSON catalog output preserves the metadata values.
+
+Removing a config server deletes its credentials and reports dangling bindings. Package definitions are read-only
+to mcp remove. Removing a source removes its includes, reports remaining references and cleanup commands, but keeps
+credentials because another config may use them. `mcp remove SOURCE/NAME` can delete leftover credentials once that
+identity is undeclared in the selected config. That deletion can still affect another config sharing the identity.
+It is not provider-side grant revocation. Logout without a stored credential record only advances cancellation
+history and clears local sign-in state. It does not create a placeholder binding.
 
 Sessions in every agent refresh a server's tokens at the same time safely: a refresh holds that server's lock
 while it reads the credentials again, asks for new tokens and saves them, and other sessions wait for it and
-use the new tokens. Every other change of a server's credentials takes the same lock. The locks use `flock`,
-which can be unreliable on a network home folder (NFS).
+use the new tokens. Reads of credential generations and usable tokens take shared locks and retain the cached
+encryption key. They do not create authorization markers. An unexpired token without a refresh grant stays usable
+until its expiry. Refresh attempts and credential or sign-in state changes take the exclusive lock.
+The locks use `flock`, which can be unreliable on a network home folder (NFS).
 
 The hook never reads the credentials or the key. Like the agents' own MCP sign-ins, the credentials protect
 against backups, sync tools and casual reads, not against the user's own processes: any process of the user
@@ -853,7 +960,7 @@ a newer format fails that server's calls with an upgrade hint, and changes nothi
 
 ### Setup
 
-With `CTXTRA_EXPERIMENTAL_MCP=1` and at least one MCP server in the config, `ctxtra setup` adds the entry to each
+With `CTXTRA_EXPERIMENTAL_MCP=1` and at least one MCP server in the config or a source catalog, `ctxtra setup` adds the entry to each
 agent it sets up. It never copies the user's servers into agent configs. Without servers, it adds no entry and
 keeps one that is there; `--remove` removes it.
 
@@ -875,6 +982,10 @@ between setup's read and its write, setup makes its edit again on the new conten
 The command is the ctxtra binary and its arguments are `mcp proxy AGENT`. Setup owns only the keys in the table
 and keeps every other key the user adds to the entry, such as an approval setting. An entry named `ctxtra` that
 doesn't run `ctxtra mcp proxy` is the user's: setup and `--remove` leave its file alone and say so.
+Setup keeps existing native provider entries, so an agent can show both native and ctxtra tools for the same provider.
+Agent tool permissions are separate from connection approval. An entry-wide allow rule covers servers bound later.
+A short-prefix rule can match different source identities and accounts in different folders; use the full identity
+in `ctxtra mcp status DIR` to check which server a folder selects.
 
 In Codex, the entry is a block between `# >>> ctxtra MCP server` and `# <<< ctxtra MCP server` lines. Setup
 rewrites only its own keys' lines in the block, and keeps the rest of the file byte for byte. `--remove` removes
@@ -927,8 +1038,9 @@ doesn't:
 - **`ctxtra mcp show` prints a local server's stderr** in the terminal, which can hold secrets. An agent that
   runs it reads that output. `ctxtra mcp status`, which the proxy's instructions point agents to, shows only
   a server's origin or program name, never a URL's path, its query or a command's arguments.
-- **Packages can't start commands.** A source's binding files can name servers but not declare them, so a
-  pinned package never makes the proxy start a program.
+- **Pinned commands need local approval.** A source catalog can declare programs. The proxy runs them only
+  after explicit machine-local consent to the operational definition. Binding files can name servers but cannot
+  declare or override them. Trusted source and config definitions do not need this extra approval.
 - **A problem in the proxy never fails a session:** a broken config, a failing server or missing credentials
   cost the tools they concern. Only a proxy that can't start at all, such as a moved ctxtra binary, stops a
   Codex session, whose entry is required.

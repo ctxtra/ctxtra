@@ -20,8 +20,9 @@ import (
 // For source check: problems after which a binding still applies are in
 // Warnings, not Problems.
 func LoadSource(dir, name string, files []string) *Config {
-	c := &Config{Sources: []Source{{Name: name, dir: dir}}, checking: true}
+	c := &Config{Sources: []Source{{Name: name, dir: dir}}, checking: true, mcpReader: fsutil.NewReader(MaxFileBytes, MaxSessionBytes)}
 	c.Trust = c.policy()
+	c.LoadMCPCatalog()
 	for _, f := range files {
 		c.BindingFiles = append(c.BindingFiles, f)
 		c.loadBindings(f, fsutil.NewReader(MaxFileBytes, MaxSessionBytes), &c.Sources[0])

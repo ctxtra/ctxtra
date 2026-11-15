@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
@@ -64,11 +65,17 @@ func (s *sources) review(r *source.Repo, src config.Source, commit string, full 
 	oldGen, newGen := src.Gen(), source.GenDir(src.Remote(), commit)
 	before := config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), src.Name, src.Commit)
 	after := config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), src.Name, commit)
+	before.LoadMCPSource(src.Name)
+	after.LoadMCPSource(src.Name)
 	u := &used{files: map[string]bool{}}
+	if experimental.MCP() {
+		u.files[config.MCPManifest] = true
+	}
 	u.add(before, oldGen)
 	u.add(after, newGen)
 
 	s.selectorWarnings(src, before, after, oldGen, newGen)
+	s.mcpDefinitionWarnings(src.Name, before, after)
 	s.mcpWarnings(before, after, oldGen, newGen)
 	// Problems introduced by the proposed source version.
 	for _, p := range after.Problems {
@@ -209,8 +216,7 @@ func (s *sources) selectorWarnings(src config.Source, before, after *config.Conf
 }
 
 // mcpWarnings lists the MCP servers that the source's bindings name, and
-// warns about each name a binding adds: the user's servers of that name
-// would reach the sessions the binding matches.
+// warns about each added reference to a package server.
 func (s *sources) mcpWarnings(before, after *config.Config, oldGen, newGen string) {
 	type key struct{ file, name string }
 	listed := func(cfg *config.Config, gen string) (map[key][]string, []key) {
@@ -243,7 +249,7 @@ func (s *sources) mcpWarnings(before, after *config.Config, oldGen, newGen strin
 			if sel[k].Global {
 				where = "in every session"
 			}
-			fmt.Fprintf(s.Out, "warning: binding %s in %s adds the MCP server %s: a server of yours with that name would be %s\n", k.name, k.file, name, where)
+			fmt.Fprintf(s.Out, "warning: binding %s in %s adds the MCP server %s: that package server would be %s\n", k.name, k.file, name, where)
 		}
 	}
 }

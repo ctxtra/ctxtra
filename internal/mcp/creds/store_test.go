@@ -141,15 +141,19 @@ func TestWriterDeletesOlderVersions(t *testing.T) {
 func TestOlderWriterKeepsNewerFields(t *testing.T) {
 	fake := oauthtest.New(t, oauthtest.Options{Lifetime: time.Second})
 	s, srv, _ := signedInStore(t, fake, t.TempDir())
+	generation, err := s.Generation(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A newer ctxtra added fields, at the top and in the token.
 	if _, err := s.Update(srv, false, func(r *Record) error {
 		var m map[string]any
 		json.Unmarshal(r.raw, &m)
 		m["account"] = map[string]any{"email": "a@example.com"}
 		m["token"].(map[string]any)["id_token"] = "idt"
-		m["generation"] = 7
+		m["generation"] = generation
 		r.raw, _ = json.Marshal(m)
-		r.Generation = 7
+		r.Generation = generation
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -164,7 +168,7 @@ func TestOlderWriterKeepsNewerFields(t *testing.T) {
 	}
 	var m map[string]any
 	json.Unmarshal(r.raw, &m)
-	if m["account"] == nil || m["token"].(map[string]any)["id_token"] != "idt" || r.Generation != 7 || fake.Refreshes() != 1 {
+	if m["account"] == nil || m["token"].(map[string]any)["id_token"] != "idt" || r.Generation != generation || fake.Refreshes() != 1 {
 		t.Errorf("record after refresh: %s", r.raw)
 	}
 }
@@ -515,7 +519,11 @@ func TestStaleSignIn(t *testing.T) {
 		t.Errorf("recreated: %+v %v", r, err)
 	}
 	fresh := fake.SignIn("app")
-	if _, err := s.SaveSignIn(srv, 0, fake.URL, c, Token{Access: fresh.AccessToken}); err != nil {
+	freshGeneration, err := s.Generation(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveSignIn(srv, freshGeneration, fake.URL, c, Token{Access: fresh.AccessToken}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SaveSignIn(srv, pending, fake.URL, c, Token{Access: second.AccessToken}); !errors.Is(err, ErrSignInChanged) {
@@ -726,8 +734,16 @@ func TestFailedRestore(t *testing.T) {
 	oldDir, oldFile := syncDir, syncFile
 	t.Cleanup(func() { syncDir, syncFile = oldDir, oldFile })
 	calls := 0
-	syncDir = func(string) error { return errors.New("I/O error") }
+	syncDir = func(dir string) error {
+		if dir == filepath.Join(s.Dir, "credentials") {
+			return errors.New("I/O error")
+		}
+		return oldDir(dir)
+	}
 	syncFile = func(f *os.File) error {
+		if filepath.Dir(f.Name()) != filepath.Join(s.Dir, "credentials") {
+			return oldFile(f)
+		}
 		calls++
 		if calls > 1 {
 			return errors.New("I/O error")

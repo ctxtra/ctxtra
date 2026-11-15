@@ -575,7 +575,7 @@ matches x itself.`,
 	f.StringArrayVar(&b.Repos, "repo", nil, "add it to sessions in repositories whose remote matches `PATTERN` (repeatable), such as github.com/acme/**")
 	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE` (repeatable); !FILE leaves files out")
 	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md (repeatable); !DIR leaves skills out")
-	f.StringArrayVar(&b.MCPServers, "mcp", nil, "add the MCP server `NAME` of the config (repeatable; experimental)")
+	f.StringArrayVar(&b.MCPServers, "mcp", nil, "add a config or source MCP server by `REF` (repeatable; experimental)")
 	if !experimental.MCP() {
 		_ = f.MarkHidden("mcp")
 	}

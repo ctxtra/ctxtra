@@ -305,12 +305,14 @@ func traces(res *resolve.Result) []traceInfo {
 			}
 		}
 		for _, name := range t.MCPServers {
-			i := slices.IndexFunc(res.MCPServers, func(m resolve.MCPServer) bool { return m.Name == name })
+			i := slices.IndexFunc(res.MCPServers, func(m resolve.MCPServer) bool { return m.ID == name })
 			switch {
 			case !t.Matched:
 				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "not added"})
 			case i >= 0 && res.MCPServers[i].Origin == t.Origin:
 				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "added"})
+			case i < 0:
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "skipped: shadowed by an earlier tool prefix; see problems"})
 			default:
 				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "skipped: already added by an earlier binding"})
 			}
@@ -439,6 +441,12 @@ type hookInfo struct {
 func (r report) doctor(dir string, asJSON bool) int {
 	ok := true
 	res, cfg := r.resolve(dir)
+	loadedProblems := len(cfg.Problems)
+	cfg.LoadMCPCatalog()
+	if experimental.MCP() {
+		cfg.Notes = append(cfg.Notes, mcpOrphans(cfg)...)
+	}
+	res.Problems = append(res.Problems, cfg.Problems[loadedProblems:]...)
 	_, statErr := os.Stat(cfg.File)
 	setups, _, _ := state.LoadSetups()
 	bin := running()
@@ -527,7 +535,11 @@ func (r report) doctor(dir string, asJSON bool) int {
 		fmt.Fprintln(r.Out, "\nMCP servers:")
 		fmt.Fprintf(r.Out, "  credentials: %s\n", keyNote())
 		for _, s := range mcpInfos(cfg) {
-			fmt.Fprintf(r.Out, "  %s: %s, %s\n", s.Name, s.Kind, s.SignIn)
+			fmt.Fprintf(r.Out, "  %s: %s, %s", s.ID, s.Kind, term.Sanitize(s.SignIn))
+			if s.Source != "" {
+				fmt.Fprintf(r.Out, ", %s", s.Approval)
+			}
+			fmt.Fprintln(r.Out)
 		}
 	}
 

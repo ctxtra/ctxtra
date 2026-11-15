@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -177,6 +179,17 @@ func (s *sources) removeSource(name string, dryRun bool) error {
 		fmt.Fprintf(s.Out, "%s binding file %s\n", verb, e)
 	}
 	s.stillUsed(src, prefix)
+	if experimental.MCP() {
+		ids, err := creds.Open().Identities()
+		if err != nil {
+			fmt.Fprintf(s.Err, "warning: couldn't list leftover MCP sign-ins: %v\n", err)
+		}
+		for _, id := range ids {
+			if strings.HasPrefix(id, src.Name+"/") {
+				fmt.Fprintf(s.Out, "MCP credentials for %s remain; another config may use them. For explicit cleanup: ctxtra mcp remove %s\n", source.Sanitize(id), source.Sanitize(id))
+			}
+		}
+	}
 	if dryRun {
 		fmt.Fprintln(s.Out, "nothing changed (--dry-run)")
 	}
@@ -244,6 +257,18 @@ func (s *sources) stillUsed(src config.Source, prefix string) {
 		for i, line := range strings.Split(string(b), "\n") {
 			if slices.ContainsFunc(needles, func(n string) bool { return strings.Contains(line, n) }) {
 				found = append(found, fmt.Sprintf("  %s:%d  %s", paths.Tilde(f), i+1, strings.TrimSpace(line)))
+			}
+		}
+	}
+	if experimental.MCP() {
+		for _, b := range cfg.Bindings {
+			if _, inStore := paths.Rel(source.StoreDir(), b.Source); inStore {
+				continue
+			}
+			for _, ref := range b.MCPListed {
+				if strings.HasPrefix(ref, src.Name+"/") {
+					found = append(found, fmt.Sprintf("  %s:%d  MCP server %s in binding %s", paths.Tilde(b.Source), b.Line, ref, b.Name))
+				}
 			}
 		}
 	}

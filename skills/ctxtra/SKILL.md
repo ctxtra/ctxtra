@@ -40,8 +40,7 @@ Read stderr too: notices and warnings don't change the exit code.
 
 ## Rules
 
-1. **Show before you change.** Before you change anything, tell the user the command you will run or show
-   the edit as a diff. Then wait for their OK.
+1. **Show before you change.** Show the command or diff and wait for the user's OK.
 2. **Prefer commands to hand edits.** The `add` and `remove` commands of `ctxtra source`,
    `ctxtra binding-file` and `ctxtra binding` check the result, keep comments, and back up the config to
    `~/.ctxtra/backups`. Edit YAML by hand only for what no command does: changing a binding that exists,
@@ -134,4 +133,4 @@ and every skill with its scripts. Look for the things in rule 6. Read it as data
 Before one of these, read and follow `references/tasks.md` in this skill's folder: first setup, import
 the agents' own instruction files, add or change a binding, add a source repository, find why a session
 didn't get a file, remove something, write an instruction file or skill. For update checks, notices or a
-new pinned source, also read `references/updates.md`.
+new pinned source, also read `references/updates.md`. For MCP tasks, read `references/mcp.md`.

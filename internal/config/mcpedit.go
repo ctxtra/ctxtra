@@ -8,10 +8,6 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// The commands that add and remove MCP servers write the provisional
-// format only through these functions, so that a new config format changes
-// one place.
-
 // NewMCPServer is a server for AddMCPServer, with its values as they are
 // written in the config.
 type NewMCPServer struct {

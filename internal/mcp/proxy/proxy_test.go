@@ -293,6 +293,8 @@ func TestInstructions(t *testing.T) {
 // The session's status record says which server was too slow for the
 // first tool list, and how long it took.
 func TestStatusRecord(t *testing.T) {
+	slow := testServer(t, "slow", "-delay", "1s")
+	slow.ID, slow.Source = "work/slow", "work"
 	var mu sync.Mutex
 	var recs []status.Record
 	s := startWith(t, t.TempDir(), 300*time.Millisecond, func(o *Options) {
@@ -301,7 +303,7 @@ func TestStatusRecord(t *testing.T) {
 			recs = append(recs, r)
 			mu.Unlock()
 		}
-	}, testServer(t, "fast"), testServer(t, "slow", "-delay", "1s"), upstream.Server{ID: "bad", Name: "bad", Command: []string{"/nonexistent/mcp"}},
+	}, testServer(t, "fast"), slow, upstream.Server{ID: "bad", Name: "bad", Command: []string{"/nonexistent/mcp"}},
 		testServer(t, "dies", "-exit-after", "150ms"))
 	deadline := time.After(10 * time.Second)
 	for !slices.Contains(toolNames(s.tools(t)), "slow__echo") {
@@ -325,12 +327,17 @@ func TestStatusRecord(t *testing.T) {
 		return m
 	}
 	first, last := byName(recs[0]), byName(recs[len(recs)-1])
-	if first["fast"].State != status.Ready || first["slow"].State != status.Missing || first["slow"].Reason != "too slow for the first tool list" ||
+	if first["fast"].State != status.Ready || first["work/slow"].State != status.Missing || first["work/slow"].Reason != "too slow for the first tool list" ||
 		first["bad"].State != status.Missing || first["bad"].Reason != "program not found" {
 		t.Errorf("first record: %+v", recs[0])
 	}
-	if last["slow"].State != status.Late || last["slow"].Ms < 1000 {
+	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 1000 {
 		t.Errorf("last record: %+v", recs[len(recs)-1])
+	}
+	for _, rec := range s.records() {
+		if rec.Event == "deadline" && (!slices.Contains(rec.Servers, "work/slow") || slices.Contains(rec.Servers, "slow")) {
+			t.Errorf("deadline uses a short name: %+v", rec)
+		}
 	}
 	if !strings.HasPrefix(last["dies"].Reason, "ended during the session") || last["dies"].State != status.Missing {
 		t.Errorf("a server that ended: %+v", last["dies"])
@@ -1070,7 +1077,7 @@ func TestServerEndsBeforeFirstList(t *testing.T) {
 // result is recorded after its end.
 func TestReportKeepsEnd(t *testing.T) {
 	var last status.Record
-	r := newReport(Options{Report: func(rec status.Record) { last = rec }}, []upstream.Server{{Name: "pg"}})
+	r := newReport(Options{Report: func(rec status.Record) { last = rec }}, []upstream.Server{{ID: "pg", Name: "pg"}})
 	r.flush()
 	r.end("pg", "ended during the session: exit status 1")
 	r.set("pg", status.Ready, "", 10)

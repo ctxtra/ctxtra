@@ -75,6 +75,9 @@ func (s *Store) fresh(r *Record) bool {
 	if r.Token.Expiry.IsZero() {
 		return true
 	}
+	if r.Token.Refresh == "" {
+		return s.now().Before(r.Token.Expiry)
+	}
 	margin := refreshMargin
 	if !r.Token.Obtained.IsZero() {
 		margin = min(margin, r.Token.Expiry.Sub(r.Token.Obtained)/2)
@@ -86,13 +89,13 @@ func (s *Store) fresh(r *Record) bool {
 func usable(srv upstream.Server, r *Record, err error) error {
 	switch {
 	case errors.Is(err, errUnreadable):
-		return &LoginError{Name: srv.Name, Reason: "its credentials can't be read"}
+		return &LoginError{Name: srv.ID, Reason: "its credentials can't be read"}
 	case err != nil:
 		return err
 	case r == nil || r.Token.Access == "":
-		return &LoginError{Name: srv.Name, Reason: "not signed in", Never: true}
+		return &LoginError{Name: srv.ID, Reason: "not signed in", Never: true}
 	case !r.Matches(srv):
-		return &LoginError{Name: srv.Name, Reason: "the sign-in was for another address"}
+		return &LoginError{Name: srv.ID, Reason: "the sign-in was for another address"}
 	}
 	return nil
 }
@@ -124,10 +127,13 @@ func (s *Store) loadShared(srv upstream.Server) (*Record, error) {
 	}
 	unlock, err := fsutil.LockShared(s.lockPath(fileID(srv.ID)), s.lockTimeout())
 	if err != nil {
-		return nil, s.lockError("the credentials of "+srv.Name, err)
+		return nil, s.lockError("the credentials of "+srv.ID, err)
 	}
 	defer unlock()
-	return s.Load(srv)
+	if err := s.checkVersion(srv.ID, srv.ID); err != nil {
+		return nil, err
+	}
+	return s.load(srv.ID)
 }
 
 // Rejected is Token after srv rejected the access token with 401: it
@@ -146,7 +152,7 @@ func (s *Store) refreshLocked(ctx context.Context, srv upstream.Server, rejected
 		return "", err
 	}
 	defer unlock()
-	if err := s.checkVersion(srv.ID, srv.Name); err != nil {
+	if err := s.checkVersion(srv.ID, srv.ID); err != nil {
 		return "", err
 	}
 	r, err := s.load(srv.ID)
@@ -172,7 +178,7 @@ func (s *Store) refreshLocked(ctx context.Context, srv upstream.Server, rejected
 		return "", s.needsLogin(srv, "the sign-in expired or was revoked")
 	}
 	if err != nil {
-		return "", fmt.Errorf("%s: refreshing the sign-in failed: %w", srv.Name, err)
+		return "", fmt.Errorf("%s: refreshing the sign-in failed: %w", srv.ID, err)
 	}
 	if tok.Refresh == "" {
 		tok.Refresh = r.Token.Refresh
@@ -182,7 +188,7 @@ func (s *Store) refreshLocked(ctx context.Context, srv upstream.Server, rejected
 	}
 	r.Token = tok
 	if err := s.save(r); err != nil {
-		return "", fmt.Errorf("the credentials of %s could not be saved: %w", srv.Name, err)
+		return "", fmt.Errorf("the credentials of %s could not be saved: %w", srv.ID, err)
 	}
 	_ = s.setState(srv, signedIn(r))
 	return tok.Access, nil
@@ -194,7 +200,7 @@ func (s *Store) needsLogin(srv upstream.Server, reason string) error {
 	_ = s.setState(srv, func(st *State) {
 		st.SignedIn, st.NeedsLogin, st.Reason = false, true, reason
 	})
-	return &LoginError{Name: srv.Name, Reason: reason}
+	return &LoginError{Name: srv.ID, Reason: reason}
 }
 
 // oauthErrors are the error codes of a token endpoint (RFC 6749 5.2,
@@ -344,7 +350,7 @@ func isLoopback(host string) bool {
 func (s *Store) NeedsLogin(srv upstream.Server, reason string, gen int64) error {
 	unlock, err := s.lock(srv)
 	if err != nil {
-		return &LoginError{Name: srv.Name, Reason: reason}
+		return &LoginError{Name: srv.ID, Reason: reason}
 	}
 	defer unlock()
 	cur := int64(0)
@@ -352,7 +358,7 @@ func (s *Store) NeedsLogin(srv upstream.Server, reason string, gen int64) error 
 		cur = r.Generation
 	}
 	if cur != gen {
-		return &LoginError{Name: srv.Name, Reason: reason}
+		return &LoginError{Name: srv.ID, Reason: reason}
 	}
 	return s.needsLogin(srv, reason)
 }
@@ -364,7 +370,7 @@ func (s *Store) StepUp(srv upstream.Server, scopes []string) error {
 	reason := "the server needs more permissions"
 	unlock, err := s.lock(srv)
 	if err != nil {
-		return &LoginError{Name: srv.Name, Reason: reason}
+		return &LoginError{Name: srv.ID, Reason: reason}
 	}
 	defer unlock()
 	_ = s.setState(srv, func(st *State) {
@@ -373,7 +379,7 @@ func (s *Store) StepUp(srv upstream.Server, scopes []string) error {
 		slices.Sort(st.Scopes)
 		st.Scopes = slices.Compact(st.Scopes)
 	})
-	return &LoginError{Name: srv.Name, Reason: reason}
+	return &LoginError{Name: srv.ID, Reason: reason}
 }
 
 // SignInState is srv's sign-in generation and whether it is signed in,

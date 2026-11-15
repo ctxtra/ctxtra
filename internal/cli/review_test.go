@@ -94,13 +94,13 @@ func TestMCPReview(t *testing.T) {
 	s.mcpWarnings(b(config.Selector{Global: true}, "linear"), b(config.Selector{Global: true}, "linear", "github"), "/gen", "/gen")
 	got := out.String()
 	if !strings.Contains(got, "MCP servers: binding all in b.yaml names linear, github\n") ||
-		!strings.Contains(got, "warning: binding all in b.yaml adds the MCP server github: a server of yours with that name would be in every session\n") ||
+		!strings.Contains(got, "warning: binding all in b.yaml adds the MCP server github: that package server would be in every session\n") ||
 		strings.Contains(got, "adds the MCP server linear") {
 		t.Errorf("%q", got)
 	}
 	out.Reset()
 	s.mcpWarnings(b(config.Selector{}), b(config.Selector{Dirs: []string{"/w/**"}}, "pg"), "/gen", "/gen")
-	if !strings.Contains(out.String(), "adds the MCP server pg: a server of yours with that name would be for /w/**") {
+	if !strings.Contains(out.String(), "adds the MCP server pg: that package server would be for /w/**") {
 		t.Errorf("%q", out.String())
 	}
 }
