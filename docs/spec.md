@@ -1188,6 +1188,39 @@ with its flags and examples. The commands that change the config are grouped by 
 - Paths in arguments are relative to the current folder; in the config they are relative to the config's
   folder.
 
+## Key lengths
+
+The keys ctxtra creates meet NIST's minimums through 2030: credentials are encrypted with age, which uses an
+X25519 key and ChaCha20-Poly1305 (128 bits of security or more), and sign-in uses PKCE with SHA-256.
+
+**HTTPS.** MCP servers, their authorization servers and the release check use TLS 1.2 or newer, and Go's
+certificate checks. By default, ctxtra trusts the system's certificates. Public certificate authorities don't
+issue certificates with RSA keys under 2048 bits, or elliptic curves under P-256. Go refuses RSA keys under
+1024 bits. Smaller keys than the minimums are possible only under a certificate you trust yourself, through
+`SSL_CERT_FILE`, `SSL_CERT_DIR` or the system.
+
+To refuse them completely, run ctxtra in Go's FIPS 140-3 mode:
+
+- Set `GODEBUG=fips140=on` where your agents start, for example in your shell profile. An agent that clears
+  the environment, such as Muse for its hooks, drops it; the release check started from such a session then
+  uses the defaults.
+- Or build ctxtra with it on by default: `GOFIPS140=latest go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest`.
+
+In this mode, every certificate of a server's chain needs an RSA key of 2048 bits or more, P-256, P-384,
+P-521, Ed25519 or ML-DSA. The mode changes more than key lengths, so a server may need to support it:
+connections use AES, not ChaCha20; key exchange uses P-256, P-384, P-521 or a hybrid with ML-KEM, not X25519
+alone; and TLS 1.2 needs extended master secret. Don't use `fips140=only`: it refuses X25519, so ctxtra
+can't read or save credentials.
+
+**Git.** ctxtra runs your `git` (see [How ctxtra runs git](#how-ctxtra-runs-git)), so its TLS library and
+your ssh decide which keys a server may use. To refuse RSA keys under 2048 bits over ssh, set
+`RequiredRSASize 2048` in `~/.ssh/config` (OpenSSH 9.1 or newer). Over HTTPS, see the settings of git's TLS
+library, for example OpenSSL's security level 2.
+
+A pinned source's `commit` is a git object ID, so its hash is the repository's object format: SHA-1 (160
+bits) in most repositories, SHA-256 in SHA-256 repositories. ctxtra supports both. By default, git computes
+SHA-1 with collision detection, which catches the known collision attacks.
+
 ## Limits
 
 | Limit | Value |
