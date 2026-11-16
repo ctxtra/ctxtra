@@ -334,7 +334,7 @@ func TestStatusRecord(t *testing.T) {
 	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 1000 {
 		t.Errorf("last record: %+v", recs[len(recs)-1])
 	}
-	if r := recs[0]; r.DeadlineMs != 300 || r.ListMs < 300 || r.ListMs > 2000 || r.ResolveMs > r.ListMs {
+	if r := recs[len(recs)-1]; r.DeadlineMs != 300 || r.ListMs < 300 || r.ListMs > 2000 || r.ResolveMs > r.ListMs {
 		t.Errorf("first list after %d ms, servers found after %d ms, deadline %d ms", r.ListMs, r.ResolveMs, r.DeadlineMs)
 	}
 	for _, rec := range s.records() {
@@ -379,29 +379,75 @@ func TestSlowServer(t *testing.T) {
 	}
 }
 
-// The record has when the first list was ready, not the deadline, and when
-// the proxy had found the folder's servers.
+// The record has when the first list was answered, not the deadline, when
+// the proxy had found the folder's servers, and how long reading a
+// server's credentials took.
 func TestStatusRecordTimes(t *testing.T) {
 	recs := make(chan status.Record, 10)
 	srv := testServer(t, "a")
+	srv.SecretEnv = []string{"PGPASSWORD"}
 	s := startWith(t, t.TempDir(), 20*time.Second, func(o *Options) {
 		o.Start = time.Now()
 		o.Servers = func(string) ([]upstream.Server, []string) {
 			time.Sleep(200 * time.Millisecond)
 			return []upstream.Server{srv}, nil
 		}
+		o.Secrets = slowSecrets{secrets{"a": {"PGPASSWORD": "x"}}, 300 * time.Millisecond}
 		o.Report = func(r status.Record) { recs <- r }
 	})
 	s.tools(t)
-	var r status.Record
-	select {
-	case r = <-recs:
-	case <-time.After(10 * time.Second):
-		t.Fatal("no record")
-	}
-	if r.DeadlineMs != 20000 || r.ResolveMs < 200 || r.ListMs < r.ResolveMs || r.ListMs > 10000 || r.Servers[0].Ms > r.ListMs {
+	r := answeredRecord(t, recs)
+	if r.DeadlineMs != 20000 || r.ResolveMs < 200 || r.ListMs < r.ResolveMs+300 || r.ListMs > 10000 ||
+		r.Servers[0].Ms > r.ListMs || r.Servers[0].CredMs < 300 || r.Servers[0].State != status.Ready {
 		t.Errorf("record: %+v", r)
 	}
+}
+
+// When finding the servers outlasts the deadline, the record says when the
+// agent's first list was answered: after initialize, which waits for the
+// servers a while, not when the deadline opened the list.
+func TestStatusRecordSlowResolution(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	s := startWith(t, t.TempDir(), 100*time.Millisecond, func(o *Options) {
+		o.Servers = func(string) ([]upstream.Server, []string) {
+			time.Sleep(400 * time.Millisecond)
+			return []upstream.Server{srv}, nil
+		}
+		o.Report = func(r status.Record) { recs <- r }
+	})
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.ListMs < 400 || r.ResolveMs < 400 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// answeredRecord is the first record from recs that has the first list's
+// answer.
+func answeredRecord(t *testing.T, recs <-chan status.Record) status.Record {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case r := <-recs:
+			if r.ListMs > 0 {
+				return r
+			}
+		case <-timeout:
+			t.Fatal("no record with the first list's answer")
+		}
+	}
+}
+
+// slowSecrets are secrets that take d to read, like a keychain.
+type slowSecrets struct {
+	secrets
+	d time.Duration
+}
+
+func (s slowSecrets) Secrets(srv upstream.Server) (map[string]string, map[string]string, error) {
+	time.Sleep(s.d)
+	return s.secrets.Secrets(srv)
 }
 
 // Without slow servers, the first list doesn't wait for the deadline.
@@ -1106,7 +1152,7 @@ func TestServerEndsBeforeFirstList(t *testing.T) {
 func TestReportKeepsEnd(t *testing.T) {
 	var last status.Record
 	r := newReport(Options{Report: func(rec status.Record) { last = rec }}, []upstream.Server{{ID: "pg", Name: "pg"}})
-	r.flush(0)
+	r.flush()
 	r.end("pg", "ended during the session: exit status 1")
 	r.set("pg", status.Ready, "", 10)
 	if last.Servers[0].State != status.Missing {

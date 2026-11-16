@@ -86,6 +86,13 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 	if o.Approval == nil {
 		o.Approval = creds.Open().RequireApproval
 	}
+	creds := &credTimer{}
+	if o.Secrets != nil {
+		o.Secrets = timedSecrets{o.Secrets, creds}
+	}
+	if o.Tokens != nil {
+		o.Tokens = timedTokens{o.Tokens, creds}
+	}
 	if o.Connect == nil {
 		o.Connect = Dialer{Secrets: o.Secrets, Tokens: o.Tokens, Approval: o.Approval}.Dial
 	}
@@ -101,7 +108,7 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := &proxy{o: o, ctx: ctx, ready: make(chan struct{}), tools: map[string]route{}, progress: map[string]*progressQueue{},
-		latest: map[string][]*mcp.Tool{}, resolved: make(chan struct{})}
+		latest: map[string][]*mcp.Tool{}, resolved: make(chan struct{}), creds: creds}
 	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra", Version: o.Version}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
 	})
@@ -182,7 +189,6 @@ type proxy struct {
 
 	ready     chan struct{} // closed when the first tool list may be answered
 	readyOnce sync.Once
-	opened    time.Time // when ready was closed; read after ready
 
 	mu        sync.Mutex
 	upstreams []*Upstream
@@ -193,7 +199,12 @@ type proxy struct {
 	stopping  bool                      // no more upstreams are added
 	ended     map[*Upstream]bool        // servers that ended during the session
 
-	report *report
+	report *report // set under mu: the first answer reads it
+
+	answerOnce sync.Once
+	answeredAt time.Duration // when the first tool list was answered, 0 before; under mu
+
+	creds *credTimer
 
 	resolved chan struct{}     // closed when bound is set
 	bound    []upstream.Server // the session's servers
@@ -337,7 +348,7 @@ func (r *report) update(name, state, reason string, ms int64, ended bool) {
 	}
 	for i := range r.rec.Servers {
 		if r.rec.Servers[i].Name == name {
-			r.rec.Servers[i] = status.Server{Name: name, State: state, Reason: reason, Ms: ms}
+			r.rec.Servers[i] = status.Server{Name: name, State: state, Reason: reason, Ms: ms, CredMs: r.rec.Servers[i].CredMs}
 		}
 	}
 	if r.written {
@@ -345,15 +356,42 @@ func (r *report) update(name, state, reason string, ms int64, ended bool) {
 	}
 }
 
-// flush writes the record, the first time when the first tool list was
-// ready, list after the proxy's start.
-func (r *report) flush(list time.Duration) {
+// creds records how long reading name's credentials took while it
+// connected; the next write has it.
+func (r *report) creds(name string, d time.Duration) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.rec.Servers {
+		if r.rec.Servers[i].Name == name {
+			r.rec.Servers[i].CredMs = d.Milliseconds()
+		}
+	}
+}
+
+// answered records when the agent's first tool list was answered.
+func (r *report) answered(list time.Duration) {
 	if r == nil || r.write == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.rec.ListMs = list.Milliseconds()
+	r.rec.ListMs = max(list.Milliseconds(), 1)
+	if r.written {
+		r.write(r.copyLocked())
+	}
+}
+
+// flush writes the record, the first time when the first tool list was
+// ready.
+func (r *report) flush() {
+	if r == nil || r.write == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.written = true
 	r.write(r.copyLocked())
 }
@@ -383,16 +421,26 @@ func (p *proxy) waitForTools(next mcp.MethodHandler) mcp.MethodHandler {
 				return nil, ctx.Err()
 			}
 		}
-		return next(ctx, method, req)
+		res, err := next(ctx, method, req)
+		if method == "tools/list" && err == nil {
+			p.answerOnce.Do(p.answered)
+		}
+		return res, err
 	}
 }
 
-func (p *proxy) open() {
-	p.readyOnce.Do(func() {
-		p.opened = time.Now()
-		close(p.ready)
-	})
+// answered records the answer to the agent's first tool list: the wait
+// the session sees, also when the agent asks late.
+func (p *proxy) answered() {
+	at := time.Since(p.o.Start)
+	p.mu.Lock()
+	p.answeredAt = at
+	r := p.report
+	p.mu.Unlock()
+	r.answered(at)
 }
+
+func (p *proxy) open() { p.readyOnce.Do(func() { close(p.ready) }) }
 
 // start resolves the session's servers and connects to all of them at
 // once. The first tool list waits for all of them, or until the deadline.
@@ -437,14 +485,19 @@ func (p *proxy) start(ctx context.Context) {
 	}
 	p.bound = servers
 	close(p.resolved)
+	p.mu.Lock()
 	p.report = newReport(p.o, servers)
+	if p.answeredAt > 0 {
+		p.report.answered(p.answeredAt)
+	}
+	p.mu.Unlock()
 	if p.isOpen() {
 		// The first list was answered while the servers were being found:
 		// each is missing from it, and may follow.
 		for _, s := range servers {
 			p.report.set(s.ID, status.Missing, "too slow for the first tool list: finding the folder's servers took too long", 0)
 		}
-		p.report.flush(p.opened.Sub(p.o.Start))
+		p.report.flush()
 	}
 	type result struct {
 		s     upstream.Server
@@ -478,6 +531,7 @@ func (p *proxy) start(ctx context.Context) {
 		select {
 		case r := <-results:
 			delete(waiting, r.s.ID)
+			p.report.creds(r.s.ID, p.creds.of(r.s.ID))
 			rec := Record{Event: "connect", Server: r.s.ID, Ms: r.took.Milliseconds(), Tools: len(r.tools)}
 			if r.err != nil {
 				rec.Error = errorKind(r.err)
@@ -516,7 +570,7 @@ func (p *proxy) start(ctx context.Context) {
 			}
 			p.publish(first)
 			p.open()
-			p.report.flush(p.opened.Sub(p.o.Start))
+			p.report.flush()
 		case <-ctx.Done():
 			return
 		}
@@ -527,7 +581,7 @@ func (p *proxy) start(ctx context.Context) {
 	}
 	// Also when the first list was answered while the servers were still
 	// being resolved: they all came late.
-	p.report.flush(p.opened.Sub(p.o.Start))
+	p.report.flush()
 }
 
 // awaitSignIn connects to s, which needs sign-in, once its state file
@@ -1016,4 +1070,53 @@ func (p *proxy) relist(ctx context.Context, up *Upstream, changed <-chan struct{
 		}
 		p.mu.Unlock()
 	}
+}
+
+// credTimer adds up, per server, the time spent reading its credentials:
+// ctxtra's own work in a server's start, such as reading the keychain.
+type credTimer struct {
+	mu   sync.Mutex
+	took map[string]time.Duration
+}
+
+func (c *credTimer) add(s upstream.Server, began time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.took == nil {
+		c.took = map[string]time.Duration{}
+	}
+	c.took[s.ID] += time.Since(began)
+}
+
+func (c *credTimer) of(id string) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.took[id]
+}
+
+type timedSecrets struct {
+	inner Secrets
+	t     *credTimer
+}
+
+func (s timedSecrets) Secrets(srv upstream.Server) (map[string]string, map[string]string, error) {
+	defer s.t.add(srv, time.Now())
+	return s.inner.Secrets(srv)
+}
+
+// timedTokens times reading tokens, which can refresh one over the
+// network; a refresh after a rejection isn't counted.
+type timedTokens struct {
+	Tokens
+	t *credTimer
+}
+
+func (k timedTokens) Token(ctx context.Context, s upstream.Server) (string, error) {
+	defer k.t.add(s, time.Now())
+	return k.Tokens.Token(ctx, s)
+}
+
+func (k timedTokens) CredentialGeneration(s upstream.Server) (int64, error) {
+	defer k.t.add(s, time.Now())
+	return k.Tokens.CredentialGeneration(s)
 }

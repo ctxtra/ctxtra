@@ -749,7 +749,8 @@ approval. Trusted sources read their manifests live without either pinned-source
   it (Codex) don't get its tools in that session.
 - ctxtra's own start, from the proxy's start until it has found the folder's servers, stays under 300 ms; a test
   checks it. Most of it is two git calls in the session folder: about 0.05 s in all on an idle machine, up to
-  0.2 s while the agent starts next to it. The rest of the wait for the first list is the servers' own start.
+  0.2 s while the agent starts next to it. The rest of the wait for the first list is reading each server's
+  credentials (about 0.03 s from the keychain) and the servers' own start.
 - A problem never breaks a session: with a broken config, a failing server or no bound server, the proxy starts
   and serves the tools it can, or none, and logs the problem. A server whose tool list has more than 2,000 tools
   or 8 MiB, or that pages without end, is left out. A server that ends during the session is stopped with the
@@ -858,19 +859,21 @@ has no state, and no line.
 
 The proxy records, per session folder, what the last session started there got from each bound server: its
 tools in the first tool list, later (too slow for it, or signed in during the session; Codex and Muse don't
-get those tools), or none, and why. It also records when the first tool list was ready, and when the proxy had
-found the folder's servers (ctxtra's own start). Both count from the proxy's start. A server's time includes
-reading its credentials. `ctxtra mcp status [DIR]` shows that record with the folder's servers and their
-sign-in state, from local files only:
+get those tools), or none, and why. It also records when it answered the agent's first tool list, and when it
+had found the folder's servers (ctxtra's own start). Both count from the proxy's start; an agent that asks for
+the list late adds its own wait. A server's time includes reading its credentials (the keychain, or a token
+refresh), which the record keeps apart. `ctxtra mcp status [DIR]` shows that record with the folder's servers
+and their sign-in state, from local files only:
 
 ```text
 the last session here (codex, 2026-11-10 14:08:19):
   first tool list after 10.0 s (waits up to 10.0 s); ctxtra's own start took 0.05 s
-  linear_work  ready after 0.4 s
+  linear_work  ready after 0.4 s (reading its credentials: 0.03 s)
   pg  later: too slow for the first tool list, after 15.2 s; this session didn't get its tools
 ```
 
-"waits up to" is the agent's deadline. A record of an older version has only that.
+"waits up to" is the agent's deadline. A record of an older version has only that. Credential times under 10 ms
+aren't shown.
 
 The records are in `~/.ctxtra/mcp/status`, one per folder, so a session in one folder never changes another's.
 

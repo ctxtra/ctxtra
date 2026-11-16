@@ -79,10 +79,14 @@ func (a *app) mcpStatus(dir string) int {
 		return 0
 	}
 	fmt.Fprintf(out, "\nthe last session here (%s, %s):\n", rec.Agent, rec.Started.Local().Format(time.DateTime))
-	if rec.ListMs > 0 {
-		fmt.Fprintf(out, "  first tool list after %s (waits up to %s); ctxtra's own start took %s\n",
-			seconds(rec.ListMs), seconds(rec.DeadlineMs), fmt.Sprintf("%.2f s", float64(rec.ResolveMs)/1000))
-	} else {
+	own := fmt.Sprintf("; ctxtra's own start took %.2f s", float64(rec.ResolveMs)/1000)
+	switch {
+	case rec.ListMs > 0:
+		fmt.Fprintf(out, "  first tool list after %s (waits up to %s)%s\n", seconds(rec.ListMs), seconds(rec.DeadlineMs), own)
+	case rec.ResolveMs > 0:
+		fmt.Fprintf(out, "  no tool list answered yet (waits up to %s)%s\n", seconds(rec.DeadlineMs), own)
+	default:
+		// A record of a version without the times.
 		fmt.Fprintf(out, "  first tool list waits up to %s\n", seconds(rec.DeadlineMs))
 	}
 	late := "added with a tool list change"
@@ -92,14 +96,23 @@ func (a *app) mcpStatus(dir string) int {
 	for _, s := range rec.Servers {
 		switch s.State {
 		case sessionstatus.Ready:
-			fmt.Fprintf(out, "  %s  ready after %s\n", s.Name, seconds(s.Ms))
+			fmt.Fprintf(out, "  %s  ready after %s%s\n", s.Name, seconds(s.Ms), credTime(s))
 		case sessionstatus.Late:
-			fmt.Fprintf(out, "  %s  later: %s, after %s; %s\n", s.Name, s.Reason, seconds(s.Ms), late)
+			fmt.Fprintf(out, "  %s  later: %s, after %s%s; %s\n", s.Name, s.Reason, seconds(s.Ms), credTime(s), late)
 		default:
 			fmt.Fprintf(out, "  %s  missing: %s\n", s.Name, s.Reason)
 		}
 	}
 	return 0
+}
+
+// credTime is the part of a server's start that ctxtra spent reading its
+// credentials, when it is worth showing.
+func credTime(s sessionstatus.Server) string {
+	if s.CredMs < 10 {
+		return ""
+	}
+	return fmt.Sprintf(" (reading its credentials: %.2f s)", float64(s.CredMs)/1000)
 }
 
 func seconds(ms int64) string {
