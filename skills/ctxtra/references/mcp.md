@@ -2,7 +2,8 @@
 
 MCP requires `CTXTRA_EXPERIMENTAL_MCP=1` for commands and agents. Read `ctxtra help config` before editing its
 definitions. Use `ctxtra mcp list --json` for the catalog and `ctxtra mcp status DIR` for a folder's selection and
-missing tools. Status reads only local files and has no JSON flag.
+missing tools, and for how long the last session's first tool list took. "waits up to" in its output is the
+agent's deadline, not the time it took. Status reads only local files and has no JSON flag.
 
 Config servers use bare identities; source servers use full references such as `work/linear`. Recovery hints and
 login/logout use that full reference. Tools retain the short prefix `linear__`. A same-prefix conflict keeps the

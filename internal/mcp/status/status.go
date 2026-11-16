@@ -33,8 +33,14 @@ type Record struct {
 	Dir     string    `json:"dir"`
 	Agent   string    `json:"agent"`
 	Started time.Time `json:"started"`
-	// Deadline is how long the proxy waited for the first tool list.
+	// DeadlineMs is how long the proxy waits at most for the first tool
+	// list. ListMs is when it answered the agent's first tool list, 0
+	// before; ResolveMs when it had found the folder's servers: ctxtra's
+	// own start. Both count from the proxy's start, and are 0 in records
+	// of versions without them.
 	DeadlineMs int64    `json:"deadline_ms"`
+	ListMs     int64    `json:"list_ms,omitempty"`
+	ResolveMs  int64    `json:"resolve_ms,omitempty"`
 	Servers    []Server `json:"servers"`
 }
 
@@ -43,9 +49,11 @@ type Server struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 	// Reason says why it is missing, or late; Ms is how long it took to
-	// answer, 0 when it never did.
+	// answer, 0 when it never did. CredMs is the part of its start that
+	// ctxtra spent reading its credentials.
 	Reason string `json:"reason,omitempty"`
 	Ms     int64  `json:"ms,omitempty"`
+	CredMs int64  `json:"cred_ms,omitempty"`
 }
 
 // Dir is where the records are.

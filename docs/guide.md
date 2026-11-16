@@ -454,12 +454,13 @@ What to keep in mind:
   show you. Until then it registers itself with each authorization server.
 
 When a session lacks a server's tools, `ctxtra mcp status` in that folder says why: the server needs sign-in,
-failed, or was too slow for the agent's first tool list. The session summary also names servers that need
-sign-in.
+failed, or was too slow for the agent's first tool list. It also shows how long the first tool list took, and
+how much of that was ctxtra's own start. The session summary also names servers that need sign-in.
 
 A session's servers are fixed when it starts; their tools can still change. ctxtra waits for slow servers only as long as each agent
-waits for it: 1.5 seconds in Claude Code (later tools follow in its interactive mode), up to 10 in the others.
-A server that starts slower, such as one run with `npx`, can be missing from that session. In Codex, the
+waits for it: 1.5 seconds in Claude Code (later tools follow in its interactive mode), up to 8 in Pi, up to 10
+in the others. One slow server holds back the first tool list of all of them until then. A server that starts
+slower, such as one run with `npx`, can be missing from that session. In Codex, the
 `ctxtra` server is required: if the ctxtra binary moves, Codex doesn't start until you run `ctxtra setup` again.
 Logs are in `~/.ctxtra/log.jsonl`.
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -195,6 +196,12 @@ bindings:
 		}
 		// The probe's own runs from mcp show don't count.
 		os.Remove(alphaLog)
+		// The git shim of macOS keeps a cache in TMPDIR, which is new for
+		// each test: without it, git takes over 0.1 s per call, which a
+		// user's sessions don't pay.
+		warm := exec.Command("git", "-C", s.Path("dev/a"), "rev-parse", "--git-common-dir")
+		warm.Env = s.Env()
+		_ = warm.Run()
 
 		s.Run(s.Path("dev/a"), driver.Options{}, mcpScript(a.Name(), alpha["probe_ping"], long)...)
 		calls, _ := probeCalls(t, alphaLog)
@@ -204,6 +211,7 @@ bindings:
 		if _, starts := probeCalls(t, betaLog); starts > 0 {
 			t.Errorf("beta started %d times for a session in dev/a", starts)
 		}
+		checkStartTime(t, s, "dev/a")
 
 		_, alphaStarts := probeCalls(t, alphaLog)
 		s.Run(s.Path("dev/b"), driver.Options{}, mcpScript(a.Name(), "beta__probe_ping")...)
@@ -232,6 +240,27 @@ bindings:
 			t.Errorf("beta started for a session in dev/c")
 		}
 	})
+}
+
+// startLine is ctxtra mcp status's line about the first tool list.
+var startLine = regexp.MustCompile(`(?m)^  first tool list after ([0-9.]+) s \(waits up to [0-9.]+ s\); ctxtra's own start took ([0-9.]+) s$`)
+
+// checkStartTime checks, from ctxtra mcp status, that the last session in
+// dir had its first tool list within a second, with a fast server. Its
+// share of ctxtra's own start is logged only: the agents starting next to
+// it slow it down. The unit tests check its budget.
+func checkStartTime(t *testing.T, s *Session, dir string) {
+	t.Helper()
+	out := s.Ctxtra("mcp", "status", s.Path(dir))
+	m := startLine.FindStringSubmatch(out)
+	if m == nil {
+		t.Errorf("no first tool list in ctxtra mcp status:\n%s", out)
+		return
+	}
+	t.Logf("%s", strings.TrimSpace(m[0]))
+	if list, _ := strconv.ParseFloat(m[1], 64); list >= 1 {
+		t.Errorf("first tool list after %s s, ctxtra's own start %s s", m[1], m[2])
+	}
 }
 
 // A bound server that fails to start costs only its own tools: the

@@ -334,6 +334,9 @@ func TestStatusRecord(t *testing.T) {
 	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 1000 {
 		t.Errorf("last record: %+v", recs[len(recs)-1])
 	}
+	if r := recs[len(recs)-1]; r.DeadlineMs != 300 || r.ListMs < 300 || r.ListMs > 2000 || r.ResolveMs > r.ListMs {
+		t.Errorf("first list after %d ms, servers found after %d ms, deadline %d ms", r.ListMs, r.ResolveMs, r.DeadlineMs)
+	}
 	for _, rec := range s.records() {
 		if rec.Event == "deadline" && (!slices.Contains(rec.Servers, "work/slow") || slices.Contains(rec.Servers, "slow")) {
 			t.Errorf("deadline uses a short name: %+v", rec)
@@ -374,6 +377,142 @@ func TestSlowServer(t *testing.T) {
 	if !slices.Contains(events, "deadline:slow") || !slices.Contains(events, "late:slow") {
 		t.Errorf("log %v", events)
 	}
+}
+
+// The record has when the first list was answered, not the deadline, when
+// the proxy had found the folder's servers, and how long reading a
+// server's credentials took.
+func TestStatusRecordTimes(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	srv.SecretEnv = []string{"PGPASSWORD"}
+	s := startWith(t, t.TempDir(), 20*time.Second, func(o *Options) {
+		o.Start = time.Now()
+		o.Servers = func(string) ([]upstream.Server, []string) {
+			time.Sleep(200 * time.Millisecond)
+			return []upstream.Server{srv}, nil
+		}
+		o.Secrets = slowSecrets{secrets{"a": {"PGPASSWORD": "x"}}, 300 * time.Millisecond}
+		o.Report = func(r status.Record) { recs <- r }
+	})
+	s.tools(t)
+	r := answeredRecord(t, recs)
+	if r.DeadlineMs != 20000 || r.ResolveMs < 200 || r.ListMs < r.ResolveMs+300 || r.ListMs > 10000 ||
+		r.Servers[0].Ms > r.ListMs || r.Servers[0].CredMs < 300 || r.Servers[0].State != status.Ready {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// When finding the servers outlasts the deadline, the record says when the
+// agent's first list was answered: after initialize, which waits for the
+// servers a while, not when the deadline opened the list.
+func TestStatusRecordSlowResolution(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	s := startWith(t, t.TempDir(), 100*time.Millisecond, func(o *Options) {
+		o.Servers = func(string) ([]upstream.Server, []string) {
+			time.Sleep(400 * time.Millisecond)
+			return []upstream.Server{srv}, nil
+		}
+		o.Report = func(r status.Record) { recs <- r }
+	})
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.ListMs < 400 || r.ResolveMs < 400 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// A slow write of the record doesn't hold up the first answer.
+func TestSlowRecordWrite(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	s := startWith(t, t.TempDir(), 5*time.Second, func(o *Options) {
+		o.Report = func(r status.Record) {
+			time.Sleep(time.Second)
+			recs <- r
+		}
+	}, testServer(t, "a"))
+	began := time.Now()
+	s.tools(t)
+	if took := time.Since(began); took > 800*time.Millisecond {
+		t.Errorf("the first list took %v", took)
+	}
+	answeredRecord(t, recs)
+}
+
+// A server that came after the deadline but before the agent asked for
+// its first list was in that list: the record says ready.
+func TestLateServerInFirstAnswer(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	s := startWith(t, t.TempDir(), 100*time.Millisecond, func(o *Options) {
+		o.Report = func(r status.Record) { recs <- r }
+	}, testServer(t, "a", "-delay", "300ms"))
+	time.Sleep(1500 * time.Millisecond)
+	if got := toolNames(s.tools(t)); !slices.Contains(got, "a__echo") {
+		t.Fatalf("first list %v", got)
+	}
+	r := answeredRecord(t, recs)
+	if r.ListMs < 1500 || r.Servers[0].State != status.Ready {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// A server too slow for the first list has the time spent reading its
+// credentials.
+func TestPendingCredentialTime(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a", "-delay", "5s")
+	srv.SecretEnv = []string{"PGPASSWORD"}
+	s := startWith(t, t.TempDir(), 500*time.Millisecond, func(o *Options) {
+		o.Secrets = slowSecrets{secrets{"a": {"PGPASSWORD": "x"}}, 300 * time.Millisecond}
+		o.Report = func(r status.Record) { recs <- r }
+	}, srv)
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.Servers[0].State != status.Missing || r.Servers[0].CredMs < 300 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// A server whose credentials fail has their reading time too.
+func TestFailedCredentialTime(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	srv.SecretEnv = []string{"PGPASSWORD"}
+	s := startWith(t, t.TempDir(), 5*time.Second, func(o *Options) {
+		o.Secrets = slowSecrets{secrets{}, 300 * time.Millisecond}
+		o.Report = func(r status.Record) { recs <- r }
+	}, srv)
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.Servers[0].State != status.Missing || r.Servers[0].CredMs < 300 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// answeredRecord is the first record from recs that has the first list's
+// answer.
+func answeredRecord(t *testing.T, recs <-chan status.Record) status.Record {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case r := <-recs:
+			if r.ListMs > 0 {
+				return r
+			}
+		case <-timeout:
+			t.Fatal("no record with the first list's answer")
+		}
+	}
+}
+
+// slowSecrets are secrets that take d to read, like a keychain.
+type slowSecrets struct {
+	secrets
+	d time.Duration
+}
+
+func (s slowSecrets) Secrets(srv upstream.Server) (map[string]string, map[string]string, error) {
+	time.Sleep(s.d)
+	return s.secrets.Secrets(srv)
 }
 
 // Without slow servers, the first list doesn't wait for the deadline.
