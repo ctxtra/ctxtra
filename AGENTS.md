@@ -31,6 +31,10 @@ cd e2e && go test -count=1 ./...      # agent contract tests, a separate module:
   it adds nothing. Update checks run in a detached process and only record what they find (docs/spec.md,
   Update checks).
 - Update the docs in the same change as the behavior. Write them in short, plain sentences.
+- Add an entry to `CHANGELOG.md` under `Unreleased` for user-visible changes. Internal refactoring,
+  tests, and CI-only changes do not need entries.
+- Put all changes related to experimental features under a `### Experimental` heading within the
+  relevant changelog release section, including fixes and diagnostics for those features.
 - Comments describe what the code does and why, not how it got there. No comment is better than one that
   restates the code or will go stale.
 - Commit messages: one short line, no body.
