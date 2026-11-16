@@ -298,7 +298,7 @@ func SystemMessage(event, msg string) string {
 // summaryNames limits inline name lists in diagnostics.
 const summaryNames = 3
 
-// Summary lists the instructions and skills the session got, by source, as
+// Summary lists the instructions, skills and MCP servers the session got, by source, as
 // res.Summary chooses, followed by notices. It is "" when ctxtra added nothing and has nothing to
 // say.
 func Summary(res *resolve.Result) string {
@@ -322,6 +322,18 @@ func Summary(res *resolve.Result) string {
 			lists, cut = append(lists, list), cut || c
 		}
 	}
+	if n := len(res.MCPServers); n > 0 {
+		added = append(added, plural(n, "MCP server"))
+		hits := make([]resolve.Hit, 0, n)
+		for _, server := range res.MCPServers {
+			hits = append(hits, resolve.Hit{Name: server.ID, Source: server.Source})
+		}
+		list, c := summaryList("MCP servers", hits, func(h resolve.Hit) string { return h.Name }, "", 30)
+		lists = append(lists, list)
+		if c {
+			lists = append(lists, FullMCPList)
+		}
+	}
 	if cut {
 		lists = append(lists, FullList)
 	}
@@ -343,7 +355,11 @@ func Summary(res *resolve.Result) string {
 	}
 	s := "ctxtra added nothing"
 	if len(added) > 0 {
-		s = "✓ ctxtra added " + strings.Join(added, " and ")
+		s = "✓ ctxtra added "
+		if len(added) > 1 {
+			s += strings.Join(added[:len(added)-1], ", ") + " and "
+		}
+		s += added[len(added)-1]
 	}
 	if len(issues) > 0 {
 		s += "; " + strings.Join(issues, ", ") + " (run ctxtra doctor)"
@@ -398,6 +414,7 @@ const (
 	GroupIndent = "  "
 	EntryPrefix = "  - "
 	FullList    = "Full list: ctxtra context files"
+	FullMCPList = "Full MCP list: ctxtra context explain"
 )
 
 // fileEntry is a file by its path in its source; outside sources, by its

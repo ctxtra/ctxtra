@@ -7,14 +7,14 @@ mkdir dev/app other
 
 # No session has tried the server yet: no state, no line.
 runhook claude SessionStart dev/app
-stdout '"systemMessage":"✓ ctxtra added 1 instruction\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md"'
+stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\nMCP servers:\\n  local\\n  - linear_work"'
 ! stdout 'needs sign-in'
 
 # A session found that it needs sign-in.
 mkdir .ctxtra/mcp/state
 cp state.json .ctxtra/mcp/state/linear_work.json
 runhook claude SessionStart dev/app
-stdout '"systemMessage":"✓ ctxtra added 1 instruction\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\n\\n⚠ linear_work needs sign-in: run ctxtra mcp login linear_work"'
+stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\nMCP servers:\\n  local\\n  - linear_work\\n\\n⚠ linear_work needs sign-in: run ctxtra mcp login linear_work"'
 ! stdout 'CTXMARK-SECRET'
 ! exists .ctxtra/mcp/key.json
 
