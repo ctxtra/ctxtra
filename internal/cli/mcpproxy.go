@@ -44,7 +44,7 @@ func runProxy(args []string, stdio IO, version string) int {
 	store.KeyTimeout = 3 * time.Second
 	o := proxy.Options{Agent: agent, Version: version, Dir: dir, Start: started, Servers: sessionServers, Log: log,
 		Deadline: mcpDeadline(agent), Secrets: store, Tokens: store, SignInState: store.SignInState,
-		KeepsFirstList: agent == "codex" || agent == "muse",
+		KeepsFirstList: keepsFirstList(agent),
 		NeedsSignIn: func(s upstream.Server) bool {
 			st, err := store.State(s)
 			return err == nil && st.NeedsLogin
@@ -105,6 +105,10 @@ func sessionServers(dir string) ([]upstream.Server, []string) {
 	}
 	return out, res.Problems
 }
+
+// keepsFirstList reports whether agent ignores tool list changes: tools
+// that come after its first list reach a new session only.
+func keepsFirstList(agent string) bool { return agent == "codex" || agent == "muse" }
 
 type nopWriteCloser struct{ io.Writer }
 

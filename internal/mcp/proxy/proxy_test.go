@@ -334,6 +334,9 @@ func TestStatusRecord(t *testing.T) {
 	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 1000 {
 		t.Errorf("last record: %+v", recs[len(recs)-1])
 	}
+	if r := recs[0]; r.DeadlineMs != 300 || r.ListMs < 300 || r.ListMs > 2000 || r.ResolveMs > r.ListMs {
+		t.Errorf("first list after %d ms, servers found after %d ms, deadline %d ms", r.ListMs, r.ResolveMs, r.DeadlineMs)
+	}
 	for _, rec := range s.records() {
 		if rec.Event == "deadline" && (!slices.Contains(rec.Servers, "work/slow") || slices.Contains(rec.Servers, "slow")) {
 			t.Errorf("deadline uses a short name: %+v", rec)
@@ -373,6 +376,31 @@ func TestSlowServer(t *testing.T) {
 	}
 	if !slices.Contains(events, "deadline:slow") || !slices.Contains(events, "late:slow") {
 		t.Errorf("log %v", events)
+	}
+}
+
+// The record has when the first list was ready, not the deadline, and when
+// the proxy had found the folder's servers.
+func TestStatusRecordTimes(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	s := startWith(t, t.TempDir(), 20*time.Second, func(o *Options) {
+		o.Start = time.Now()
+		o.Servers = func(string) ([]upstream.Server, []string) {
+			time.Sleep(200 * time.Millisecond)
+			return []upstream.Server{srv}, nil
+		}
+		o.Report = func(r status.Record) { recs <- r }
+	})
+	s.tools(t)
+	var r status.Record
+	select {
+	case r = <-recs:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no record")
+	}
+	if r.DeadlineMs != 20000 || r.ResolveMs < 200 || r.ListMs < r.ResolveMs || r.ListMs > 10000 || r.Servers[0].Ms > r.ListMs {
+		t.Errorf("record: %+v", r)
 	}
 }
 
@@ -1078,7 +1106,7 @@ func TestServerEndsBeforeFirstList(t *testing.T) {
 func TestReportKeepsEnd(t *testing.T) {
 	var last status.Record
 	r := newReport(Options{Report: func(rec status.Record) { last = rec }}, []upstream.Server{{ID: "pg", Name: "pg"}})
-	r.flush()
+	r.flush(0)
 	r.end("pg", "ended during the session: exit status 1")
 	r.set("pg", status.Ready, "", 10)
 	if last.Servers[0].State != status.Missing {

@@ -78,14 +78,23 @@ func (a *app) mcpStatus(dir string) int {
 		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP server yet")
 		return 0
 	}
-	fmt.Fprintf(out, "\nthe last session here (%s, %s) waited %s for the first tool list:\n",
-		rec.Agent, rec.Started.Local().Format(time.DateTime), seconds(rec.DeadlineMs))
+	fmt.Fprintf(out, "\nthe last session here (%s, %s):\n", rec.Agent, rec.Started.Local().Format(time.DateTime))
+	if rec.ListMs > 0 {
+		fmt.Fprintf(out, "  first tool list after %s (waits up to %s); ctxtra's own start took %s\n",
+			seconds(rec.ListMs), seconds(rec.DeadlineMs), fmt.Sprintf("%.2f s", float64(rec.ResolveMs)/1000))
+	} else {
+		fmt.Fprintf(out, "  first tool list waits up to %s\n", seconds(rec.DeadlineMs))
+	}
+	late := "added with a tool list change"
+	if keepsFirstList(rec.Agent) {
+		late = "this session didn't get its tools"
+	}
 	for _, s := range rec.Servers {
 		switch s.State {
 		case sessionstatus.Ready:
 			fmt.Fprintf(out, "  %s  ready after %s\n", s.Name, seconds(s.Ms))
 		case sessionstatus.Late:
-			fmt.Fprintf(out, "  %s  later: %s, after %s; Codex sessions didn't get its tools\n", s.Name, s.Reason, seconds(s.Ms))
+			fmt.Fprintf(out, "  %s  later: %s, after %s; %s\n", s.Name, s.Reason, seconds(s.Ms), late)
 		default:
 			fmt.Fprintf(out, "  %s  missing: %s\n", s.Name, s.Reason)
 		}

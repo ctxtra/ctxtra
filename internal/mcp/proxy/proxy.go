@@ -182,6 +182,7 @@ type proxy struct {
 
 	ready     chan struct{} // closed when the first tool list may be answered
 	readyOnce sync.Once
+	opened    time.Time // when ready was closed; read after ready
 
 	mu        sync.Mutex
 	upstreams []*Upstream
@@ -290,7 +291,7 @@ func newReport(o Options, servers []upstream.Server) *report {
 		return nil
 	}
 	r := &report{write: o.Report, rec: status.Record{Dir: o.Dir, Agent: o.Agent, Started: o.Start.UTC(),
-		DeadlineMs: o.Deadline.Milliseconds()}}
+		DeadlineMs: o.Deadline.Milliseconds(), ResolveMs: time.Since(o.Start).Milliseconds()}}
 	for _, s := range servers {
 		r.rec.Servers = append(r.rec.Servers, status.Server{Name: s.ID, State: status.Missing})
 	}
@@ -345,13 +346,14 @@ func (r *report) update(name, state, reason string, ms int64, ended bool) {
 }
 
 // flush writes the record, the first time when the first tool list was
-// answered.
-func (r *report) flush() {
+// ready, list after the proxy's start.
+func (r *report) flush(list time.Duration) {
 	if r == nil || r.write == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.rec.ListMs = list.Milliseconds()
 	r.written = true
 	r.write(r.copyLocked())
 }
@@ -385,7 +387,12 @@ func (p *proxy) waitForTools(next mcp.MethodHandler) mcp.MethodHandler {
 	}
 }
 
-func (p *proxy) open() { p.readyOnce.Do(func() { close(p.ready) }) }
+func (p *proxy) open() {
+	p.readyOnce.Do(func() {
+		p.opened = time.Now()
+		close(p.ready)
+	})
+}
 
 // start resolves the session's servers and connects to all of them at
 // once. The first tool list waits for all of them, or until the deadline.
@@ -437,7 +444,7 @@ func (p *proxy) start(ctx context.Context) {
 		for _, s := range servers {
 			p.report.set(s.ID, status.Missing, "too slow for the first tool list: finding the folder's servers took too long", 0)
 		}
-		p.report.flush()
+		p.report.flush(p.opened.Sub(p.o.Start))
 	}
 	type result struct {
 		s     upstream.Server
@@ -509,7 +516,7 @@ func (p *proxy) start(ctx context.Context) {
 			}
 			p.publish(first)
 			p.open()
-			p.report.flush()
+			p.report.flush(p.opened.Sub(p.o.Start))
 		case <-ctx.Done():
 			return
 		}
@@ -520,7 +527,7 @@ func (p *proxy) start(ctx context.Context) {
 	}
 	// Also when the first list was answered while the servers were still
 	// being resolved: they all came late.
-	p.report.flush()
+	p.report.flush(p.opened.Sub(p.o.Start))
 }
 
 // awaitSignIn connects to s, which needs sign-in, once its state file
