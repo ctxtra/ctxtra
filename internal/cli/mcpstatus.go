@@ -100,7 +100,7 @@ func (a *app) mcpStatus(dir string) int {
 		case sessionstatus.Late:
 			fmt.Fprintf(out, "  %s  later: %s, after %s%s; %s\n", s.Name, s.Reason, seconds(s.Ms), credTime(s), late)
 		default:
-			fmt.Fprintf(out, "  %s  missing: %s\n", s.Name, s.Reason)
+			fmt.Fprintf(out, "  %s  missing: %s%s\n", s.Name, s.Reason, credTime(s))
 		}
 	}
 	return 0

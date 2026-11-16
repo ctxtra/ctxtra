@@ -422,6 +422,55 @@ func TestStatusRecordSlowResolution(t *testing.T) {
 	}
 }
 
+// A slow write of the record doesn't hold up the first answer.
+func TestSlowRecordWrite(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	s := startWith(t, t.TempDir(), 5*time.Second, func(o *Options) {
+		o.Report = func(r status.Record) {
+			time.Sleep(time.Second)
+			recs <- r
+		}
+	}, testServer(t, "a"))
+	began := time.Now()
+	s.tools(t)
+	if took := time.Since(began); took > 800*time.Millisecond {
+		t.Errorf("the first list took %v", took)
+	}
+	answeredRecord(t, recs)
+}
+
+// A server that came after the deadline but before the agent asked for
+// its first list was in that list: the record says ready.
+func TestLateServerInFirstAnswer(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	s := startWith(t, t.TempDir(), 100*time.Millisecond, func(o *Options) {
+		o.Report = func(r status.Record) { recs <- r }
+	}, testServer(t, "a", "-delay", "300ms"))
+	time.Sleep(1500 * time.Millisecond)
+	if got := toolNames(s.tools(t)); !slices.Contains(got, "a__echo") {
+		t.Fatalf("first list %v", got)
+	}
+	r := answeredRecord(t, recs)
+	if r.ListMs < 1500 || r.Servers[0].State != status.Ready {
+		t.Errorf("record: %+v", r)
+	}
+}
+
+// A server whose credentials fail has their reading time too.
+func TestFailedCredentialTime(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a")
+	srv.SecretEnv = []string{"PGPASSWORD"}
+	s := startWith(t, t.TempDir(), 5*time.Second, func(o *Options) {
+		o.Secrets = slowSecrets{secrets{}, 300 * time.Millisecond}
+		o.Report = func(r status.Record) { recs <- r }
+	}, srv)
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.Servers[0].State != status.Missing || r.Servers[0].CredMs < 300 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
 // answeredRecord is the first record from recs that has the first list's
 // answer.
 func answeredRecord(t *testing.T, recs <-chan status.Record) status.Record {

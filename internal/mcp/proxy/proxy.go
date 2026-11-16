@@ -202,7 +202,10 @@ type proxy struct {
 	report *report // set under mu: the first answer reads it
 
 	answerOnce sync.Once
-	answeredAt time.Duration // when the first tool list was answered, 0 before; under mu
+	// When the first tool list was answered, 0 before, and the servers in
+	// it; under mu.
+	answeredAt   time.Duration
+	answeredWith map[string]bool
 
 	creds *credTimer
 
@@ -371,14 +374,20 @@ func (r *report) creds(name string, d time.Duration) {
 	}
 }
 
-// answered records when the agent's first tool list was answered.
-func (r *report) answered(list time.Duration) {
+// answered records when the agent's first tool list was answered, and
+// that the servers in were in it.
+func (r *report) answered(list time.Duration, in map[string]bool) {
 	if r == nil || r.write == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rec.ListMs = max(list.Milliseconds(), 1)
+	for i, s := range r.rec.Servers {
+		if in[s.Name] && s.State == status.Late {
+			r.rec.Servers[i].State, r.rec.Servers[i].Reason = status.Ready, ""
+		}
+	}
 	if r.written {
 		r.write(r.copyLocked())
 	}
@@ -422,22 +431,37 @@ func (p *proxy) waitForTools(next mcp.MethodHandler) mcp.MethodHandler {
 			}
 		}
 		res, err := next(ctx, method, req)
-		if method == "tools/list" && err == nil {
-			p.answerOnce.Do(p.answered)
+		if list, ok := res.(*mcp.ListToolsResult); ok && err == nil {
+			p.answerOnce.Do(func() {
+				at := time.Since(p.o.Start)
+				var shown []string
+				for _, t := range list.Tools {
+					shown = append(shown, t.Name)
+				}
+				// The record is written off the answer's path: writing
+				// it can wait for its lock.
+				go p.answered(at, shown)
+			})
 		}
 		return res, err
 	}
 }
 
-// answered records the answer to the agent's first tool list: the wait
-// the session sees, also when the agent asks late.
-func (p *proxy) answered() {
-	at := time.Since(p.o.Start)
+// answered records the answer to the agent's first tool list after at:
+// the wait the session sees, also when the agent asks late. The servers
+// of the shown tools were in it, also those that came after the deadline.
+func (p *proxy) answered(at time.Duration, shown []string) {
 	p.mu.Lock()
-	p.answeredAt = at
+	in := map[string]bool{}
+	for _, name := range shown {
+		if r, ok := p.tools[name]; ok {
+			in[r.up.Server.ID] = true
+		}
+	}
+	p.answeredAt, p.answeredWith = at, in
 	r := p.report
 	p.mu.Unlock()
-	r.answered(at)
+	r.answered(at, in)
 }
 
 func (p *proxy) open() { p.readyOnce.Do(func() { close(p.ready) }) }
@@ -488,7 +512,7 @@ func (p *proxy) start(ctx context.Context) {
 	p.mu.Lock()
 	p.report = newReport(p.o, servers)
 	if p.answeredAt > 0 {
-		p.report.answered(p.answeredAt)
+		p.report.answered(p.answeredAt, p.answeredWith)
 	}
 	p.mu.Unlock()
 	if p.isOpen() {
