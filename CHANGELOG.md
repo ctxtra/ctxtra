@@ -6,6 +6,27 @@
   `--check-updates=false` when adding it, to turn checks off. Source and ctxtra release checks run in
   the background at most once an hour. Checks never accept commits or change session content.
 
+- The guide documents how to refuse certificate keys below NIST's minimum lengths with
+  `GODEBUG=fips140=on`. See [Key lengths](docs/spec.md#key-lengths).
+
+### Experimental
+
+- Experimental MCP servers can come from a source's root `mcp-servers.yaml`. Bind them as
+  `SOURCE/NAME`. Pinned definitions need separate approval with `ctxtra mcp approve` before ctxtra
+  connects or starts a command. Operational changes need approval again; `mcp revoke` withdraws it
+  for future connections. Config and trusted-path definitions need no extra approval.
+
+- Adding an experimental MCP server reuses an existing sign-in for the same identity and target across
+  configs. It asks only for missing secret values. Replacing a shared sign-in requires explicit login;
+  cancelling or failing replacement keeps the old credentials. Removing a source keeps credentials
+  and prints cleanup commands, since another config may still use them.
+
+- With experimental MCP enabled, session summaries count and list selected MCP servers, grouped by
+  source or `local`, including servers awaiting sign-in or approval.
+
+- `ctxtra mcp status` shows the actual time of the first tool list, ctxtra's own startup time, and
+  credential-read times, separately from the agent's deadline.
+
 ## v0.5.1
 
 v0.5.0 was tagged, but its release failed: v0.5.1 is the first release with these changes.
@@ -23,6 +44,26 @@ v0.5.0 was tagged, but its release failed: v0.5.1 is the first release with thes
 
 - The release archives include `THIRD_PARTY_NOTICES.md`, with the licenses of the software that ctxtra
   includes.
+
+- Building from source requires Go 1.27.4 or newer, which fixes a `net/http` server crash.
+  Crypto dependencies were updated to address security advisories.
+
+### Experimental
+
+- Experimental MCP support gives sessions local command servers and remote HTTP servers by folder,
+  through one `ctxtra` MCP entry. Enable it with `CTXTRA_EXPERIMENTAL_MCP=1` for commands, setup and
+  agents. Use `ctxtra mcp add`, `list`, `show` and `remove` to manage servers. The format is experimental.
+
+  **Upgrade:** to enable MCP, run `CTXTRA_EXPERIMENTAL_MCP=1 ctxtra setup` to add the agent entry
+  (and trust the hooks again in Codex). Muse is not supported.
+
+- Remote MCP servers support OAuth sign-in with `ctxtra mcp login` and `logout`, including sign-in
+  over SSH with `--no-browser`. Agents share the sign-in and never open a browser themselves. Secrets
+  are encrypted locally, with the key in the OS keychain or, when unavailable, in a local file with a
+  warning. Any process running as you can read the credentials.
+
+- `ctxtra mcp status` explains why a session lacks a server's tools: sign-in is needed, the server
+  failed, or it missed the first tool list. Session notices also name servers needing sign-in.
 
 ## v0.4.1
 
