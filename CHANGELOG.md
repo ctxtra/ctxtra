@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.2
+
 - Pinned sources check for new commits by default. Set `check-updates: false` on a source, or pass
   `--check-updates=false` when adding it, to turn checks off. Source and ctxtra release checks run in
   the background at most once an hour. Checks never accept commits or change session content.
