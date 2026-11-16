@@ -843,6 +843,13 @@ old environment secrets until they exit. A shorter configured scope list does no
 
 ### Sign-in state and missing tools
 
+With `CTXTRA_EXPERIMENTAL_MCP=1`, the session summary counts the selected MCP servers in its first
+line, for example `✓ ctxtra added 10 instructions, 2 skills and 1 MCP server`.
+An `MCP servers:` list follows the instructions and skills, grouped by source (or `local`).
+It shows server identities in binding order, up to 30 per source, then `+N more` and `Full MCP list: ctxtra context explain`.
+The count includes servers awaiting sign-in or approval, and excludes suppressed identities.
+With no selected servers, the summary stays unchanged. The hook reads only local state.
+
 The session summary names each bound server whose state file says it needs sign-in, after an empty line, like
 the [notices](#notices):
 

@@ -45,6 +45,11 @@ Skills:
   - review
 ```
 
+With `CTXTRA_EXPERIMENTAL_MCP=1`, selected MCP servers also appear in the count, for example
+`✓ ctxtra added 3 instructions, 3 skills and 1 MCP server`. An `MCP servers:` list shows their
+names, grouped by source or `local`, up to 30 per source. Servers awaiting sign-in or approval
+are included, with their notices below. With no selected servers, the summary stays as above.
+
 The lists are grouped by source, in the order the session gets them. A file from a source is shown by its
 path in the source; when one source's folder is inside another's, its files are in the inner source. A file that is in no source is in the `local` group, by its full path, from `~` when it
 is under your home folder. Skills are shown by name. The skills that `ctxtra skill install` adds are in the

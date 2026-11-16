@@ -97,6 +97,10 @@ const maxSummary = 2000
 // longest name first, counted in one line at the end of their list. Only
 // then it cuts the end. A line after the lists tells where to see them all.
 func clip(summary string) string {
+	fullList := agent.FullList
+	if strings.Contains(summary, "\nMCP servers:\n") {
+		fullList = agent.FullMCPList
+	}
 	for chunk.JSON.Len(summary) > maxSummary {
 		lines := strings.Split(summary, "\n")
 		next, ok := omitEntry(lines)
@@ -106,8 +110,8 @@ func clip(summary string) string {
 		if !ok {
 			break
 		}
-		if !slices.Contains(next, agent.FullList) {
-			next = slices.Insert(next, listsEnd(next), agent.FullList)
+		if !slices.Contains(next, fullList) {
+			next = slices.Insert(next, listsEnd(next), fullList)
 		}
 		summary = strings.Join(next, "\n")
 	}
@@ -127,7 +131,7 @@ type kind int
 
 const (
 	other  kind = iota
-	title       // "Instructions:" or "Skills:"
+	title       // A summary list title.
 	header      // a group's name, or the line of omitted groups
 	entry       // an entry or a group's "+N more"
 )
@@ -138,7 +142,7 @@ func kinds(lines []string) []kind {
 	inList := false
 	for i, line := range lines {
 		switch {
-		case line == "Instructions:" || line == "Skills:":
+		case line == "Instructions:" || line == "Skills:" || line == "MCP servers:":
 			out[i], inList = title, true
 		case !inList:
 		case strings.HasPrefix(line, agent.EntryPrefix):

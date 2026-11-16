@@ -8,7 +8,9 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/jsonorder"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 // A long summary is cut, so the answer stays within what Muse takes.
@@ -156,4 +158,53 @@ func TestCounted(t *testing.T) {
 			t.Errorf("%q: %d", line, got)
 		}
 	}
+}
+
+func TestMCPListClipping(t *testing.T) {
+	lines := strings.Split("✓ x\nMCP servers:\n  team\n  - one\n  - two\n  local\n  - three\n\n⚠ sign in", "\n")
+	got, ok := omitGroup(lines)
+	want := "✓ x\nMCP servers:\n  team\n  - one\n  - two\n  +1 more from 1 source\n\n⚠ sign in"
+	if !ok || strings.Join(got, "\n") != want {
+		t.Fatalf("got %q, want %q", strings.Join(got, "\n"), want)
+	}
+}
+
+func TestLongMCPSummary(t *testing.T) {
+	testenv.Home(t)
+	res := &resolve.Result{Notices: []string{"check source"}}
+	source := strings.Repeat("a", 100)
+	for i := range 20 {
+		res.MCPServers = append(res.MCPServers, resolve.MCPServer{Server: upstream.Server{ID: fmt.Sprintf("%s/server%d", source, i), Source: source}})
+	}
+	a := Agent{}
+	for _, answer := range []any{a.Answer("SessionStart", res), a.SlotAnswer("SessionStart", "context", agent.Summary(res))} {
+		got := answer.(map[string]any)["systemMessage"].(string)
+		if chunkLen := lenMustJSON(t, got); chunkLen > maxSummary {
+			t.Fatalf("summary exceeds cap: %d", chunkLen)
+		}
+		if !strings.HasPrefix(got, "✓ ctxtra added 20 MCP servers\nMCP servers:") || !strings.Contains(got, agent.FullMCPList) || !strings.HasSuffix(got, "\n\nℹ check source") || !strings.Contains(got, " more") {
+			t.Fatalf("lost MCP summary information: %q", got)
+		}
+		shown, omitted := 0, 0
+		for _, line := range strings.Split(got, "\n") {
+			if strings.HasPrefix(line, agent.EntryPrefix+source+"/") {
+				shown++
+			}
+			if strings.HasPrefix(line, agent.EntryPrefix+"+") {
+				_, _ = fmt.Sscanf(line, "  - +%d more", &omitted)
+			}
+		}
+		if shown+omitted != 20 {
+			t.Fatalf("shown %d + omitted %d != 20: %q", shown, omitted, got)
+		}
+	}
+}
+
+func lenMustJSON(t *testing.T, value string) int {
+	t.Helper()
+	b, err := jsonorder.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(b) - 2
 }

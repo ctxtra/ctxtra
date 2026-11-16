@@ -10,6 +10,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/jsonorder"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
@@ -382,5 +383,24 @@ func TestSystemMessage(t *testing.T) {
 	}
 	if got := agent.SystemMessage("SubagentStart", "x"); got != "" {
 		t.Errorf("subagent: %s", got)
+	}
+}
+
+func TestSummaryMCPGroups(t *testing.T) {
+	testenv.Home(t)
+	res := &resolve.Result{MCPServers: []resolve.MCPServer{
+		{Server: upstream.Server{ID: "team/one", Source: "team"}},
+		{Server: upstream.Server{ID: "local_one"}},
+		{Server: upstream.Server{ID: "team/two", Source: "team"}},
+	}}
+	want := "✓ ctxtra added 3 MCP servers\nMCP servers:\n  team\n  - team/one\n  - team/two\n  local\n  - local_one"
+	if got := agent.Summary(res); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range 31 {
+		res.MCPServers = append(res.MCPServers, resolve.MCPServer{Server: upstream.Server{ID: fmt.Sprintf("server%d", i)}})
+	}
+	if got := agent.Summary(res); !strings.Contains(got, "  - +2 more\nFull MCP list: ctxtra context explain") || strings.Contains(got, "  - server29") {
+		t.Fatalf("unexpected truncation: %q", got)
 	}
 }
