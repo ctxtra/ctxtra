@@ -456,6 +456,22 @@ func TestLateServerInFirstAnswer(t *testing.T) {
 	}
 }
 
+// A server too slow for the first list has the time spent reading its
+// credentials.
+func TestPendingCredentialTime(t *testing.T) {
+	recs := make(chan status.Record, 10)
+	srv := testServer(t, "a", "-delay", "5s")
+	srv.SecretEnv = []string{"PGPASSWORD"}
+	s := startWith(t, t.TempDir(), 500*time.Millisecond, func(o *Options) {
+		o.Secrets = slowSecrets{secrets{"a": {"PGPASSWORD": "x"}}, 300 * time.Millisecond}
+		o.Report = func(r status.Record) { recs <- r }
+	}, srv)
+	s.tools(t)
+	if r := answeredRecord(t, recs); r.Servers[0].State != status.Missing || r.Servers[0].CredMs < 300 {
+		t.Errorf("record: %+v", r)
+	}
+}
+
 // A server whose credentials fail has their reading time too.
 func TestFailedCredentialTime(t *testing.T) {
 	recs := make(chan status.Record, 10)

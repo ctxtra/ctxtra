@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -108,7 +109,8 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := &proxy{o: o, ctx: ctx, ready: make(chan struct{}), tools: map[string]route{}, progress: map[string]*progressQueue{},
-		latest: map[string][]*mcp.Tool{}, resolved: make(chan struct{}), creds: creds}
+		latest: map[string][]*mcp.Tool{}, resolved: make(chan struct{}), creds: creds,
+		answerWritten: make(chan struct{})}
 	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra", Version: o.Version}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
 	})
@@ -144,6 +146,13 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 		}
 	}
 	cancel()
+	// The first answer's record, which can still wait for its lock.
+	if p.answering.Load() {
+		select {
+		case <-p.answerWritten:
+		case <-time.After(stopGrace):
+		}
+	}
 	o.Log(Record{Event: "exit"})
 	// The agent ends a session by closing the connection.
 	if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, mcp.ErrConnectionClosed) {
@@ -208,6 +217,10 @@ type proxy struct {
 	answeredWith map[string]bool
 
 	creds *credTimer
+	// Set when the first answer's record is being written, which closes
+	// answerWritten.
+	answering     atomic.Bool
+	answerWritten chan struct{}
 
 	resolved chan struct{}     // closed when bound is set
 	bound    []upstream.Server // the session's servers
@@ -440,7 +453,11 @@ func (p *proxy) waitForTools(next mcp.MethodHandler) mcp.MethodHandler {
 				}
 				// The record is written off the answer's path: writing
 				// it can wait for its lock.
-				go p.answered(at, shown)
+				p.answering.Store(true)
+				go func() {
+					defer close(p.answerWritten)
+					p.answered(at, shown)
+				}()
 			})
 		}
 		return res, err
@@ -590,6 +607,7 @@ func (p *proxy) start(ctx context.Context) {
 			slices.Sort(slow)
 			p.o.Log(Record{Event: "deadline", Servers: slow})
 			for _, n := range slow {
+				p.report.creds(n, p.creds.of(n))
 				p.report.set(n, status.Missing, "too slow for the first tool list", 0)
 			}
 			p.publish(first)
@@ -1128,8 +1146,7 @@ func (s timedSecrets) Secrets(srv upstream.Server) (map[string]string, map[strin
 	return s.inner.Secrets(srv)
 }
 
-// timedTokens times reading tokens, which can refresh one over the
-// network; a refresh after a rejection isn't counted.
+// timedTokens times reading tokens, also a refresh over the network.
 type timedTokens struct {
 	Tokens
 	t *credTimer
@@ -1138,6 +1155,11 @@ type timedTokens struct {
 func (k timedTokens) Token(ctx context.Context, s upstream.Server) (string, error) {
 	defer k.t.add(s, time.Now())
 	return k.Tokens.Token(ctx, s)
+}
+
+func (k timedTokens) Rejected(ctx context.Context, s upstream.Server, token string) (string, error) {
+	defer k.t.add(s, time.Now())
+	return k.Tokens.Rejected(ctx, s, token)
 }
 
 func (k timedTokens) CredentialGeneration(s upstream.Server) (int64, error) {
