@@ -820,7 +820,9 @@ Sign-in follows the MCP authorization spec (2026-07-28) for clients:
 - The browser opens the authorization link (`$BROWSER`, else `open` or `xdg-open`). ctxtra waits for the
   redirect on `127.0.0.1`, on a random port or on `--callback-port`, which is stored for later logins. It
   accepts one redirect with the right `state` and refuses others without ending the sign-in; it waits 5
-  minutes. With `--no-browser`, ctxtra prints the link and accepts the address the browser ends at, pasted in
+  minutes. The browser gets a self-contained page that names the server and says to go back to the terminal.
+  It loads nothing, and it never shows the redirect's values, except the provider's error when it is an OAuth
+  error code. With `--no-browser`, ctxtra prints the link and accepts the address the browser ends at, pasted in
   the terminal, for example over SSH.
 - The answer's `iss` must be the issuer, and is required when the authorization server says it sends it. The
   token request sends the `resource` parameter. A failed check stores nothing.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Experimental
+
+- After an MCP sign-in, the browser shows a clear page that names the server and says to go back to the
+  terminal, in light and dark mode. A refused sign-in or an old link gets the same kind of page.
+
 ## v0.5.2
 
 - Pinned sources check for new commits by default. Set `check-updates: false` on a source, or pass

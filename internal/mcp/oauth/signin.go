@@ -156,7 +156,7 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	}
 
 	got := make(chan url.Values, 2)
-	srv := &http.Server{Handler: callback(state, got), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: callback(f.Server.ID, state, got), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
@@ -311,10 +311,10 @@ func register(ctx context.Context, c *http.Client, endpoint, redirect string) (*
 	return &reg, nil
 }
 
-// callback is the redirect listener's handler. A request with another
-// state is refused and the listener keeps waiting; the first right one
-// ends the sign-in.
-func callback(state string, got chan<- url.Values) http.Handler {
+// callback is the redirect listener's handler for a sign-in to server. A
+// request with another state is refused and the listener keeps waiting;
+// the first right one ends the sign-in.
+func callback(server, state string, got chan<- url.Values) http.Handler {
 	var mu sync.Mutex
 	done := false
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -327,15 +327,14 @@ func callback(state string, got chan<- url.Values) http.Handler {
 		first := q.Get("state") == state && !done
 		done = done || first
 		mu.Unlock()
-		if !first {
-			http.Error(w, "This isn't the sign-in ctxtra is waiting for.", http.StatusBadRequest)
+		switch {
+		case !first:
+			wrongPage.write(w)
 			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		if q.Get("error") != "" {
-			io.WriteString(w, "The sign-in was refused. You can close this tab.\n")
-		} else {
-			io.WriteString(w, "Signed in to ctxtra. You can close this tab.\n")
+		case q.Get("error") != "":
+			refusedPage(server, q.Get("error")).write(w)
+		default:
+			receivedPage(server).write(w)
 		}
 		select {
 		case got <- q:
@@ -372,15 +371,22 @@ func random() string {
 // safeCode is an OAuth error code from a redirect, or "an error" for text
 // that isn't one: the provider controls it.
 func safeCode(s string) string {
-	for _, r := range s {
-		if (r < 'a' || r > 'z') && r != '_' {
-			return "an error"
-		}
-	}
-	if len(s) > 40 {
+	if !isCode(s) {
 		return "an error"
 	}
 	return s
+}
+
+func isCode(s string) bool {
+	if s == "" || len(s) > 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // account is the account a token answer names: the email or name in its
