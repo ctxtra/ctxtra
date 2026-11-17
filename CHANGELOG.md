@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.3
+
 ### Experimental
 
 - After an MCP sign-in, the browser shows a clear page that says whether the sign-in succeeded and to go
