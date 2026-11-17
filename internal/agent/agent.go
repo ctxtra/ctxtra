@@ -551,7 +551,7 @@ type Status struct {
 }
 
 // MCPAgent is an agent that gets ctxtra's MCP entry: one stdio MCP server
-// named ctxtra that runs ctxtra mcp proxy AGENT.
+// named ctxtra-proxy that runs ctxtra mcp proxy AGENT.
 type MCPAgent interface {
 	MCP() MCPHost
 	// MCPDeadline is how long the proxy waits for slow servers before it

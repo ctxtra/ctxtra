@@ -43,7 +43,7 @@ func (a *app) mcpCmd() *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Short:                 "Add, list, show and remove MCP servers (experimental)",
 		Long: `MCP servers that sessions get by folder, like instructions and skills, through one
-MCP server named ctxtra that ctxtra setup adds to each agent. Experimental: on
+MCP server named ctxtra-proxy that ctxtra setup adds to each agent. Experimental: on
 only with ` + experimental.MCPVar + `=1.`,
 		Example: `  ctxtra mcp add pg -- npx -y @modelcontextprotocol/server-postgres postgresql://localhost/dev
   ctxtra mcp list`,
@@ -79,7 +79,7 @@ func mcpProxyCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "proxy AGENT",
 		Short: "The MCP server that ctxtra setup adds to each agent",
-		Long: `The command of the MCP server named ctxtra that ctxtra setup adds to each agent:
+		Long: `The command of the MCP server named ctxtra-proxy that ctxtra setup adds to each agent:
 it serves the tools of the MCP servers bound to its working directory, the
 session folder, and forwards each call. It ignores arguments it doesn't know
 and never fails a session. You don't run it yourself.`,

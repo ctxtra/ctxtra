@@ -656,7 +656,7 @@ alone that has a ctxtra hook changed by hand, and says so, instead of adding a s
 > Without the variable, ctxtra ignores everything about MCP servers, and a config that declares them is an
 > error like any unknown key. Muse remains excluded.
 
-`ctxtra setup` adds one MCP server named `ctxtra` to each agent. The agent starts it like any local MCP server.
+`ctxtra setup` adds one MCP server named `ctxtra-proxy` to each agent. The agent starts it like any local MCP server.
 It gives the session the tools of the MCP servers bound to the session folder, and forwards each call.
 
 ### Declarations and references

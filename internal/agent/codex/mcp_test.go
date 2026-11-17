@@ -423,3 +423,52 @@ func TestCodexLegacyHandEdited(t *testing.T) {
 		}
 	}
 }
+
+// An older ctxtra ran setup after this one: it added its block next to the
+// new one. Setup removes the old block, with its tables, and keeps the new
+// one; --remove removes both.
+func TestCodexLegacyNextToNew(t *testing.T) {
+	h := testenv.Home(t)
+	path := filepath.Join(h, ".codex", "config.toml")
+	testenv.Write(t, path, realConfig)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	withNew := strings.Replace(string(b), "required = true\n", "required = true\nenabled = true\n", 1)
+	both := withNew + "\n" + legacyBlock + "\n[mcp_servers.ctxtra.tools.a]\napproval_mode = \"approve\"\n"
+	testenv.Write(t, path, both)
+	a := Agent{}
+	if n := a.CheckMCP("", agent.MCPCheck{Want: true, Known: true}); !slices.ContainsFunc(n, func(s string) bool { return strings.Contains(s, "old name ctxtra") }) {
+		t.Errorf("notices %v", n)
+	}
+	if argv, ok := a.MCPCommand(); !ok || argv[0] != "/bin/ctxtra" {
+		t.Errorf("command %v %v", argv, ok)
+	}
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.TrimRight(got, "\n") != strings.TrimRight(withNew, "\n") {
+		t.Errorf("got\n%s", got)
+	}
+	testenv.Write(t, path, both)
+	if _, err := setupMCP(t, agent.MCPOptions{Options: agent.Options{Remove: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.Contains(got, "ctxtra") {
+		t.Errorf("got\n%s", got)
+	}
+	// The old block first, and one that doesn't run the proxy.
+	testenv.Write(t, path, legacyBlock+"\n"+withNew)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.Contains(got, "ctxtra MCP server") || !strings.Contains(got, "enabled = true") {
+		t.Errorf("got\n%s", got)
+	}
+	notOurs := withNew + "\n" + strings.Replace(legacyBlock, `"mcp", "proxy"`, `"serve"`, 1)
+	testenv.Write(t, path, notOurs)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err == nil || read(t, path) != notOurs {
+		t.Errorf("changed: %v", err)
+	}
+}

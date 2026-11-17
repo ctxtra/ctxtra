@@ -98,6 +98,9 @@ type tomlFile struct {
 	data       map[string]any
 	begin, end int  // the markers' lines; -1 without them
 	legacy     bool // the block has the old markers and name
+	// staleBegin and staleEnd are the markers of an old block next to a new
+	// one, which an older ctxtra adds when it runs setup; -1 without one.
+	staleBegin, staleEnd int
 }
 
 var errHandEdited = errors.New("the ctxtra MCP proxy isn't the one ctxtra setup wrote")
@@ -110,41 +113,65 @@ func readTOML(path string) (*tomlFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &tomlFile{path: path, raw: b, data: map[string]any{}, begin: -1, end: -1}
-	if _, err := toml.Decode(string(b), &f.data); err != nil {
+	return parseTOML(path, b, string(b))
+}
+
+// parseTOML reads text, the content of the file whose bytes on disk are
+// raw.
+func parseTOML(path string, raw []byte, text string) (*tomlFile, error) {
+	f := &tomlFile{path: path, raw: raw, data: map[string]any{}, begin: -1, end: -1, staleBegin: -1, staleEnd: -1}
+	if _, err := toml.Decode(text, &f.data); err != nil {
 		return nil, fmt.Errorf("not valid TOML: %v", err)
 	}
-	if len(b) > 0 {
-		f.lines = strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(text) > 0 {
+		f.lines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	}
-	var begins, ends, legacy []int
+	blocks := map[bool][2][]int{} // legacy: the lines of its begin and end markers
 	for i, l := range f.lines {
-		switch strings.TrimSpace(l) {
-		case legacyBeginMarker:
-			legacy = append(legacy, i)
-			fallthrough
-		case beginMarker:
-			begins = append(begins, i)
-		case legacyEndMarker:
-			legacy = append(legacy, i)
-			fallthrough
-		case endMarker:
-			ends = append(ends, i)
+		for legacy, m := range map[bool][2]string{false: {beginMarker, endMarker}, true: {legacyBeginMarker, legacyEndMarker}} {
+			b := blocks[legacy]
+			switch strings.TrimSpace(l) {
+			case m[0]:
+				b[0] = append(b[0], i)
+			case m[1]:
+				b[1] = append(b[1], i)
+			}
+			blocks[legacy] = b
 		}
 	}
-	switch {
-	case len(begins) == 0 && len(ends) == 0:
-	case len(begins) != 1 || len(ends) != 1 || ends[0] < begins[0], len(legacy) == 1:
-		return f, errHandEdited
-	default:
-		f.begin, f.end, f.legacy = begins[0], ends[0], len(legacy) == 2
-		header := tableHeader
-		if f.legacy {
-			header = legacyTableHeader
-		}
-		if first := f.firstLine(); first < 0 || strings.TrimSpace(f.lines[first]) != header {
+	found := map[bool]bool{}
+	for legacy, b := range blocks {
+		switch {
+		case len(b[0]) == 0 && len(b[1]) == 0:
+			continue
+		case len(b[0]) != 1 || len(b[1]) != 1 || b[1][0] < b[0][0]:
 			return f, errHandEdited
 		}
+		header := tableHeader
+		if legacy {
+			header = legacyTableHeader
+		}
+		if first := firstLine(f.lines, b[0][0], b[1][0]); first < 0 || strings.TrimSpace(f.lines[first]) != header {
+			return f, errHandEdited
+		}
+		found[legacy] = true
+	}
+	switch {
+	case found[false] && found[true]:
+		f.begin, f.end = blocks[false][0][0], blocks[false][1][0]
+		f.staleBegin, f.staleEnd = blocks[true][0][0], blocks[true][1][0]
+		if f.staleBegin < f.end && f.begin < f.staleEnd {
+			return f, errHandEdited
+		}
+		servers, _ := f.data["mcp_servers"].(map[string]any)
+		if old, _ := servers[agent.LegacyMCPEntryName].(map[string]any); old == nil {
+			return f, errHandEdited
+		} else if _, ours := mcpBinary(old); !ours {
+			return f, errHandEdited
+		}
+	case found[false], found[true]:
+		f.legacy = found[true]
+		f.begin, f.end = blocks[f.legacy][0][0], blocks[f.legacy][1][0]
 	}
 	// The new name is taken by a table setup didn't write: in place of the
 	// block, or next to an old one that setup would rename to it.
@@ -159,9 +186,13 @@ func readTOML(path string) (*tomlFile, error) {
 }
 
 // firstLine is the first line in the block that isn't blank or a comment.
-func (f *tomlFile) firstLine() int {
-	for i := f.begin + 1; i < f.end; i++ {
-		if l := strings.TrimSpace(f.lines[i]); l != "" && !strings.HasPrefix(l, "#") {
+func (f *tomlFile) firstLine() int { return firstLine(f.lines, f.begin, f.end) }
+
+// firstLine is the first line between the markers on lines begin and end
+// that isn't blank or a comment, -1 for none.
+func firstLine(lines []string, begin, end int) int {
+	for i := begin + 1; i < end; i++ {
+		if l := strings.TrimSpace(lines[i]); l != "" && !strings.HasPrefix(l, "#") {
 			return i
 		}
 	}
@@ -248,13 +279,17 @@ func (a Agent) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 		return nil
 	}
 	expect := deepCopy(f.data)
-	if o.Remove {
-		f.lines = slices.Delete(f.lines, f.begin, f.end+1)
-		f.removeRest(f.begin)
-		if f.begin > 0 && f.begin < len(f.lines)+1 && strings.TrimSpace(f.lines[f.begin-1]) == "" &&
-			(f.begin == len(f.lines) || strings.TrimSpace(f.lines[f.begin]) == "") {
-			f.lines = slices.Delete(f.lines, f.begin-1, f.begin)
+	if f.staleBegin >= 0 {
+		f.removeBlock(f.staleBegin, f.staleEnd, agent.LegacyMCPEntryName)
+		servers, _ := expect["mcp_servers"].(map[string]any)
+		delete(servers, agent.LegacyMCPEntryName)
+		raw := f.raw
+		if f, err = parseTOML(path, raw, f.text()); err != nil {
+			return fmt.Errorf("%s: %v; left alone. Restore or delete it, then run %s --agent codex", path, errHandEdited, again)
 		}
+	}
+	if o.Remove {
+		f.removeBlock(f.begin, f.end, f.name())
 		servers, _ := expect["mcp_servers"].(map[string]any)
 		delete(servers, f.name())
 		if len(servers) == 0 {
@@ -436,7 +471,7 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 	if r, _ := f.entry()["required"].(bool); !r {
 		out = append(out, "the ctxtra MCP proxy isn't required, so Codex doesn't wait for its tools; "+repair)
 	}
-	if f.legacy {
+	if f.legacy || f.staleBegin >= 0 {
 		out = append(out, fmt.Sprintf("the ctxtra MCP proxy has its old name %s; %s", agent.LegacyMCPEntryName, repair))
 	}
 	return out
@@ -475,13 +510,25 @@ func tableRE(name string) *regexp.Regexp {
 	return regexp.MustCompile(`^(\[\[?\s*(?:"mcp_servers"|'mcp_servers'|mcp_servers)\s*\.\s*)("` + q + `"|'` + q + `'|` + q + `)(\s*[.\]])`)
 }
 
-// removeRest removes what still belongs to ctxtra's table once its block,
-// which started at line from, is gone: keys the user added after the
-// block, up to the next table, and every table under ctxtra's, wherever it
+// removeBlock removes the block between the markers on lines begin and
+// end, of the table mcp_servers.NAME, with what else belongs to that table,
+// and a blank line it leaves doubled.
+func (f *tomlFile) removeBlock(begin, end int, name string) {
+	f.lines = slices.Delete(f.lines, begin, end+1)
+	f.removeRest(begin, name)
+	if begin > 0 && begin < len(f.lines)+1 && strings.TrimSpace(f.lines[begin-1]) == "" &&
+		(begin == len(f.lines) || strings.TrimSpace(f.lines[begin]) == "") {
+		f.lines = slices.Delete(f.lines, begin-1, begin)
+	}
+}
+
+// removeRest removes what still belongs to the table mcp_servers.NAME once
+// its block, which started at line from, is gone: keys the user added after
+// the block, up to the next table, and every table under it, wherever it
 // is. Comments and blank lines stay. The check of the result catches what
 // this misses.
-func (f *tomlFile) removeRest(from int) {
-	reOurTable := tableRE(f.name())
+func (f *tomlFile) removeRest(from int, name string) {
+	reOurTable := tableRE(name)
 	ours := false
 	var out []string
 	for i, l := range f.lines {
