@@ -1,5 +1,5 @@
 # With MCP servers in the config (experimental), setup adds one MCP server
-# named ctxtra to ~/.claude.json, keeps the rest of the file, is
+# named ctxtra-proxy to ~/.claude.json, keeps the rest of the file, is
 # idempotent, backs up what it changes, and --remove restores the file.
 
 mkdir .config/ctxtra
@@ -38,23 +38,41 @@ exec ctxtra setup --agent claude
 cmp .claude.json original.json
 cp config.yaml .config/ctxtra/config.yaml
 exec ctxtra binding list
-stderr '^claude: the ctxtra MCP server is missing; run ctxtra setup --agent claude$'
+stderr '^claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude$'
 exec ctxtra setup --agent claude
 exec ctxtra binding list
 ! stderr .
 cp original.json .claude.json
 exec ctxtra binding list
-stderr '^claude: the ctxtra MCP server is gone from ~/.claude.json; if that wasn''t on purpose, run ctxtra setup --agent claude'
+stderr '^claude: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn''t on purpose, run ctxtra setup --agent claude'
 exec ctxtra setup --agent claude
 
 # With MCP servers off, setup --remove leaves the MCP entry alone.
 env CTXTRA_EXPERIMENTAL_MCP=
 exec ctxtra setup --remove --agent claude
-grep '"ctxtra":' .claude.json
+grep '"ctxtra-proxy":' .claude.json
 env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --remove --agent claude
-! grep '"ctxtra":' .claude.json
+! grep '"ctxtra-proxy":' .claude.json
 exec ctxtra setup --agent claude
+
+# The entry under its old name, ctxtra: notices say to run setup, which
+# renames it in its place.
+cp legacy.json .claude.json
+exec ctxtra binding list
+stderr '^claude: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude$'
+exec ctxtra setup --agent claude
+cmpenv .claude.json want.json
+exec ctxtra binding list
+! stderr .
+
+# A server of the user's named ctxtra stays.
+cp users.json .claude.json
+exec ctxtra setup --agent claude
+grep '"command": "ctxtra-docs"' .claude.json
+grep '"ctxtra-proxy":' .claude.json
+exec ctxtra setup --remove --agent claude
+cmp .claude.json users.json
 
 # $CLAUDE_CONFIG_DIR moves the file.
 env CLAUDE_CONFIG_DIR=$HOME/claude-dir
@@ -78,6 +96,33 @@ schema: ctxtra/v1
     }
   }
 }
+-- legacy.json --
+{
+  "numStartups": 3,
+  "mcpServers": {
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
+    },
+    "ctxtra": {
+      "type": "stdio",
+      "command": "/old/ctxtra",
+      "args": [
+        "mcp",
+        "proxy",
+        "claude"
+      ]
+    }
+  }
+}
+-- users.json --
+{
+  "mcpServers": {
+    "ctxtra": {
+      "command": "ctxtra-docs"
+    }
+  }
+}
 -- original.json --
 {
   "numStartups": 3,
@@ -96,7 +141,7 @@ schema: ctxtra/v1
       "type": "http",
       "url": "https://mcp.linear.app/mcp"
     },
-    "ctxtra": {
+    "ctxtra-proxy": {
       "type": "stdio",
       "command": "$BIN",
       "args": [

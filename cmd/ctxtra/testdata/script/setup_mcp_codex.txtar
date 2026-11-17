@@ -1,5 +1,5 @@
 # With MCP servers in the config (experimental), setup adds the ctxtra MCP
-# server to Codex's config.toml between markers, with env_vars and
+# proxy to Codex's config.toml between markers, with env_vars and
 # startup_timeout_sec, keeps the rest byte for byte, and --remove restores
 # the file. A user key in ctxtra's table stays.
 
@@ -17,13 +17,13 @@ cmp .codex/config.toml original.toml
 
 exec ctxtra setup --agent codex
 stdout '~/.codex/config.toml'
-grep '^# >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept$' .codex/config.toml
-grep '^\[mcp_servers.ctxtra\]$' .codex/config.toml
+grep '^# >>> ctxtra MCP proxy: written by ctxtra setup; keys you add are kept$' .codex/config.toml
+grep '^\[mcp_servers.ctxtra-proxy\]$' .codex/config.toml
 grep '^args = \["mcp", "proxy", "codex"\]$' .codex/config.toml
 grep '^env_vars = \["CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", .*"HTTPS_PROXY", "https_proxy", .*"SSL_CERT_FILE", "SSL_CERT_DIR", "PGHOST"\]$' .codex/config.toml
 grep '^startup_timeout_sec = 30$' .codex/config.toml
 grep '^required = true$' .codex/config.toml
-grep '^# <<< ctxtra MCP server$' .codex/config.toml
+grep '^# <<< ctxtra MCP proxy$' .codex/config.toml
 exists .ctxtra/backups
 exec ctxtra setup --agent codex
 stdout 'is already set up for'
@@ -33,9 +33,9 @@ stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.codex/config.toml\)'
 
 # A server with a new env-pass name: Codex must pass it too.
 exec ctxtra mcp add db --env-pass DBHOST -- mcptest
-stdout 'run ctxtra setup: ctxtra''s MCP server in codex needs it'
+stdout 'run ctxtra setup: ctxtra''s MCP proxy in codex needs it'
 ! exec ctxtra doctor
-stdout 'the ctxtra MCP server doesn''t pass DBHOST to local servers; run ctxtra setup --agent codex'
+stdout 'the ctxtra MCP proxy doesn''t pass DBHOST to local servers; run ctxtra setup --agent codex'
 exec ctxtra setup --agent codex
 grep '"DBHOST", "PGHOST"\]$' .codex/config.toml
 
@@ -44,11 +44,27 @@ exec sed -i.bak 's/^startup_timeout_sec = 30$/startup_timeout_sec = 30\ndefault_
 exec ctxtra setup --agent codex
 grep '^default_tools_approval_mode = "approve"$' .codex/config.toml
 
-# Another entry named ctxtra: left alone.
+# Another entry named ctxtra-proxy: left alone.
 cp other.toml .codex/config.toml
 ! exec ctxtra setup --agent codex
-stderr 'the ctxtra MCP server isn''t the one ctxtra setup wrote; left alone'
+stderr 'the ctxtra MCP proxy isn''t the one ctxtra setup wrote; left alone'
 cmp .codex/config.toml other.toml
+
+# The block under its old name, ctxtra: setup renames it, with the user's
+# keys and tables; --remove then restores the file.
+cp legacy.toml .codex/config.toml
+exec ctxtra binding list
+stderr '^codex: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent codex$'
+exec ctxtra setup --agent codex
+! grep 'ctxtra MCP server' .codex/config.toml
+! grep 'mcp_servers.ctxtra[].]' .codex/config.toml
+grep '^\[mcp_servers.ctxtra-proxy\]$' .codex/config.toml
+grep '^default_tools_approval_mode = "approve"$' .codex/config.toml
+grep '^\[mcp_servers.ctxtra-proxy.tools.pg__query\]$' .codex/config.toml
+exec ctxtra binding list
+! stderr .
+exec ctxtra setup --remove --agent codex
+! grep 'ctxtra' .codex/config.toml
 
 cp original.toml .codex/config.toml
 exec ctxtra setup --agent codex
@@ -68,5 +84,26 @@ url = "https://mcp.linear.app/mcp"
 [projects."/home/me/api"]
 trust_level = "trusted"
 -- other.toml --
-[mcp_servers.ctxtra]
+[mcp_servers.ctxtra-proxy]
 command = "npx"
+-- legacy.toml --
+model = "gpt-6.1-sol"
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+
+[projects."/home/me/api"]
+trust_level = "trusted"
+
+# >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept
+[mcp_servers.ctxtra]
+command = "/old/ctxtra"
+args = ["mcp", "proxy", "codex"]
+env_vars = ["CTXTRA_CONFIG"]
+startup_timeout_sec = 30
+default_tools_approval_mode = "approve"
+required = true
+# <<< ctxtra MCP server
+
+[mcp_servers.ctxtra.tools.pg__query]
+approval_mode = "approve"

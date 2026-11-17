@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "ctxtra": {
+    "ctxtra-proxy": {
       "type": "stdio",
       "command": "@@HOME@@/bin/ctxtra",
       "args": [

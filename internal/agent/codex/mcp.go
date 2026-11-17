@@ -25,11 +25,18 @@ import (
 // config.toml, so that setup finds and replaces its own lines without
 // rewriting the file. Setup owns only the keys in mcpKeys: a key the user
 // adds to the table, inside the block or after it, and subtables such as
-// [mcp_servers.ctxtra.tools.NAME], stay.
+// [mcp_servers.ctxtra-proxy.tools.NAME], stay.
 const (
-	beginMarker = "# >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept"
-	endMarker   = "# <<< ctxtra MCP server"
-	tableHeader = "[mcp_servers.ctxtra]"
+	beginMarker = "# >>> ctxtra MCP proxy: written by ctxtra setup; keys you add are kept"
+	endMarker   = "# <<< ctxtra MCP proxy"
+	tableHeader = "[mcp_servers." + agent.MCPEntryName + "]"
+)
+
+// The block under the entry's old name, which setup renames.
+const (
+	legacyBeginMarker = "# >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept"
+	legacyEndMarker   = "# <<< ctxtra MCP server"
+	legacyTableHeader = "[mcp_servers." + agent.LegacyMCPEntryName + "]"
 )
 
 // StartupTimeout is the entry's startup_timeout_sec: above the proxy's own
@@ -89,10 +96,11 @@ type tomlFile struct {
 	raw        []byte // nil for a missing file
 	lines      []string
 	data       map[string]any
-	begin, end int // the markers' lines; -1 without them
+	begin, end int  // the markers' lines; -1 without them
+	legacy     bool // the block has the old markers and name
 }
 
-var errHandEdited = errors.New("the ctxtra MCP server isn't the one ctxtra setup wrote")
+var errHandEdited = errors.New("the ctxtra MCP proxy isn't the one ctxtra setup wrote")
 
 func readTOML(path string) (*tomlFile, error) {
 	b, err := fsutil.ReadBounded(path, agent.MaxConfig)
@@ -109,26 +117,38 @@ func readTOML(path string) (*tomlFile, error) {
 	if len(b) > 0 {
 		f.lines = strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
 	}
-	var begins, ends []int
+	var begins, ends, legacy []int
 	for i, l := range f.lines {
 		switch strings.TrimSpace(l) {
+		case legacyBeginMarker:
+			legacy = append(legacy, i)
+			fallthrough
 		case beginMarker:
 			begins = append(begins, i)
+		case legacyEndMarker:
+			legacy = append(legacy, i)
+			fallthrough
 		case endMarker:
 			ends = append(ends, i)
 		}
 	}
 	switch {
 	case len(begins) == 0 && len(ends) == 0:
-	case len(begins) != 1 || len(ends) != 1 || ends[0] < begins[0]:
+	case len(begins) != 1 || len(ends) != 1 || ends[0] < begins[0], len(legacy) == 1:
 		return f, errHandEdited
 	default:
-		f.begin, f.end = begins[0], ends[0]
-		if first := f.firstLine(); first < 0 || strings.TrimSpace(f.lines[first]) != tableHeader {
+		f.begin, f.end, f.legacy = begins[0], ends[0], len(legacy) == 2
+		header := tableHeader
+		if f.legacy {
+			header = legacyTableHeader
+		}
+		if first := f.firstLine(); first < 0 || strings.TrimSpace(f.lines[first]) != header {
 			return f, errHandEdited
 		}
 	}
-	if f.begin < 0 && f.entry() != nil {
+	// The new name is taken by a table setup didn't write: in place of the
+	// block, or next to an old one that setup would rename to it.
+	if servers, _ := f.data["mcp_servers"].(map[string]any); (f.begin < 0 || f.legacy) && servers[agent.MCPEntryName] != nil {
 		return f, errHandEdited
 	}
 	// ctxtra's block, changed to run something else: the user's now.
@@ -148,10 +168,22 @@ func (f *tomlFile) firstLine() int {
 	return -1
 }
 
-// entry is mcp_servers.ctxtra as data, nil when there is none.
+// name is the entry's name in the file.
+func (f *tomlFile) name() string {
+	if f.legacy {
+		return agent.LegacyMCPEntryName
+	}
+	return agent.MCPEntryName
+}
+
+// entry is the block's table as data, nil when there is none. Without a
+// block, it is nil: a table of the old name is then the user's.
 func (f *tomlFile) entry() map[string]any {
+	if f.begin < 0 {
+		return nil
+	}
 	servers, _ := f.data["mcp_servers"].(map[string]any)
-	e, ok := servers[agent.MCPEntryName]
+	e, ok := servers[f.name()]
 	if !ok {
 		return nil
 	}
@@ -224,11 +256,17 @@ func (a Agent) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 			f.lines = slices.Delete(f.lines, f.begin-1, f.begin)
 		}
 		servers, _ := expect["mcp_servers"].(map[string]any)
-		delete(servers, agent.MCPEntryName)
+		delete(servers, f.name())
 		if len(servers) == 0 {
 			delete(expect, "mcp_servers")
 		}
 	} else {
+		if f.legacy {
+			f.rename()
+			servers, _ := expect["mcp_servers"].(map[string]any)
+			servers[agent.MCPEntryName] = servers[agent.LegacyMCPEntryName]
+			delete(servers, agent.LegacyMCPEntryName)
+		}
 		want := a.wanted(o.Binary, o.EnvPass)
 		if f.begin < 0 {
 			block := []string{beginMarker, tableHeader}
@@ -268,6 +306,21 @@ func (a Agent) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 		r.Changes = append(r.Changes, written)
 	}
 	return err
+}
+
+// rename gives the old block the new markers and name, and the tables
+// under it, such as [mcp_servers.ctxtra.tools.NAME], the new name too.
+func (f *tomlFile) rename() {
+	f.lines[f.begin], f.lines[f.end] = beginMarker, endMarker
+	f.lines[f.firstLine()] = tableHeader
+	re := tableRE(agent.LegacyMCPEntryName)
+	for i, l := range f.lines {
+		t := strings.TrimLeft(l, " \t")
+		if re.MatchString(t) {
+			f.lines[i] = l[:len(l)-len(t)] + re.ReplaceAllString(t, "${1}"+agent.MCPEntryName+"${3}")
+		}
+	}
+	f.legacy = false
 }
 
 // updateBlock sets the owned keys in the block: their lines are replaced
@@ -365,23 +418,26 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 	case err != nil:
 		return []string{agent.UnreadableNotice(path, err)}
 	case f.begin < 0 && o.Known:
-		return []string{agent.GoneNotice("the ctxtra MCP server is", path, a.Name(), repair)}
+		return []string{agent.GoneNotice("the ctxtra MCP proxy is", path, a.Name(), repair)}
 	case f.begin < 0:
-		return []string{"the ctxtra MCP server is missing; " + repair}
+		return []string{"the ctxtra MCP proxy is missing; " + repair}
 	}
 	b, ours := mcpBinary(f.entry())
 	if !ours {
 		return []string{fmt.Sprintf("%s: %v; restore or delete it, then %s", paths.Tilde(path), errHandEdited, repair)}
 	}
-	out := agent.BinaryNotices("the ctxtra MCP server runs", []string{b}, bin, repair)
+	out := agent.BinaryNotices("the ctxtra MCP proxy runs", []string{b}, bin, repair)
 	if t, _ := f.entry()["startup_timeout_sec"].(int64); t < StartupTimeout {
-		out = append(out, "the ctxtra MCP server has a shorter startup_timeout_sec than setup writes; "+repair)
+		out = append(out, "the ctxtra MCP proxy has a shorter startup_timeout_sec than setup writes; "+repair)
 	}
 	if missing := missingVars(f.entry(), o.EnvPass); o.Want && len(missing) > 0 {
-		out = append(out, fmt.Sprintf("the ctxtra MCP server doesn't pass %s to local servers; %s", strings.Join(missing, ", "), repair))
+		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't pass %s to local servers; %s", strings.Join(missing, ", "), repair))
 	}
 	if r, _ := f.entry()["required"].(bool); !r {
-		out = append(out, "the ctxtra MCP server isn't required, so Codex doesn't wait for its tools; "+repair)
+		out = append(out, "the ctxtra MCP proxy isn't required, so Codex doesn't wait for its tools; "+repair)
+	}
+	if f.legacy {
+		out = append(out, fmt.Sprintf("the ctxtra MCP proxy has its old name %s; %s", agent.LegacyMCPEntryName, repair))
 	}
 	return out
 }
@@ -412,16 +468,20 @@ func (a Agent) MCPCommand() ([]string, bool) {
 // waits for it up to startup_timeout_sec.
 func (Agent) MCPDeadline() time.Duration { return agent.MCPDeadline }
 
-// reOurTable is a header of a table under mcp_servers.ctxtra, with each
-// key bare or quoted.
-var reOurTable = regexp.MustCompile(`^\[\[?\s*("mcp_servers"|'mcp_servers'|mcp_servers)\s*\.\s*("ctxtra"|'ctxtra'|ctxtra)\s*[.\]]`)
+// tableRE matches a header of a table under mcp_servers.NAME, with each
+// key bare or quoted: the second group is NAME.
+func tableRE(name string) *regexp.Regexp {
+	q := regexp.QuoteMeta(name)
+	return regexp.MustCompile(`^(\[\[?\s*(?:"mcp_servers"|'mcp_servers'|mcp_servers)\s*\.\s*)("` + q + `"|'` + q + `'|` + q + `)(\s*[.\]])`)
+}
 
 // removeRest removes what still belongs to ctxtra's table once its block,
 // which started at line from, is gone: keys the user added after the
-// block, up to the next table, and every table under mcp_servers.ctxtra,
-// wherever it is. Comments and blank lines stay. The check of the result
-// catches what this misses.
+// block, up to the next table, and every table under ctxtra's, wherever it
+// is. Comments and blank lines stay. The check of the result catches what
+// this misses.
 func (f *tomlFile) removeRest(from int) {
+	reOurTable := tableRE(f.name())
 	ours := false
 	var out []string
 	for i, l := range f.lines {

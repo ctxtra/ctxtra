@@ -24,7 +24,7 @@ exec ctxtra doctor
 stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.pi/agent/mcp.json\)'
 
 exec ctxtra setup --remove --agent pi
-! grep '"ctxtra":' .pi/agent/mcp.json
+! grep '"ctxtra-proxy":' .pi/agent/mcp.json
 grep '"other"' .pi/agent/mcp.json
 
 -- config.yaml --
@@ -45,7 +45,7 @@ mcp-servers:
     "other": {
       "command": "other-mcp"
     },
-    "ctxtra": {
+    "ctxtra-proxy": {
       "command": "$BIN",
       "args": [
         "mcp",

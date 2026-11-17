@@ -42,7 +42,7 @@ func TestMCPSummary(t *testing.T) {
 					}
 					wantList := ""
 					if tc.flag == "1" && tc.name != "none" {
-						wantList = "\nMCP servers:\n  local\n  - one"
+						wantList = "\nMCP servers:\n  - one"
 						if tc.name == "several" {
 							wantList += "\n  - two"
 						}

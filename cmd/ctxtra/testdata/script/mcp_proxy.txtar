@@ -4,7 +4,7 @@
 
 # Without CTXTRA_EXPERIMENTAL_MCP it serves no tools, and says nothing.
 mcp .
-stdout '^server: ctxtra$'
+stdout '^server: ctxtra-proxy$'
 ! stdout '^tool'
 ! stderr .
 
@@ -50,7 +50,7 @@ stdout '"event":"connect","server":"billing","tools":8'
 # A broken config: no tools, and the session starts.
 cp broken.yaml .config/ctxtra/config.yaml
 mcp elsewhere/svc-feature
-stdout '^server: ctxtra$'
+stdout '^server: ctxtra-proxy$'
 ! stdout '^tool'
 
 -- config.yaml --

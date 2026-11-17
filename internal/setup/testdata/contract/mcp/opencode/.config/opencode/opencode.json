@@ -1,7 +1,7 @@
 {
   "mcp": {
     "servers": {
-      "ctxtra": {
+      "ctxtra-proxy": {
         "type": "local",
         "command": [
           "@@HOME@@/bin/ctxtra",

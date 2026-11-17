@@ -111,7 +111,7 @@ func Run(ctx context.Context, o Options, t mcp.Transport) error {
 	p := &proxy{o: o, ctx: ctx, ready: make(chan struct{}), tools: map[string]route{}, progress: map[string]*progressQueue{},
 		latest: map[string][]*mcp.Tool{}, resolved: make(chan struct{}), creds: creds,
 		answerWritten: make(chan struct{})}
-	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra", Version: o.Version}, &mcp.ServerOptions{
+	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra-proxy", Version: o.Version}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: true}},
 	})
 	p.server.AddReceivingMiddleware(p.waitForTools, p.instruct)

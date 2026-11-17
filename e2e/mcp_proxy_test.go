@@ -15,14 +15,17 @@ import (
 	"github.com/ctxtra/ctxtra/e2e/mock"
 )
 
-// mcpAgents are the agents that ctxtra setup gives its MCP server, and
+// proxyServer is the name of ctxtra's MCP entry in every agent.
+const proxyServer = "ctxtra-proxy"
+
+// mcpAgents are the agents that ctxtra setup gives its MCP proxy, and
 // that the proxy is checked in. Not Muse: it starts MCP servers with a
 // cleared environment.
 var mcpAgents = []string{"claude", "codex", "pi", "opencode", "antigravity"}
 
 // mcpSession is a session with MCP servers on: the config is at a path of
 // its own ($CTXTRA_CONFIG), so a proxy that serves tools read the same
-// config as the hook. The agent approves the ctxtra server's tools.
+// config as the hook. The agent approves the proxy's tools.
 func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session {
 	t.Helper()
 	if !slices.Contains(mcpAgents, a.Name()) {
@@ -37,7 +40,7 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 	return s
 }
 
-// approveMCP lets a headless run call the ctxtra server's tools.
+// approveMCP lets a headless run call the proxy's tools.
 func approveMCP(s *Session, agent string, cmd *exec.Cmd) {
 	args := cmd.Args[1:]
 	switch agent {
@@ -46,12 +49,12 @@ func approveMCP(s *Session, agent string, cmd *exec.Cmd) {
 		cmd.Env = append(cmd.Env, "ENABLE_TOOL_SEARCH=false")
 		for i, a := range args {
 			if a == "--allowedTools" {
-				args[i+1] += ",mcp__ctxtra"
+				args[i+1] += ",mcp__" + proxyServer
 			}
 		}
 	case "codex":
 		// exec refuses MCP calls without it.
-		args = append([]string{args[0], "-c", `mcp_servers.ctxtra.default_tools_approval_mode="approve"`}, args[1:]...)
+		args = append([]string{args[0], "-c", "mcp_servers." + proxyServer + `.default_tools_approval_mode="approve"`}, args[1:]...)
 	case "muse":
 		args = append(append(slices.Clone(args[:len(args)-1]), "--disable-approval"), args[len(args)-1])
 	case "opencode":
@@ -69,7 +72,7 @@ func approveMCP(s *Session, agent string, cmd *exec.Cmd) {
 				st["permissions"] = pm
 			}
 			allow, _ := pm["allow"].([]any)
-			pm["allow"] = append(allow, "mcp(ctxtra/*)")
+			pm["allow"] = append(allow, "mcp("+proxyServer+"/*)")
 			b, _ = json.MarshalIndent(st, "", "  ")
 			os.WriteFile(p, b, 0o644)
 		}
@@ -77,7 +80,7 @@ func approveMCP(s *Session, agent string, cmd *exec.Cmd) {
 	cmd.Args = append(cmd.Args[:1:1], args...)
 }
 
-// mcpScript calls the ctxtra server's tools the way the agent offers
+// mcpScript calls the proxy's tools the way the agent offers
 // them. OpenCode connects MCP servers in the background, about a second
 // after its start, and the mock answers at once: its first turn waits five
 // seconds in a script. The mock can't wait for a condition: a slower start
@@ -90,25 +93,26 @@ func mcpScript(agent string, names ...string) []mock.Step {
 	return []mock.Step{mcpCalls(agent, names...)}
 }
 
-// mcpCalls is the script step that calls the ctxtra server's tools the
+// mcpCalls is the script step that calls the proxy's tools the
 // way the agent offers them: names are the names sessions see.
 func mcpCalls(agent string, names ...string) mock.Step {
 	switch agent {
 	case "pi":
 		// Pi's default exposure: MCP tools are methods of tools in its
-		// codemode script, as mcp__<server>__<tool>.
+		// codemode script, as mcp__<server>__<tool> with - in the server
+		// name replaced by _.
 		var code strings.Builder
 		for _, n := range names {
-			code.WriteString("await tools.mcp__ctxtra__" + n + "({note: \"probe\"});\n")
+			code.WriteString("await tools.mcp__" + strings.ReplaceAll(proxyServer, "-", "_") + "__" + n + "({note: \"probe\"});\n")
 		}
 		code.WriteString("return \"done\"")
 		return mock.CallCode("codemode", code.String())
 	case "muse":
 		return mock.CallMCPToolsFlat(names...)
 	case "antigravity":
-		return mock.CallMCPGeneric("call_mcp_tool", "ctxtra", names...)
+		return mock.CallMCPGeneric("call_mcp_tool", proxyServer, names...)
 	case "opencode":
-		return mock.CallMCPCode("execute", "ctxtra", names...)
+		return mock.CallMCPCode("execute", proxyServer, names...)
 	}
 	return mock.CallMCPTools(names...)
 }

@@ -46,9 +46,10 @@ Skills:
 ```
 
 With `CTXTRA_EXPERIMENTAL_MCP=1`, selected MCP servers also appear in the count, for example
-`✓ ctxtra added 3 instructions, 3 skills and 1 MCP server`. An `MCP servers:` list shows their
-names, grouped by source or `local`, up to 30 per source. Servers awaiting sign-in or approval
-are included, with their notices below. With no selected servers, the summary stays as above.
+`✓ ctxtra added 3 instructions, 3 skills and 1 MCP server`. An `MCP servers:` list shows up to 30 of
+them, without groups: a server from a source is shown as `SOURCE/NAME`, one of your config by its name.
+Servers awaiting sign-in or approval are included, with their notices below. With no selected servers,
+the summary stays as above.
 
 The lists are grouped by source, in the order the session gets them. A file from a source is shown by its
 path in the source; when one source's folder is inside another's, its files are in the inner source. A file that is in no source is in the `local` group, by its full path, from `~` when it
@@ -339,7 +340,8 @@ to run `ctxtra setup --agent claude` until you do.
 ## Experimental: MCP servers
 
 ctxtra can give your sessions MCP servers by folder, like instructions and skills, through one MCP server named
-`ctxtra` that `ctxtra setup` adds to each agent but Muse. It is work in progress and off unless
+`ctxtra-proxy` that `ctxtra setup` adds to each agent but Muse. Earlier versions named it `ctxtra`: run
+`ctxtra setup` to rename it. It is work in progress and off unless
 `CTXTRA_EXPERIMENTAL_MCP=1` is set in your environment, for commands, setup and your agents.
 [spec.md](spec.md#experimental-mcp-servers) describes the format and current limits.
 
@@ -389,14 +391,14 @@ changes need approval again; notes or an unrelated commit do not. Accepting wide
 approved unchanged server to more folders. `mcp revoke REF` withdraws local approval, not credentials or provider
 grants. Close affected sessions to stop old connections; live revocation is not guaranteed.
 
-Each agent asks before it runs an MCP tool, as for its own servers. Allowing `ctxtra` allows every server that
+Each agent asks before it runs an MCP tool, as for its own servers. Allowing `ctxtra-proxy` allows every server that
 ctxtra binds to that folder, including servers bound later. A rule for a short tool prefix can match different
 source identities or accounts in different folders. Check the full identity with `ctxtra mcp status DIR`.
 Setup keeps existing native entries for the same provider, so both tool sets can appear:
 
-- Claude Code: allow `mcp__ctxtra` in `permissions.allow`, or a pattern such as `mcp__ctxtra__linear_work__*`.
-- Codex: add `default_tools_approval_mode = "approve"` to the `[mcp_servers.ctxtra]` table; setup keeps it.
-- Antigravity: an allow rule `mcp(ctxtra/*)`.
+- Claude Code: allow `mcp__ctxtra-proxy` in `permissions.allow`, or a pattern such as `mcp__ctxtra-proxy__linear_work__*`.
+- Codex: add `default_tools_approval_mode = "approve"` to the `[mcp_servers.ctxtra-proxy]` table; setup keeps it.
+- Antigravity: an allow rule `mcp(ctxtra-proxy/*)`.
 
 ctxtra keeps the servers' secret values, such as an API token, encrypted in `~/.ctxtra/mcp`, with the key in
 your OS keychain. Without a keychain, for example on a Linux server, the key is a file there, and ctxtra warns
@@ -445,7 +447,7 @@ What to keep in mind:
 - Any process of yours can read the stored credentials, as with the agents' own sign-ins.
 - `ctxtra mcp show` prints a local server's error output, which can hold secrets; an agent that runs it
   reads it too.
-- ctxtra's MCP server sees every tool call and its result, and passes them on. Its log has neither, only
+- ctxtra's MCP proxy sees every tool call and its result, and passes them on. Its log has neither, only
   which servers started and how calls failed.
 - Without a keychain, a backup of `~/.ctxtra/mcp` holds the key of your credentials too.
 - A server under a certificate you trust yourself can use keys smaller than NIST's minimums. To refuse

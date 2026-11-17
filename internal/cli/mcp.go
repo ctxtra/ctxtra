@@ -307,7 +307,7 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 	}
 	fmt.Fprintf(s.Out, "\nNext: bind it to folders, for example ctxtra binding add %s --dir '~/dev/**' --mcp %s\n", name, name)
 	if stale := agentsNeedingSetup(); len(stale) > 0 {
-		fmt.Fprintf(s.Out, "and run ctxtra setup: ctxtra's MCP server in %s needs it\n", strings.Join(stale, ", "))
+		fmt.Fprintf(s.Out, "and run ctxtra setup: ctxtra's MCP proxy in %s needs it\n", strings.Join(stale, ", "))
 	}
 	return 0
 }

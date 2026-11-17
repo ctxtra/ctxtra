@@ -851,8 +851,9 @@ old environment secrets until they exit. A shorter configured scope list does no
 
 With `CTXTRA_EXPERIMENTAL_MCP=1`, the session summary counts the selected MCP servers in its first
 line, for example `✓ ctxtra added 10 instructions, 2 skills and 1 MCP server`.
-An `MCP servers:` list follows the instructions and skills, grouped by source (or `local`).
-It shows server identities in binding order, up to 30 per source, then `+N more` and `Full MCP list: ctxtra context explain`.
+An `MCP servers:` list follows the instructions and skills. It isn't grouped: a server from a source has an
+identity of the form `SOURCE/NAME`, a server of the config just its name. It shows up to 30 identities in binding
+order, then `+N more` and `Full MCP list: ctxtra context explain`.
 The count includes servers awaiting sign-in or approval, and excludes suppressed identities.
 With no selected servers, the summary stays unchanged. The hook reads only local state.
 
@@ -986,30 +987,35 @@ keeps one that is there; `--remove` removes it.
 
 | Agent | File | Entry |
 |---|---|---|
-| Claude Code | `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json`) | `mcpServers.ctxtra: {type: stdio, command, args}` |
-| Codex | `~/.codex/config.toml` (`$CODEX_HOME`) | `[mcp_servers.ctxtra]`: `command`, `args`, `env_vars`, `startup_timeout_sec`, `required`, between marker comments |
-| Cursor | `~/.cursor/mcp.json` | `mcpServers.ctxtra: {command, args}` |
-| OpenCode | `~/.config/opencode/opencode.json` | `mcp.servers.ctxtra: {type: local, command, pool: false}` |
-| Pi | `~/.pi/agent/mcp.json` | `mcpServers.ctxtra: {command, args}` |
-| Antigravity | `~/.gemini/config/mcp_config.json` | `mcpServers.ctxtra: {command, args}` |
+| Claude Code | `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json`) | `mcpServers.ctxtra-proxy: {type: stdio, command, args}` |
+| Codex | `~/.codex/config.toml` (`$CODEX_HOME`) | `[mcp_servers.ctxtra-proxy]`: `command`, `args`, `env_vars`, `startup_timeout_sec`, `required`, between marker comments |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers.ctxtra-proxy: {command, args}` |
+| OpenCode | `~/.config/opencode/opencode.json` | `mcp.servers.ctxtra-proxy: {type: local, command, pool: false}` |
+| Pi | `~/.pi/agent/mcp.json` | `mcpServers.ctxtra-proxy: {command, args}` |
+| Antigravity | `~/.gemini/config/mcp_config.json` | `mcpServers.ctxtra-proxy: {command, args}` |
 
-Muse isn't supported yet: it starts MCP servers with a cleared environment, so ctxtra's server would get
+Muse isn't supported yet: it starts MCP servers with a cleared environment, so ctxtra's proxy would get
 neither `CTXTRA_EXPERIMENTAL_MCP` nor ctxtra's other settings. Setup adds no entry to it.
 
 Agents write these files themselves too (Claude Code often writes `~/.claude.json`): when a file changes
 between setup's read and its write, setup makes its edit again on the new content, so the agent's change stays.
 
 The command is the ctxtra binary and its arguments are `mcp proxy AGENT`. Setup owns only the keys in the table
-and keeps every other key the user adds to the entry, such as an approval setting. An entry named `ctxtra` that
-doesn't run `ctxtra mcp proxy` is the user's: setup and `--remove` leave its file alone and say so.
+and keeps every other key the user adds to the entry, such as an approval setting. An entry named `ctxtra-proxy`
+that doesn't run `ctxtra mcp proxy` is the user's: setup and `--remove` leave its file alone and say so.
+
+Earlier versions named the entry `ctxtra`. Such an entry still works, and the setup notices ask to run setup.
+Setup renames it to `ctxtra-proxy`, in its place and with the keys the user added (in Codex, with its tables
+and markers too). When both names are there, setup removes the old entry. `--remove` removes either. An entry
+named `ctxtra` that doesn't run `ctxtra mcp proxy` is the user's, and setup leaves it alone.
 Setup keeps existing native provider entries, so an agent can show both native and ctxtra tools for the same provider.
 Agent tool permissions are separate from connection approval. An entry-wide allow rule covers servers bound later.
 A short-prefix rule can match different source identities and accounts in different folders; use the full identity
 in `ctxtra mcp status DIR` to check which server a folder selects.
 
-In Codex, the entry is a block between `# >>> ctxtra MCP server` and `# <<< ctxtra MCP server` lines. Setup
+In Codex, the entry is a block between `# >>> ctxtra MCP proxy` and `# <<< ctxtra MCP proxy` lines. Setup
 rewrites only its own keys' lines in the block, and keeps the rest of the file byte for byte. `--remove` removes
-the block, keys you added to ctxtra's table after it, and `[mcp_servers.ctxtra.*]` tables. Before it writes,
+the block, keys you added to ctxtra's table after it, and `[mcp_servers.ctxtra-proxy.*]` tables. Before it writes,
 it checks that the new file is valid TOML and says the same as the old one but for those keys; otherwise it
 changes nothing, because Codex refuses an invalid config. Codex starts MCP servers with an allow-listed
 environment, so `env_vars` lists ctxtra's variables (`CTXTRA_CONFIG`, `CTXTRA_LOG`, `CTXTRA_EXPERIMENTAL_MCP`),
@@ -1029,11 +1035,12 @@ The setup notices and `doctor` report the entry:
 
 | When | Notice |
 |---|---|
-| Servers were added after setup | `claude: the ctxtra MCP server is missing; run ctxtra setup --agent claude` |
-| The entry runs another binary | `claude: the ctxtra MCP server runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude` |
-| The entry is gone from its file | `claude: the ctxtra MCP server is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; ...` |
-| Codex's entry doesn't pass a local server's `env-pass` variable | `codex: the ctxtra MCP server doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
-| An entry named ctxtra isn't setup's | `~/.claude.json: the ctxtra MCP server doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude` |
+| Servers were added after setup | `claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude` |
+| The entry runs another binary | `claude: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude` |
+| The entry is gone from its file | `claude: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; ...` |
+| Codex's entry doesn't pass a local server's `env-pass` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
+| The entry has its old name | `claude: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude` |
+| An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude` |
 
 ### Security
 
@@ -1072,7 +1079,7 @@ doesn't:
 
 A session sees each tool as `<server>__<tool>`. The name uses only `A-Z`, `a-z`, `0-9` and `_`, and is at most
 38 characters: Muse shortens longer tool names and then can't call them, and the strictest model APIs allow 64
-characters, of which Claude Code and Pi use 13 for `mcp__ctxtra__`.
+characters, of which Claude Code and Pi use 19 for `mcp__ctxtra-proxy__` (Pi writes `mcp__ctxtra_proxy__`).
 
 - A server name is 1 to 20 characters of `a-z`, `0-9` and `_`, starts with a letter, and has no `__` and no `_`
   at the end.
