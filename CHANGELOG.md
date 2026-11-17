@@ -4,8 +4,8 @@
 
 ### Experimental
 
-- After an MCP sign-in, the browser shows a clear page that names the server and says to go back to the
-  terminal, in light and dark mode. A refused sign-in or an old link gets the same kind of page.
+- After an MCP sign-in, the browser shows a clear page that says whether the sign-in succeeded and to go
+  back to the terminal, in light and dark mode.
 
 ## v0.5.2
 

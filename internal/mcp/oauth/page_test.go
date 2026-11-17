@@ -9,7 +9,6 @@ import (
 )
 
 func TestCallbackPages(t *testing.T) {
-	const server = `<b>"linear"&</b>`
 	const state = "the-state-value"
 	secrets := []string{"the-code-value", "the-description-value", "evil<script>"}
 	tests := []struct {
@@ -20,18 +19,18 @@ func TestCallbackPages(t *testing.T) {
 		passed bool
 	}{
 		{"signed in", url.Values{"state": {state}, "code": {"the-code-value"}}, 200,
-			[]string{"Signed in to <code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code>", "close this tab"}, true},
+			[]string{"<h1>Sign-in successful</h1>", "close this window"}, true},
 		{"refused", url.Values{"state": {state}, "error": {"access_denied"}, "error_description": {"the-description-value"}}, 200,
-			[]string{"<code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code> was refused", "refused the sign-in: <code>access_denied</code>."}, true},
+			[]string{"<h1>Sign-in failed</h1>", "refused the sign-in: access_denied."}, true},
 		{"refused, odd code", url.Values{"state": {state}, "error": {"evil<script>"}}, 200,
-			[]string{"The provider refused the sign-in.</p>"}, true},
+			[]string{"<h1>Sign-in failed</h1>", "The provider refused the sign-in.</p>"}, true},
 		{"wrong state", url.Values{"state": {"other"}, "code": {"the-code-value"}}, 400,
-			[]string{"isn't the sign-in ctxtra is waiting for"}, false},
+			[]string{"<h1>Sign-in failed</h1>", "already used"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := make(chan url.Values, 1)
-			h := callback(server, state, got)
+			h := callback(state, got)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/callback?"+tt.query.Encode(), nil))
 			if rec.Code != tt.status {
@@ -52,7 +51,7 @@ func TestCallbackPages(t *testing.T) {
 					t.Errorf("body lacks %q:\n%s", w, body)
 				}
 			}
-			for _, s := range append(secrets, state, server) {
+			for _, s := range append(secrets, state) {
 				if strings.Contains(body, s) {
 					t.Errorf("body has %q", s)
 				}
@@ -71,7 +70,7 @@ func TestCallbackPages(t *testing.T) {
 
 func TestCallbackOnlyOnce(t *testing.T) {
 	got := make(chan url.Values, 2)
-	h := callback("s", "st", got)
+	h := callback("st", got)
 	for i, want := range []int{200, 400} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/callback?state=st&code=c", nil))

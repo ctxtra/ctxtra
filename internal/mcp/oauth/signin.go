@@ -156,7 +156,7 @@ func (f *SignIn) Run(ctx context.Context, ch *Challenge) (*Result, error) {
 	}
 
 	got := make(chan url.Values, 2)
-	srv := &http.Server{Handler: callback(f.Server.ID, state, got), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: callback(state, got), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
@@ -311,10 +311,10 @@ func register(ctx context.Context, c *http.Client, endpoint, redirect string) (*
 	return &reg, nil
 }
 
-// callback is the redirect listener's handler for a sign-in to server. A
-// request with another state is refused and the listener keeps waiting;
-// the first right one ends the sign-in.
-func callback(server, state string, got chan<- url.Values) http.Handler {
+// callback is the redirect listener's handler. A request with another
+// state is refused and the listener keeps waiting; the first right one
+// ends the sign-in.
+func callback(state string, got chan<- url.Values) http.Handler {
 	var mu sync.Mutex
 	done := false
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -332,9 +332,9 @@ func callback(server, state string, got chan<- url.Values) http.Handler {
 			wrongPage.write(w)
 			return
 		case q.Get("error") != "":
-			refusedPage(server, q.Get("error")).write(w)
+			refusedPage(q.Get("error")).write(w)
 		default:
-			signedInPage(server).write(w)
+			signedInPage.write(w)
 		}
 		select {
 		case got <- q:
