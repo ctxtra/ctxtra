@@ -54,16 +54,13 @@ const (
 	accentError template.CSS = "#d64545"
 )
 
-func receivedPage(server string) page {
+func signedInPage(server string) page {
 	return page{
 		Status:  http.StatusOK,
-		Title:   "Sign-in received",
-		Heading: "Sign-in to " + code(server) + " received",
-		Lines: []template.HTML{
-			"ctxtra is finishing the sign-in. Go back to the terminal to see the result.",
-			"You can close this tab.",
-		},
-		Accent: accentOK,
+		Title:   "Signed in",
+		Heading: "Signed in to " + code(server),
+		Lines:   []template.HTML{"You can close this tab and return to the terminal."},
+		Accent:  accentOK,
 	}
 }
 
@@ -77,8 +74,8 @@ func refusedPage(server, errCode string) page {
 	return page{
 		Status:  http.StatusOK,
 		Title:   "Sign-in refused",
-		Heading: "Sign-in to " + code(server) + " refused",
-		Lines:   []template.HTML{why, "Nothing was saved. Go back to the terminal, and you can close this tab."},
+		Heading: "Sign-in to " + code(server) + " was refused",
+		Lines:   []template.HTML{why, "You can close this tab and return to the terminal."},
 		Accent:  accentError,
 	}
 }
@@ -88,8 +85,8 @@ var wrongPage = page{
 	Title:   "Not the expected sign-in",
 	Heading: "This isn't the sign-in ctxtra is waiting for",
 	Lines: []template.HTML{
-		"It is from another attempt, or it was already used. Nothing was saved.",
-		"Use the link the terminal shows for the latest sign-in. You can close this tab.",
+		"This link is from another attempt, or it was already used.",
+		"You can close this tab and use the link the terminal shows.",
 	},
 	Accent: accentError,
 }

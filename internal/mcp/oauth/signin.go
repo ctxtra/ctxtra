@@ -334,7 +334,7 @@ func callback(server, state string, got chan<- url.Values) http.Handler {
 		case q.Get("error") != "":
 			refusedPage(server, q.Get("error")).write(w)
 		default:
-			receivedPage(server).write(w)
+			signedInPage(server).write(w)
 		}
 		select {
 		case got <- q:

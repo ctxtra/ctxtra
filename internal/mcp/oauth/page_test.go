@@ -19,10 +19,10 @@ func TestCallbackPages(t *testing.T) {
 		want   []string
 		passed bool
 	}{
-		{"received", url.Values{"state": {state}, "code": {"the-code-value"}}, 200,
-			[]string{"Sign-in to <code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code> received", "close this tab"}, true},
+		{"signed in", url.Values{"state": {state}, "code": {"the-code-value"}}, 200,
+			[]string{"Signed in to <code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code>", "close this tab"}, true},
 		{"refused", url.Values{"state": {state}, "error": {"access_denied"}, "error_description": {"the-description-value"}}, 200,
-			[]string{"<code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code> refused", "refused the sign-in: <code>access_denied</code>."}, true},
+			[]string{"<code>&lt;b&gt;&#34;linear&#34;&amp;&lt;/b&gt;</code> was refused", "refused the sign-in: <code>access_denied</code>."}, true},
 		{"refused, odd code", url.Values{"state": {state}, "error": {"evil<script>"}}, 200,
 			[]string{"The provider refused the sign-in.</p>"}, true},
 		{"wrong state", url.Values{"state": {"other"}, "code": {"the-code-value"}}, 400,
