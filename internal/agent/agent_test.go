@@ -386,21 +386,21 @@ func TestSystemMessage(t *testing.T) {
 	}
 }
 
-func TestSummaryMCPGroups(t *testing.T) {
+func TestSummaryMCPList(t *testing.T) {
 	testenv.Home(t)
 	res := &resolve.Result{MCPServers: []resolve.MCPServer{
 		{Server: upstream.Server{ID: "team/one", Source: "team"}},
 		{Server: upstream.Server{ID: "local_one"}},
 		{Server: upstream.Server{ID: "team/two", Source: "team"}},
 	}}
-	want := "✓ ctxtra added 3 MCP servers\nMCP servers:\n  team\n  - team/one\n  - team/two\n  local\n  - local_one"
+	want := "✓ ctxtra added 3 MCP servers\nMCP servers:\n  - team/one\n  - local_one\n  - team/two"
 	if got := agent.Summary(res); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	for i := range 31 {
 		res.MCPServers = append(res.MCPServers, resolve.MCPServer{Server: upstream.Server{ID: fmt.Sprintf("server%d", i)}})
 	}
-	if got := agent.Summary(res); !strings.Contains(got, "  - +2 more\nFull MCP list: ctxtra context explain") || strings.Contains(got, "  - server29") {
+	if got := agent.Summary(res); !strings.Contains(got, "  - server26\n  - +4 more\nFull MCP list: ctxtra context explain") || strings.Contains(got, "  - server27") {
 		t.Fatalf("unexpected truncation: %q", got)
 	}
 }

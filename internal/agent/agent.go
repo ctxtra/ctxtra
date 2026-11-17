@@ -324,11 +324,7 @@ func Summary(res *resolve.Result) string {
 	}
 	if n := len(res.MCPServers); n > 0 {
 		added = append(added, plural(n, "MCP server"))
-		hits := make([]resolve.Hit, 0, n)
-		for _, server := range res.MCPServers {
-			hits = append(hits, resolve.Hit{Name: server.ID, Source: server.Source})
-		}
-		list, c := summaryList("MCP servers", hits, func(h resolve.Hit) string { return h.Name }, "", 30)
+		list, c := mcpList(res.MCPServers, 30)
 		lists = append(lists, list)
 		if c {
 			lists = append(lists, FullMCPList)
@@ -476,6 +472,22 @@ func summaryList(title string, hits []resolve.Hit, entry func(resolve.Hit) strin
 	return b.String(), cut
 }
 
+// mcpList shows servers by ID, without groups: an ID names its source
+// already. It shows at most max, followed by "+N more", and reports whether
+// it left any out.
+func mcpList(servers []resolve.MCPServer, max int) (string, bool) {
+	var b strings.Builder
+	b.WriteString("MCP servers:")
+	for i, s := range servers {
+		if i == max {
+			fmt.Fprintf(&b, "\n%s+%d more", EntryPrefix, len(servers)-max)
+			return b.String(), true
+		}
+		b.WriteString("\n" + EntryPrefix + plain(s.ID))
+	}
+	return b.String(), false
+}
+
 // dropped is a line per limit that files were dropped for: "dropped a.md,
 // b.md (over budget.max-chars)".
 func dropped(hits []resolve.Hit, name func(resolve.Hit) string) []string {
@@ -539,7 +551,7 @@ type Status struct {
 }
 
 // MCPAgent is an agent that gets ctxtra's MCP entry: one stdio MCP server
-// named ctxtra that runs ctxtra mcp proxy AGENT.
+// named ctxtra-proxy that runs ctxtra mcp proxy AGENT.
 type MCPAgent interface {
 	MCP() MCPHost
 	// MCPDeadline is how long the proxy waits for slow servers before it
@@ -592,7 +604,12 @@ type MCPCheck struct {
 }
 
 // MCPEntryName is the name of ctxtra's entry in every agent.
-const MCPEntryName = "ctxtra"
+const MCPEntryName = "ctxtra-proxy"
+
+// LegacyMCPEntryName is the entry's name in earlier versions. Setup renames
+// an entry of that name that runs ctxtra mcp proxy, and leaves any other
+// alone.
+const LegacyMCPEntryName = "ctxtra"
 
 // MCPArgs are the arguments of the entry's command for agent.
 func MCPArgs(agent string) []string { return []string{"mcp", "proxy", agent} }

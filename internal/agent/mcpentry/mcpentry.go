@@ -1,7 +1,7 @@
 // Package mcpentry edits ctxtra's MCP entry in the agents' JSON config
-// files: one server named ctxtra that runs ctxtra mcp proxy AGENT. Setup
-// owns only the keys it writes; every other key in the entry, and every
-// other entry, stays as it is.
+// files: one server named ctxtra-proxy that runs ctxtra mcp proxy AGENT.
+// Setup owns only the keys it writes; every other key in the entry, and
+// every other entry, stays as it is.
 package mcpentry
 
 import (
@@ -44,7 +44,7 @@ type KV struct {
 }
 
 // handEdited explains why setup leaves an entry alone.
-const handEdited = "the ctxtra MCP server doesn't run ctxtra mcp proxy"
+const handEdited = "the MCP server " + agent.MCPEntryName + " doesn't run ctxtra mcp proxy"
 
 // owned are the keys and values setup writes for bin.
 func (c Config) owned(bin string) []KV {
@@ -105,7 +105,8 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 	if err != nil {
 		return err
 	}
-	cur, has := entry(servers)
+	cur, has := entry(servers, agent.MCPEntryName)
+	legacy := c.legacy(servers)
 	switch {
 	case has && cur == nil, has && !c.ours(cur):
 		again := "ctxtra setup"
@@ -113,13 +114,24 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 			again += " --remove"
 		}
 		return fmt.Errorf("%s: %s; left alone. Rename or delete it, then run %s --agent %s", c.Path, handEdited, again, c.Agent)
-	case o.Remove && !has:
+	case o.Remove && !has && legacy == nil:
 		return nil
 	case o.Remove:
 		servers.Delete(agent.MCPEntryName)
+		if legacy != nil {
+			servers.Delete(agent.LegacyMCPEntryName)
+		}
 		c.prune(data)
 	default:
-		if cur == nil {
+		switch {
+		case legacy != nil && has:
+			servers.Delete(agent.LegacyMCPEntryName)
+		case legacy != nil:
+			// The keys the user added to the old entry stay, and so does its
+			// place among the servers.
+			cur = legacy
+			servers.Rename(agent.LegacyMCPEntryName, agent.MCPEntryName)
+		case cur == nil:
 			cur = jsonorder.NewMap()
 		}
 		for _, kv := range c.owned(o.Binary) {
@@ -225,15 +237,35 @@ func dotted(keys []string) string {
 	return s
 }
 
-// entry is the ctxtra entry: has reports whether the name is there, and
-// cur is nil when it isn't an object.
-func entry(servers *jsonorder.Map) (cur *jsonorder.Map, has bool) {
-	v, ok := servers.Get(agent.MCPEntryName)
+// entry is the server named name: has reports whether the name is there,
+// and cur is nil when it isn't an object.
+func entry(servers *jsonorder.Map, name string) (cur *jsonorder.Map, has bool) {
+	v, ok := servers.Get(name)
 	if !ok {
 		return nil, false
 	}
 	m, _ := v.(*jsonorder.Map)
 	return m, true
+}
+
+// legacy is the entry that setup wrote under the old name, nil when there
+// is none. A server of that name that runs something else is the user's.
+func (c Config) legacy(servers *jsonorder.Map) *jsonorder.Map {
+	if e, _ := entry(servers, agent.LegacyMCPEntryName); e != nil && c.ours(e) {
+		return e
+	}
+	return nil
+}
+
+// current is ctxtra's entry: the one of the new name, or of the old name
+// when there is none of the new. ok is false when neither runs ctxtra's
+// proxy.
+func (c Config) current(servers *jsonorder.Map) (e *jsonorder.Map, ok bool) {
+	if e, has := entry(servers, agent.MCPEntryName); has {
+		return e, e != nil && c.ours(e)
+	}
+	e = c.legacy(servers)
+	return e, e != nil
 }
 
 // commandLine is an entry's program and arguments.
@@ -284,8 +316,8 @@ func (c Config) MCPStatus(bin string, o agent.MCPCheck) agent.Status {
 	if err != nil {
 		return agent.Status{State: "invalid: " + err.Error(), OK: len(notices) == 0, Details: notices}
 	}
-	cur, has := entry(servers)
-	if !has || cur == nil || !c.ours(cur) {
+	cur, ok := c.current(servers)
+	if !ok {
 		return agent.Status{State: "no MCP entry", OK: len(notices) == 0, Details: notices}
 	}
 	s := agent.Status{State: fmt.Sprintf("MCP entry runs %s", paths.Tilde(c.binary(cur))), OK: len(notices) == 0, Details: notices}
@@ -316,23 +348,29 @@ func (c Config) check(data *jsonorder.Map, bin string, o agent.MCPCheck) []strin
 		}
 		return []string{err.Error()}
 	}
-	cur, has := entry(servers)
+	cur, has := entry(servers, agent.MCPEntryName)
+	legacy := c.legacy(servers)
 	switch {
 	case has && (cur == nil || !c.ours(cur)):
 		if !o.Want {
 			return nil
 		}
 		return []string{fmt.Sprintf("%s: %s; rename or delete it, then %s", paths.Tilde(c.Path), handEdited, repair)}
+	case !has && legacy != nil:
+		cur = legacy
 	case !has && o.Known:
-		return []string{agent.GoneNotice("the ctxtra MCP server is", c.Path, c.Agent, repair)}
+		return []string{agent.GoneNotice("the ctxtra MCP proxy is", c.Path, c.Agent, repair)}
 	case !has && o.Want:
-		return []string{"the ctxtra MCP server is missing; " + repair}
+		return []string{"the ctxtra MCP proxy is missing; " + repair}
 	case !has:
 		return nil
 	}
-	out := agent.BinaryNotices("the ctxtra MCP server runs", []string{c.binary(cur)}, bin, repair)
+	out := agent.BinaryNotices("the ctxtra MCP proxy runs", []string{c.binary(cur)}, bin, repair)
 	if !slices.Equal(c.commandLine(cur)[1:], agent.MCPArgs(c.Agent)) {
-		out = append(out, fmt.Sprintf("the ctxtra MCP server doesn't run as %s; %s", c.Agent, repair))
+		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't run as %s; %s", c.Agent, repair))
+	}
+	if legacy != nil {
+		out = append(out, fmt.Sprintf("the ctxtra MCP proxy has its old name %s; %s", agent.LegacyMCPEntryName, repair))
 	}
 	return out
 }
@@ -347,8 +385,8 @@ func (c Config) MCPCommand() ([]string, bool) {
 	if err != nil {
 		return nil, false
 	}
-	cur, _ := entry(servers)
-	if cur == nil || !c.ours(cur) {
+	cur, ok := c.current(servers)
+	if !ok {
 		return nil, false
 	}
 	return c.commandLine(cur), true

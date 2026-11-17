@@ -191,3 +191,45 @@ func TestContractMCP(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPUpgrade: setup turns the MCP entry of every older fixture into
+// the one it writes now, and finds nothing to change after that.
+func TestMCPUpgrade(t *testing.T) {
+	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
+	ran := 0
+	for _, c := range testenv.Clients(t) {
+		if !c.MCP {
+			continue
+		}
+		ran++
+		t.Run(c.ID+"/"+c.Agent, func(t *testing.T) {
+			h := testenv.Home(t)
+			t.Setenv("PATH", t.TempDir())
+			a, _ := registry.Get(c.Agent)
+			host := a.(agent.MCPAgent).MCP()
+			bin := filepath.Join(h, "bin", "ctxtra")
+			c.Load(t, h, os.Args[0])
+			o := agent.MCPOptions{Want: true, EnvPass: []string{"PGHOST"}}
+			o.Binary = bin
+			for i := range 2 {
+				var r agent.Report
+				if err := host.SetupMCP(o, &r); err != nil {
+					t.Fatal(err)
+				}
+				if i == 1 && len(r.Changes) > 0 {
+					t.Errorf("setup again changed %v", r.Changes)
+				}
+			}
+			if err := os.Remove(bin); err != nil {
+				t.Fatal(err)
+			}
+			got := homeFiles(t, h)
+			if want := tree(t, filepath.Join("testdata", "contract", "mcp", c.Agent)); !maps.Equal(got, want) {
+				t.Errorf("setup writes\n%v\nnot\n%v", got, want)
+			}
+		})
+	}
+	if ran == 0 {
+		t.Fatal("no MCP fixtures")
+	}
+}

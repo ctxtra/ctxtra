@@ -59,7 +59,7 @@ func TestAddKeepsTheRest(t *testing.T) {
       "type": "http",
       "url": "https://x"
     },
-    "ctxtra": {
+    "ctxtra-proxy": {
       "type": "stdio",
       "command": "/bin/ctxtra",
       "args": [
@@ -149,14 +149,14 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
-// A ctxtra entry that doesn't run the proxy is the user's: setup and
+// A ctxtra-proxy entry that doesn't run the proxy is the user's: setup and
 // --remove leave the file alone.
 func TestChangedByHand(t *testing.T) {
 	h := testenv.Home(t)
 	p := filepath.Join(h, ".claude.json")
 	for _, body := range []string{
-		`{"mcpServers": {"ctxtra": {"command": "npx", "args": ["other"]}}}`,
-		`{"mcpServers": {"ctxtra": "x"}}`,
+		`{"mcpServers": {"ctxtra-proxy": {"command": "npx", "args": ["other"]}}}`,
+		`{"mcpServers": {"ctxtra-proxy": "x"}}`,
 	} {
 		testenv.Write(t, p, body)
 		c := claude(p)
@@ -198,8 +198,8 @@ func TestCheck(t *testing.T) {
 		want string
 	}{
 		{"no servers, never set up", agent.MCPCheck{}, ""},
-		{"servers added after setup", agent.MCPCheck{Want: true}, "the ctxtra MCP server is missing; run ctxtra setup --agent claude"},
-		{"gone", agent.MCPCheck{Known: true}, "the ctxtra MCP server is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude"},
+		{"servers added after setup", agent.MCPCheck{Want: true}, "the ctxtra MCP proxy is missing; run ctxtra setup --agent claude"},
+		{"gone", agent.MCPCheck{Known: true}, "the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude"},
 	} {
 		got := c.CheckMCP(bin, tc.o)
 		if tc.want == "" && len(got) > 0 || tc.want != "" && (len(got) != 1 || !strings.HasPrefix(got[0], tc.want)) {
@@ -208,7 +208,7 @@ func TestCheck(t *testing.T) {
 	}
 	apply(t, c, add("/elsewhere/ctxtra"))
 	got := c.CheckMCP(bin, agent.MCPCheck{Want: true, Known: true})
-	if len(got) != 1 || got[0] != "the ctxtra MCP server runs /elsewhere/ctxtra, which doesn't exist; run ctxtra setup --agent claude" {
+	if len(got) != 1 || got[0] != "the ctxtra MCP proxy runs /elsewhere/ctxtra, which doesn't exist; run ctxtra setup --agent claude" {
 		t.Errorf("another binary: %v", got)
 	}
 	if st := c.MCPStatus(bin, agent.MCPCheck{Want: true}); st.OK {
@@ -233,6 +233,76 @@ func mustEntry(t *testing.T, c Config) *jsonorder.Map {
 		t.Fatal(err)
 	}
 	s, _ := c.servers(data, false)
-	e, _ := entry(s)
+	e, _ := entry(s, agent.MCPEntryName)
 	return e
+}
+
+// Setup renames the entry that it wrote under the old name, in its place and
+// with the keys the user added; a server of that name that runs something
+// else is the user's and stays.
+func TestRenamesLegacy(t *testing.T) {
+	h := testenv.Home(t)
+	p := filepath.Join(h, ".claude.json")
+	c := claude(p)
+	testenv.Write(t, p, `{"mcpServers": {"a": {"url": "https://a"}, "ctxtra": {"type": "stdio", "command": "/old/ctxtra", "args": ["mcp", "proxy", "claude"], "timeout": 9}, "z": {"url": "https://z"}}}`)
+	if n := c.CheckMCP("/old/ctxtra", agent.MCPCheck{Want: true, Known: true}); !slices.Contains(n, "the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude") {
+		t.Errorf("notices %v", n)
+	}
+	if argv, ok := c.MCPCommand(); !ok || argv[0] != "/old/ctxtra" {
+		t.Errorf("command %v %v", argv, ok)
+	}
+	apply(t, c, add("/new/ctxtra"))
+	want := `{
+  "mcpServers": {
+    "a": {
+      "url": "https://a"
+    },
+    "ctxtra-proxy": {
+      "type": "stdio",
+      "command": "/new/ctxtra",
+      "args": [
+        "mcp",
+        "proxy",
+        "claude"
+      ],
+      "timeout": 9
+    },
+    "z": {
+      "url": "https://z"
+    }
+  }
+}
+`
+	if got := read(t, p); got != want {
+		t.Errorf("got\n%s", got)
+	}
+
+	// Both names: the old entry goes.
+	testenv.Write(t, p, `{"mcpServers": {"ctxtra": {"command": "/old/ctxtra", "args": ["mcp", "proxy", "claude"]}, "ctxtra-proxy": {"type": "stdio", "command": "/new/ctxtra", "args": ["mcp", "proxy", "claude"]}}}`)
+	apply(t, c, add("/new/ctxtra"))
+	if got := read(t, p); strings.Contains(got, `"ctxtra":`) || !strings.Contains(got, `"ctxtra-proxy":`) {
+		t.Errorf("got\n%s", got)
+	}
+
+	// --remove removes an old entry too.
+	testenv.Write(t, p, `{"mcpServers": {"ctxtra": {"command": "/old/ctxtra", "args": ["mcp", "proxy", "claude"]}}, "x": 1}`)
+	apply(t, c, agent.MCPOptions{Options: agent.Options{Remove: true}})
+	if got := read(t, p); got != "{\n  \"x\": 1\n}\n" {
+		t.Errorf("got\n%s", got)
+	}
+
+	// The user's own server named ctxtra.
+	user := `{"mcpServers": {"ctxtra": {"command": "ctxtra-docs"}}}`
+	testenv.Write(t, p, user)
+	if n := c.CheckMCP("", agent.MCPCheck{}); len(n) != 0 {
+		t.Errorf("notices %v", n)
+	}
+	apply(t, c, add("/new/ctxtra"))
+	if got := read(t, p); !strings.Contains(got, `"command": "ctxtra-docs"`) || !strings.Contains(got, `"ctxtra-proxy":`) {
+		t.Errorf("got\n%s", got)
+	}
+	apply(t, c, agent.MCPOptions{Options: agent.Options{Remove: true}})
+	if got := read(t, p); !strings.Contains(got, `"command": "ctxtra-docs"`) || strings.Contains(got, `"ctxtra-proxy":`) {
+		t.Errorf("got\n%s", got)
+	}
 }

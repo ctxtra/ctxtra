@@ -3,6 +3,7 @@ package codex
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,7 +60,7 @@ func ctxtraEntry(t *testing.T, path string) map[string]any {
 	b, _ := os.ReadFile(path)
 	m := decode(t, string(b))
 	servers, _ := m["mcp_servers"].(map[string]any)
-	e, _ := servers["ctxtra"].(map[string]any)
+	e, _ := servers["ctxtra-proxy"].(map[string]any)
 	return e
 }
 
@@ -76,7 +77,7 @@ func TestCodexAddKeepsTheRest(t *testing.T) {
 		t.Errorf("the rest changed:\n%s", b)
 	}
 	tail := strings.TrimPrefix(string(b), realConfig)
-	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\nenv_vars = [\"CTXTRA_CONFIG\", \"CTXTRA_LOG\", \"CTXTRA_EXPERIMENTAL_MCP\"") ||
+	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\nenv_vars = [\"CTXTRA_CONFIG\", \"CTXTRA_LOG\", \"CTXTRA_EXPERIMENTAL_MCP\"") ||
 		!strings.HasSuffix(tail, "\"SSL_CERT_DIR\", \"PGHOST\"]\nstartup_timeout_sec = 30\nrequired = true\n"+endMarker+"\n") {
 		t.Errorf("block:\n%s", tail)
 	}
@@ -104,7 +105,7 @@ func TestCodexUserKeysSurvive(t *testing.T) {
 	}
 	b, _ := os.ReadFile(path)
 	s := strings.Replace(string(b), "startup_timeout_sec = 30\n", "startup_timeout_sec = 30\ndefault_tools_approval_mode = \"approve\"\n", 1)
-	s += "enabled = true\n\n[mcp_servers.ctxtra.tools.gh__create_issue_ef677c]\napproval_mode = \"approve\"\n"
+	s += "enabled = true\n\n[mcp_servers.ctxtra-proxy.tools.gh__create_issue_ef677c]\napproval_mode = \"approve\"\n"
 	testenv.Write(t, path, s)
 	if _, err := setupMCP(t, add("/new/ctxtra", "PGHOST")); err != nil {
 		t.Fatal(err)
@@ -183,21 +184,21 @@ func TestCodexNewFileAndDryRun(t *testing.T) {
 	}
 }
 
-// Every other form of an entry named ctxtra, and broken markers: setup
+// Every other form of an entry named ctxtra-proxy, and broken markers: setup
 // and --remove change nothing and say the file was changed by hand.
 func TestCodexHandEdited(t *testing.T) {
 	h := testenv.Home(t)
 	path := filepath.Join(h, ".codex", "config.toml")
-	block := beginMarker + "\n[mcp_servers.ctxtra]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" + endMarker + "\n"
+	block := beginMarker + "\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" + endMarker + "\n"
 	for name, body := range map[string]string{
-		"quoted table":     realConfig + "[mcp_servers.\"ctxtra\"]\ncommand = \"x\"\n",
-		"dotted keys":      "mcp_servers.ctxtra.command = \"x\"\n" + realConfig,
-		"inline map":       "mcp_servers = { ctxtra = { command = \"x\" } }\n",
-		"no markers":       realConfig + "[mcp_servers.ctxtra]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n",
+		"quoted table":     realConfig + "[mcp_servers.\"ctxtra-proxy\"]\ncommand = \"x\"\n",
+		"dotted keys":      "mcp_servers.ctxtra-proxy.command = \"x\"\n" + realConfig,
+		"inline map":       "mcp_servers = { ctxtra-proxy = { command = \"x\" } }\n",
+		"no markers":       realConfig + "[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n",
 		"begin only":       realConfig + beginMarker + "\n[mcp_servers.x]\ncommand = \"x\"\n",
 		"end first":        endMarker + "\n" + realConfig + beginMarker + "\n",
 		"two blocks":       realConfig + block + block,
-		"other header":     realConfig + strings.Replace(block, "[mcp_servers.ctxtra]", "[mcp_servers.other]", 1),
+		"other header":     realConfig + strings.Replace(block, "[mcp_servers.ctxtra-proxy]", "[mcp_servers.other]", 1),
 		"invalid TOML":     realConfig + "[[[\n",
 		"not the proxy":    realConfig + strings.Replace(block, `"mcp", "proxy"`, `"serve"`, 1),
 		"redefined inside": realConfig + strings.Replace(block, endMarker, "[mcp_servers.linear]\nx = 1\n"+endMarker, 1),
@@ -226,10 +227,10 @@ func TestCodexCheck(t *testing.T) {
 	if n := a.CheckMCP("", agent.MCPCheck{}); len(n) != 0 {
 		t.Errorf("%v", n)
 	}
-	if n := a.CheckMCP("", agent.MCPCheck{Want: true}); len(n) != 1 || n[0] != "the ctxtra MCP server is missing; run ctxtra setup --agent codex" {
+	if n := a.CheckMCP("", agent.MCPCheck{Want: true}); len(n) != 1 || n[0] != "the ctxtra MCP proxy is missing; run ctxtra setup --agent codex" {
 		t.Errorf("%v", n)
 	}
-	if n := a.CheckMCP("", agent.MCPCheck{Known: true}); len(n) != 1 || !strings.HasPrefix(n[0], "the ctxtra MCP server is gone from ~/.codex/config.toml") {
+	if n := a.CheckMCP("", agent.MCPCheck{Known: true}); len(n) != 1 || !strings.HasPrefix(n[0], "the ctxtra MCP proxy is gone from ~/.codex/config.toml") {
 		t.Errorf("%v", n)
 	}
 	bin := filepath.Join(h, "ctxtra")
@@ -305,8 +306,8 @@ func TestCodexRemoveSubtables(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	body := "[mcp_servers.ctxtra.tools.a]\napproval_mode = \"approve\"\n\n" + string(b) +
-		"\n[\"mcp_servers\".ctxtra.tools.b]\napproval_mode = \"approve\"\n\n[mcp_servers.other]\ncommand = \"x\"\n"
+	body := "[mcp_servers.ctxtra-proxy.tools.a]\napproval_mode = \"approve\"\n\n" + string(b) +
+		"\n[\"mcp_servers\".ctxtra-proxy.tools.b]\napproval_mode = \"approve\"\n\n[mcp_servers.other]\ncommand = \"x\"\n"
 	testenv.Write(t, path, body)
 	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
 		t.Fatalf("setup with subtables: %v", err)
@@ -316,7 +317,7 @@ func TestCodexRemoveSubtables(t *testing.T) {
 	}
 	m := decode(t, read(t, path))
 	servers, _ := m["mcp_servers"].(map[string]any)
-	if servers["ctxtra"] != nil || servers["other"] == nil || servers["linear"] == nil {
+	if servers["ctxtra-proxy"] != nil || servers["other"] == nil || servers["linear"] == nil {
 		t.Errorf("%v", servers)
 	}
 }
@@ -328,4 +329,146 @@ func read(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// legacyBlock is the entry as setup wrote it before the rename.
+const legacyBlock = legacyBeginMarker + "\n" + legacyTableHeader + "\ncommand = \"/old/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" +
+	"startup_timeout_sec = 30\ndefault_tools_approval_mode = \"approve\"\nrequired = true\n" + legacyEndMarker + "\nenabled = true\n"
+
+// Setup renames the old block, with the keys and subtables the user added,
+// and changes nothing else.
+func TestCodexRenamesLegacy(t *testing.T) {
+	h := testenv.Home(t)
+	path := filepath.Join(h, ".codex", "config.toml")
+	body := "[mcp_servers.ctxtra.tools.a]\napproval_mode = \"approve\"\n\n" + realConfig + "\n" + legacyBlock +
+		"\n[ \"mcp_servers\" . 'ctxtra' .tools.b]\napproval_mode = \"approve\"\n"
+	testenv.Write(t, path, body)
+	a := Agent{}
+	if n := a.CheckMCP("", agent.MCPCheck{Want: true, Known: true}); !slices.ContainsFunc(n, func(s string) bool {
+		return strings.HasPrefix(s, "the ctxtra MCP proxy has its old name ctxtra;")
+	}) {
+		t.Errorf("notices %v", n)
+	}
+	if argv, ok := a.MCPCommand(); !ok || argv[0] != "/old/ctxtra" {
+		t.Errorf("command %v %v", argv, ok)
+	}
+	if _, err := setupMCP(t, add("/new/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, path)
+	servers, _ := decode(t, got)["mcp_servers"].(map[string]any)
+	e, _ := servers["ctxtra-proxy"].(map[string]any)
+	tools, _ := e["tools"].(map[string]any)
+	if servers["ctxtra"] != nil || e["command"] != "/new/ctxtra" || e["default_tools_approval_mode"] != "approve" ||
+		e["enabled"] != true || tools["a"] == nil || tools["b"] == nil {
+		t.Errorf("servers %v", servers)
+	}
+	if strings.Contains(got, legacyBeginMarker) || strings.Contains(got, legacyEndMarker) ||
+		!strings.Contains(got, "\n"+beginMarker+"\n"+tableHeader+"\n") || !strings.Contains(got, "[ \"mcp_servers\" . ctxtra-proxy .tools.b]") {
+		t.Errorf("file:\n%s", got)
+	}
+	if n := a.CheckMCP("/new/ctxtra", agent.MCPCheck{Want: true, Known: true}); slices.ContainsFunc(n, func(s string) bool { return strings.Contains(s, "old name") }) {
+		t.Errorf("notices %v", n)
+	}
+}
+
+// --remove removes the old block and its subtables; a table named ctxtra
+// that setup didn't write is the user's and stays.
+func TestCodexLegacyRemoveAndUserTable(t *testing.T) {
+	h := testenv.Home(t)
+	path := filepath.Join(h, ".codex", "config.toml")
+	testenv.Write(t, path, realConfig+"\n"+legacyBlock+"\n[mcp_servers.ctxtra.tools.a]\napproval_mode = \"approve\"\n")
+	if _, err := setupMCP(t, agent.MCPOptions{Options: agent.Options{Remove: true}}); err != nil {
+		t.Fatal(err)
+	}
+	// Blank lines stay.
+	if got := read(t, path); strings.TrimRight(got, "\n") != strings.TrimRight(realConfig, "\n") {
+		t.Errorf("not as before:\n%q", got)
+	}
+	user := realConfig + "\n[mcp_servers.ctxtra]\ncommand = \"ctxtra-docs\"\n"
+	testenv.Write(t, path, user)
+	if n := (Agent{}).CheckMCP("", agent.MCPCheck{}); len(n) != 0 {
+		t.Errorf("notices %v", n)
+	}
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ := decode(t, read(t, path))["mcp_servers"].(map[string]any)
+	if old, _ := servers["ctxtra"].(map[string]any); old["command"] != "ctxtra-docs" || servers["ctxtra-proxy"] == nil {
+		t.Errorf("servers %v", servers)
+	}
+	if !strings.HasPrefix(read(t, path), user) {
+		t.Errorf("the user's table changed")
+	}
+}
+
+// An old block next to the new name, or the old and new markers mixed:
+// setup changes nothing.
+func TestCodexLegacyHandEdited(t *testing.T) {
+	h := testenv.Home(t)
+	path := filepath.Join(h, ".codex", "config.toml")
+	for name, body := range map[string]string{
+		"new name taken": realConfig + legacyBlock + "[mcp_servers.ctxtra-proxy]\ncommand = \"x\"\n",
+		"mixed markers":  realConfig + strings.Replace(legacyBlock, legacyEndMarker, endMarker, 1),
+		"new header":     realConfig + strings.Replace(legacyBlock, legacyTableHeader, tableHeader, 1),
+	} {
+		testenv.Write(t, path, body)
+		for _, o := range []agent.MCPOptions{add("/bin/ctxtra"), {Options: agent.Options{Remove: true}}} {
+			if _, err := setupMCP(t, o); err == nil || !strings.Contains(err.Error(), "left alone") {
+				t.Errorf("%s (remove %v): %v", name, o.Remove, err)
+			}
+			if read(t, path) != body {
+				t.Errorf("%s: changed", name)
+			}
+		}
+	}
+}
+
+// An older ctxtra ran setup after this one: it added its block next to the
+// new one. Setup removes the old block, with its tables, and keeps the new
+// one; --remove removes both.
+func TestCodexLegacyNextToNew(t *testing.T) {
+	h := testenv.Home(t)
+	path := filepath.Join(h, ".codex", "config.toml")
+	testenv.Write(t, path, realConfig)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	withNew := strings.Replace(string(b), "required = true\n", "required = true\nenabled = true\n", 1)
+	both := withNew + "\n" + legacyBlock + "\n[mcp_servers.ctxtra.tools.a]\napproval_mode = \"approve\"\n"
+	testenv.Write(t, path, both)
+	a := Agent{}
+	if n := a.CheckMCP("", agent.MCPCheck{Want: true, Known: true}); !slices.ContainsFunc(n, func(s string) bool { return strings.Contains(s, "old name ctxtra") }) {
+		t.Errorf("notices %v", n)
+	}
+	if argv, ok := a.MCPCommand(); !ok || argv[0] != "/bin/ctxtra" {
+		t.Errorf("command %v %v", argv, ok)
+	}
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.TrimRight(got, "\n") != strings.TrimRight(withNew, "\n") {
+		t.Errorf("got\n%s", got)
+	}
+	testenv.Write(t, path, both)
+	if _, err := setupMCP(t, agent.MCPOptions{Options: agent.Options{Remove: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.Contains(got, "ctxtra") {
+		t.Errorf("got\n%s", got)
+	}
+	// The old block first, and one that doesn't run the proxy.
+	testenv.Write(t, path, legacyBlock+"\n"+withNew)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, path); strings.Contains(got, "ctxtra MCP server") || !strings.Contains(got, "enabled = true") {
+		t.Errorf("got\n%s", got)
+	}
+	notOurs := withNew + "\n" + strings.Replace(legacyBlock, `"mcp", "proxy"`, `"serve"`, 1)
+	testenv.Write(t, path, notOurs)
+	if _, err := setupMCP(t, add("/bin/ctxtra")); err == nil || read(t, path) != notOurs {
+		t.Errorf("changed: %v", err)
+	}
 }

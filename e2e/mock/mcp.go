@@ -73,7 +73,7 @@ func CallMCPGeneric(tool, server string, names ...string) Step {
 }
 
 // CallMCPCode makes the agent call each of names on server inside a Code
-// Mode tool (OpenCode's execute), as tools.<server>["<name>"](...).
+// Mode tool (OpenCode's execute), as tools["<server>"]["<name>"](...).
 func CallMCPCode(tool, server string, names ...string) Step {
 	return Step{kind: "mcp-code", path: tool + "\x00" + server, name: strings.Join(names, "\x00")}
 }
@@ -106,7 +106,7 @@ func expandMCP(api API, body map[string]any, s Step) []Step {
 func genericCall(s Step) *call {
 	server, name, _ := strings.Cut(s.path, "\x00")
 	if s.kind == "mcp-code-call" {
-		code := `return await tools.` + server + `[` + jsonQuote(name) + `]({note: "probe"})`
+		code := `return await tools[` + jsonQuote(server) + `][` + jsonQuote(name) + `]({note: "probe"})`
 		return &call{name: s.name, args: map[string]any{"code": code}}
 	}
 	return &call{name: s.name, args: map[string]any{"ServerName": server, "ToolName": name,

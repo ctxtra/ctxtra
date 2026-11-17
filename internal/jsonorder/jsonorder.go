@@ -44,6 +44,18 @@ func (o *Map) Delete(k string) {
 	}
 }
 
+// Rename moves the value of from to to, in from's place. It does nothing
+// when from is missing or to is there already.
+func (o *Map) Rename(from, to string) {
+	v, ok := o.M[from]
+	if _, taken := o.M[to]; !ok || taken {
+		return
+	}
+	delete(o.M, from)
+	o.M[to] = v
+	o.Keys[slices.Index(o.Keys, from)] = to
+}
+
 // MarshalJSON writes the keys in their order.
 func (o *Map) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer

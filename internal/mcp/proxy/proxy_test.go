@@ -693,7 +693,7 @@ func TestBadToolSchema(t *testing.T) {
 	}
 	var logged []Record
 	p := &proxy{o: Options{Log: func(r Record) { logged = append(logged, r) }}, tools: map[string]route{}, latest: map[string][]*mcp.Tool{}, ready: make(chan struct{})}
-	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra", Version: "1"}, nil)
+	p.server = mcp.NewServer(&mcp.Implementation{Name: "ctxtra-proxy", Version: "1"}, nil)
 	up, err := connect(context.Background(), upstream.Server{Name: "x"}, "", mcp.NewClient(&mcp.Implementation{Name: "c"}, nil))
 	if err != nil {
 		t.Fatal(err)

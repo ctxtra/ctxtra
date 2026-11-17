@@ -14,7 +14,7 @@ import (
 
 // MaxLen is the longest name. Muse shortens tool names over about 40
 // characters and then can't call them; the strictest model APIs allow 64,
-// minus the mcp__ctxtra__ prefix that Claude Code and Pi add (51).
+// minus the mcp__ctxtra-proxy__ prefix that Claude Code and Pi add (45).
 const MaxLen = 38
 
 // Tool is a tool of an upstream server, by its server's name and its own.

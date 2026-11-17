@@ -35,7 +35,7 @@ mcp-servers:
   "theme": "dark",
   "mcp": {
     "servers": {
-      "ctxtra": {
+      "ctxtra-proxy": {
         "type": "local",
         "command": [
           "$BIN",

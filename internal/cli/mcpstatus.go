@@ -75,7 +75,7 @@ func (a *app) mcpStatus(dir string) int {
 		fmt.Fprintf(out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approvalState(s.Server))
 	}
 	if !ok {
-		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP server yet")
+		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP proxy yet")
 		return 0
 	}
 	fmt.Fprintf(out, "\nthe last session here (%s, %s):\n", rec.Agent, rec.Started.Local().Format(time.DateTime))

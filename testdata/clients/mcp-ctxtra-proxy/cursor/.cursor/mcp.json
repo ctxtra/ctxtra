@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ctxtra-proxy": {
+      "command": "@@HOME@@/bin/ctxtra",
+      "args": [
+        "mcp",
+        "proxy",
+        "cursor"
+      ]
+    }
+  }
+}

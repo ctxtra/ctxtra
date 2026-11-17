@@ -349,7 +349,7 @@ func TestMCPNotices(t *testing.T) {
 	setUp(t, bin, "claude")
 	wantNotices(t, "MCP off")
 	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
-	wantNotices(t, "servers added after setup", "claude: the ctxtra MCP server is missing; run ctxtra setup --agent claude")
+	wantNotices(t, "servers added after setup", "claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude")
 	o := setup.Options{Agents: []string{"claude"}, MCP: setup.LoadMCP()}
 	o.Binary = bin
 	if _, err := setup.Run(o); err != nil {
@@ -359,8 +359,8 @@ func TestMCPNotices(t *testing.T) {
 	other := fakeBin(t, filepath.Join(h, "other", "ctxtra"))
 	running = func() string { return other }
 	wantNotices(t, "another binary", "claude: the hooks run ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude",
-		"claude: the ctxtra MCP server runs ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude")
+		"claude: the ctxtra MCP proxy runs ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude")
 	running = func() string { return bin }
 	testenv.Write(t, filepath.Join(h, ".claude.json"), "{}")
-	wantNotices(t, "gone", "claude: the ctxtra MCP server is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice")
+	wantNotices(t, "gone", "claude: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice")
 }

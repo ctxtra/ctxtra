@@ -24,7 +24,7 @@ exec ctxtra doctor
 stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.gemini/config/mcp_config.json\)'
 
 exec ctxtra setup --remove --agent antigravity
-! grep '"ctxtra":' .gemini/config/mcp_config.json
+! grep '"ctxtra-proxy":' .gemini/config/mcp_config.json
 grep '"other"' .gemini/config/mcp_config.json
 
 -- config.yaml --
@@ -45,7 +45,7 @@ mcp-servers:
     "other": {
       "command": "other-mcp"
     },
-    "ctxtra": {
+    "ctxtra-proxy": {
       "command": "$BIN",
       "args": [
         "mcp",

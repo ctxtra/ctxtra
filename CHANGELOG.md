@@ -7,6 +7,19 @@
 - After an MCP sign-in, the browser shows a clear page that says whether the sign-in succeeded and to go
   back to the terminal, in light and dark mode.
 
+- The MCP entry that setup adds to agents is now named `ctxtra-proxy`, not `ctxtra`. Tool names and
+  permission rules change with it: for example `mcp__ctxtra-proxy__linear_work__list_issues` in Claude Code,
+  `[mcp_servers.ctxtra-proxy]` in Codex, and `mcp(ctxtra-proxy/*)` in Antigravity. An entry named `ctxtra` that
+  doesn't run `ctxtra mcp proxy` is now left alone.
+
+  **Upgrade:** run `CTXTRA_EXPERIMENTAL_MCP=1 ctxtra setup`. It renames the old entry and keeps the keys you
+  added to it. Until then, the old entry keeps working, and the setup notices ask you to run setup. Update
+  allow rules that name `ctxtra`.
+
+- The `MCP servers:` list in session summaries is no longer grouped by source. A server from a source is
+  shown as `SOURCE/NAME`, so the group added nothing. Servers of your config were grouped as `local`, which
+  read like local command servers.
+
 ## v0.5.2
 
 - Pinned sources check for new commits by default. Set `check-updates: false` on a source, or pass
