@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Experimental
+
+- After an MCP sign-in, the browser shows a clear page that says whether the sign-in succeeded and to go
+  back to the terminal, in light and dark mode.
+
 ## v0.5.2
 
 - Pinned sources check for new commits by default. Set `check-updates: false` on a source, or pass

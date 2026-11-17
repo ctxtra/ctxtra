@@ -327,15 +327,14 @@ func callback(state string, got chan<- url.Values) http.Handler {
 		first := q.Get("state") == state && !done
 		done = done || first
 		mu.Unlock()
-		if !first {
-			http.Error(w, "This isn't the sign-in ctxtra is waiting for.", http.StatusBadRequest)
+		switch {
+		case !first:
+			wrongPage.write(w)
 			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		if q.Get("error") != "" {
-			io.WriteString(w, "The sign-in was refused. You can close this tab.\n")
-		} else {
-			io.WriteString(w, "Signed in to ctxtra. You can close this tab.\n")
+		case q.Get("error") != "":
+			refusedPage(q.Get("error")).write(w)
+		default:
+			signedInPage.write(w)
 		}
 		select {
 		case got <- q:
@@ -372,15 +371,22 @@ func random() string {
 // safeCode is an OAuth error code from a redirect, or "an error" for text
 // that isn't one: the provider controls it.
 func safeCode(s string) string {
-	for _, r := range s {
-		if (r < 'a' || r > 'z') && r != '_' {
-			return "an error"
-		}
-	}
-	if len(s) > 40 {
+	if !isCode(s) {
 		return "an error"
 	}
 	return s
+}
+
+func isCode(s string) bool {
+	if s == "" || len(s) > 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // account is the account a token answer names: the email or name in its
