@@ -122,7 +122,8 @@ func (a *app) mcpApprovalCmd(revoke bool) *cobra.Command {
 	}
 	return &cobra.Command{
 		Use: verb + " REF", Short: short, Args: exactly("REF"),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) (result error) {
+		Example: "  ctxtra mcp " + verb + " team/build",
+		RunE: a.run(func(_ *cobra.Command, args []string) (result error) {
 			defer func() {
 				if result != nil {
 					result = exitCode(newSources(a.IO).fail("mcp "+verb, result))

@@ -10,7 +10,6 @@ import (
 
 func TestMCPPrefixConflictKeepsFirstIdentity(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	root := filepath.Join(h, "context")
 	testenv.Write(t, filepath.Join(root, "mcp-servers.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://package.example/mcp}\n  other: {command: [other-mcp]}\n")
 	testenv.Write(t, filepath.Join(root, "b.yaml"), "schema: ctxtra/v1\nbindings:\n  - {name: package, match: {global: true}, mcp-servers: [linear, other]}\n  - {name: repeat_package, match: {global: true}, mcp-servers: [linear]}\n")

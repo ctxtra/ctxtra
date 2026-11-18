@@ -15,14 +15,14 @@ func TestMCPSummary(t *testing.T) {
 			h := testenv.Home(t)
 			testenv.Write(t, h+"/rule.md", "A rule.")
 			testenv.Skill(t, h+"/deploy", "description: Deploy.")
-			for _, tc := range []struct{ name, flag, servers, want string }{
-				{"none", "1", "[one]", "✓ ctxtra added 1 instruction and 1 skill"},
-				{"one", "1", "[one]", "✓ ctxtra added 1 instruction, 1 skill and 1 MCP server"},
-				{"several", "1", "[one, two]", "✓ ctxtra added 1 instruction, 1 skill and 2 MCP servers"},
-				{"off", "", "[one, two]", "ctxtra added nothing; 1 problem (run ctxtra doctor)"},
+			for _, tc := range []struct{ name, legacyValue, servers, want string }{
+				{"none", "", "[one]", "✓ ctxtra added 1 instruction and 1 skill"},
+				{"one", "", "[one]", "✓ ctxtra added 1 instruction, 1 skill and 1 MCP server"},
+				{"several", "", "[one, two]", "✓ ctxtra added 1 instruction, 1 skill and 2 MCP servers"},
+				{"legacy_disabled_is_ignored", "0", "[one, two]", "✓ ctxtra added 1 instruction, 1 skill and 2 MCP servers"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					t.Setenv("CTXTRA_EXPERIMENTAL_MCP", tc.flag)
+					t.Setenv("CTXTRA_EXPERIMENTAL_MCP", tc.legacyValue)
 					selectedDir := "~"
 					if tc.name == "none" {
 						selectedDir = "~/unselected"
@@ -41,9 +41,9 @@ func TestMCPSummary(t *testing.T) {
 						t.Fatalf("got %q, want %q; stderr: %s", answer.Message, tc.want, &errOut)
 					}
 					wantList := ""
-					if tc.flag == "1" && tc.name != "none" {
+					if tc.name != "none" {
 						wantList = "\nMCP servers:\n  - one"
-						if tc.name == "several" {
+						if tc.name == "several" || tc.name == "legacy_disabled_is_ignored" {
 							wantList += "\n  - two"
 						}
 					}

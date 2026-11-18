@@ -1,5 +1,4 @@
 # Source OAuth uses the full identity and never borrows a config sign-in.
-env CTXTRA_EXPERIMENTAL_MCP=1
 env BROWSER=fakebrowser
 fakeauth
 exec ctxtra mcp add linear $FAKE_MCP --no-login

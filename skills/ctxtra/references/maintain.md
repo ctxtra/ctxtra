@@ -12,7 +12,7 @@ When the user changes a source repository that others add as a pinned source:
    the repository's binding files: they work under any name.
 4. For CI, the example is in `ctxtra help config`, under "Check a source repository". Exit code 1 means an
    error.
-5. With experimental MCP enabled, declare servers once in root `mcp-servers.yaml`, with `schema: ctxtra/v1`
+5. Declare MCP servers once in root `mcp-servers.yaml`, with `schema: ctxtra/v1`
    and an `mcp-servers` map. Source bindings name only their own bare server names. Source check validates
    definitions and references without a user's config, sign-in, keychain or network. Never commit secrets or
    approval records. Endpoint, command and environment changes need users to review and approve again; wider

@@ -14,7 +14,6 @@ import (
 
 func TestMCPLogoutUndeclaredSourceKeepsOtherConfigRegistration(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInit()
 	testenv.Config(t, h, "schema: ctxtra/v1\n")
 	root := filepath.Join(h, "context")

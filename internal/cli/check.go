@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
@@ -61,7 +60,7 @@ func checkSource(stdio IO, dir, name string, files []string, asJSON bool) int {
 			return fail(err)
 		}
 		errs = append(errs, unreadable...)
-		if len(found) == 0 && len(unreadable) == 0 && (!experimental.MCP() || !source.Exists(filepath.Join(dir, config.MCPManifest))) {
+		if len(found) == 0 && len(unreadable) == 0 && !source.Exists(filepath.Join(dir, config.MCPManifest)) {
 			return fail(fmt.Errorf("no binding files in %s (YAML files with schema: %s)", paths.Tilde(dir), config.Schema))
 		}
 		abs = found
@@ -157,7 +156,7 @@ func findBindingFiles(dir string) (found, unreadable []string, err error) {
 				return filepath.SkipDir
 			}
 			return nil
-		case experimental.MCP() && p == filepath.Join(dir, config.MCPManifest):
+		case p == filepath.Join(dir, config.MCPManifest):
 			return nil
 		case !d.Type().IsRegular() || !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml"):
 			return nil

@@ -1,21 +1,16 @@
-# ctxtra mcp add, list, show and remove, and binding add --mcp: local
-# servers, behind CTXTRA_EXPERIMENTAL_MCP.
+# ctxtra mcp add, list, show and remove, and binding add --mcp work
+# without an opt-in variable.
 
-# Without the variable: hidden from help, and refused.
 exec ctxtra --help
-! stdout 'mcp'
-! exec ctxtra mcp list
-stderr '^ctxtra mcp list: MCP servers are experimental: set CTXTRA_EXPERIMENTAL_MCP=1 to use them$'
-! exec ctxtra mcp
-stderr 'MCP servers are experimental'
-! exec ctxtra binding add w --dir '~/dev/**' --mcp pg
-stderr '--mcp: MCP servers are experimental'
+stdout 'mcp +Add, list, show and remove MCP servers$'
+exec ctxtra mcp list
+stdout 'no MCP servers'
+exec ctxtra mcp
+stdout 'Usage:'
 exec ctxtra binding add --help
-! stdout 'mcp NAME'
-
-env CTXTRA_EXPERIMENTAL_MCP=1
-exec ctxtra --help
-stdout 'mcp +Add, list, show and remove MCP servers \(experimental\)'
+stdout '\-\-mcp REF'
+! exec ctxtra binding add w --dir '~/dev/**' --mcp pg
+stderr 'server pg is not in mcp-servers'
 exec ctxtra mcp add --help
 stdout 'ctxtra mcp add NAME \(URL \| -- COMMAND \[ARG\]...\)'
 stdout '--env-pass NAME'

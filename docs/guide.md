@@ -45,7 +45,7 @@ Skills:
   - review
 ```
 
-With `CTXTRA_EXPERIMENTAL_MCP=1`, selected MCP servers also appear in the count, for example
+Selected MCP servers also appear in the count, for example
 `✓ ctxtra added 3 instructions, 3 skills and 1 MCP server`. An `MCP servers:` list shows up to 30 of
 them, without groups: a server from a source is shown as `SOURCE/NAME`, one of your config by its name.
 Servers awaiting sign-in or approval are included, with their notices below. With no selected servers,
@@ -337,13 +337,12 @@ as it reads any file.
 `ctxtra setup --remove` removes the plugin. After an upgrade that added it, every ctxtra command reminds you
 to run `ctxtra setup --agent claude` until you do.
 
-## Experimental: MCP servers
+## MCP servers
 
-ctxtra can give your sessions MCP servers by folder, like instructions and skills, through one MCP server named
-`ctxtra-proxy` that `ctxtra setup` adds to each agent but Muse. Earlier versions named it `ctxtra`: run
-`ctxtra setup` to rename it. It is work in progress and off unless
-`CTXTRA_EXPERIMENTAL_MCP=1` is set in your environment, for commands, setup and your agents.
-[spec.md](spec.md#experimental-mcp-servers) describes the format and current limits.
+ctxtra gives your sessions MCP servers by folder, like instructions and skills, through one MCP server named
+`ctxtra-proxy`. Setup supports Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity.
+No experimental environment variable is needed. Earlier versions named the entry `ctxtra`: run
+`ctxtra setup` to rename it. [spec.md](spec.md#mcp-servers) describes the format and limits.
 
 For a server you declare yourself:
 
@@ -493,8 +492,12 @@ Logs are in `~/.ctxtra/log.jsonl`.
 - A subagent gets the files when it starts, so it can see a newer version than its parent.
 - Codex asks you to trust a hook again after every change to it, for example after the binary moved.
   `doctor` shows whether a trust record exists, but can't tell whether it is for the current hook.
-- Muse Code (tested with 1.4.10) runs hooks with a cleared environment, so `CTXTRA_CONFIG` and `CTXTRA_LOG`
-  don't reach the hook: Muse sessions use the default paths. A resumed Muse session runs the hook again, and
+- Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Run setup with your chosen
+  `CTXTRA_CONFIG`: both use that recorded path when the variable is absent. Without a record, they use the
+  default config. Hooks use the default log path. The MCP entry copies `CTXTRA_LOG` at setup time. Muse cannot
+  inherit shell proxy or certificate settings, a Linux keychain session, or local servers' `env-pass` values.
+  Use explicit non-secret `env` values or stored `secret-env` values for local servers. Start a new Muse session
+  after signing in to an MCP server. A resumed Muse session runs the hook again, and
   Muse replaces the earlier text with the current version of the files.
 - Devin: the hook goes into `~/.config/devin/config.json`, which Devin CLI and Devin Desktop's agent both
   read. Devin has no subagent hook. It allows comments in that file; `setup` leaves such a file alone. Devin

@@ -2,13 +2,12 @@
 # it starts in the session folder, gets the servers that the hook's rules
 # bind there, and ignores arguments it doesn't know.
 
-# Without CTXTRA_EXPERIMENTAL_MCP it serves no tools, and says nothing.
+# Without a config it serves no tools, and says nothing.
 mcp .
 stdout '^server: ctxtra-proxy$'
 ! stdout '^tool'
 ! stderr .
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 mkdir .config/ctxtra
 cp config.yaml .config/ctxtra/config.yaml
 exec ctxtra setup --agent claude

@@ -19,9 +19,8 @@ import (
 const proxyServer = "ctxtra-proxy"
 
 // mcpAgents are the agents that ctxtra setup gives its MCP proxy, and
-// that the proxy is checked in. Not Muse: it starts MCP servers with a
-// cleared environment.
-var mcpAgents = []string{"claude", "codex", "pi", "opencode", "antigravity"}
+// that the proxy is checked in.
+var mcpAgents = []string{"claude", "codex", "pi", "opencode", "muse", "antigravity"}
 
 // mcpSession is a session with MCP servers on: the config is at a path of
 // its own ($CTXTRA_CONFIG), so a proxy that serves tools read the same
@@ -33,8 +32,8 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 	}
 	s := newSession(t, a)
 	cfg := s.Path("ctx/ctxtra.yaml")
-	s.Extra = append(s.Extra, "CTXTRA_EXPERIMENTAL_MCP=1", "CTXTRA_CONFIG="+cfg)
-	s.Write("ctx/ctxtra.yaml", config(s))
+	s.Extra = append(s.Extra, "CTXTRA_CONFIG="+cfg)
+	s.Write("ctx/ctxtra.yaml", "check-updates: false\n"+config(s))
 	s.Setup()
 	s.Adjust = func(cmd *exec.Cmd) { approveMCP(s, a.Name(), cmd) }
 	return s
@@ -176,6 +175,8 @@ func TestMCPProxy(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
 		probe := probeBinary(t)
 		s := mcpSession(t, a, func(s *Session) string {
+			s.Marked("ctx/a.md", "MCP_A")
+			s.Marked("ctx/b.md", "MCP_B")
 			return `schema: ctxtra/v1
 mcp-servers:
   alpha: {command: [` + probe + `, mcp, -log, ` + s.Path("alpha.jsonl") + `]}
@@ -183,9 +184,11 @@ mcp-servers:
 bindings:
   - name: a
     match: {dirs: [~/dev/a]}
+    instructions: [~/ctx/a.md]
     mcp-servers: [alpha]
   - name: b
     match: {dirs: [~/dev/b]}
+    instructions: [~/ctx/b.md]
     mcp-servers: [beta]
 `
 		})
@@ -207,7 +210,8 @@ bindings:
 		warm.Env = s.Env()
 		_ = warm.Run()
 
-		s.Run(s.Path("dev/a"), driver.Options{}, mcpScript(a.Name(), alpha["probe_ping"], long)...)
+		r := s.Run(s.Path("dev/a"), driver.Options{}, mcpScript(a.Name(), alpha["probe_ping"], long)...)
+		r.First(mock.Main).Has("MCP_A").Lacks("MCP_B")
 		calls, _ := probeCalls(t, alphaLog)
 		if !slices.Contains(calls, "probe_ping") || !slices.Contains(calls, "linear-work__list_issues") {
 			t.Errorf("alpha got calls %v, want probe_ping and linear-work__list_issues", calls)
@@ -218,7 +222,8 @@ bindings:
 		checkStartTime(t, s, "dev/a")
 
 		_, alphaStarts := probeCalls(t, alphaLog)
-		s.Run(s.Path("dev/b"), driver.Options{}, mcpScript(a.Name(), "beta__probe_ping")...)
+		r = s.Run(s.Path("dev/b"), driver.Options{}, mcpScript(a.Name(), "beta__probe_ping")...)
+		r.First(mock.Main).Has("MCP_B").Lacks("MCP_A")
 		if calls, _ := probeCalls(t, betaLog); !slices.Contains(calls, "probe_ping") {
 			t.Errorf("beta got calls %v in dev/b", calls)
 		}
@@ -227,7 +232,8 @@ bindings:
 		}
 
 		_, betaStarts := probeCalls(t, betaLog)
-		r := s.Run(s.Path("dev/c"), driver.Options{})
+		r = s.Run(s.Path("dev/c"), driver.Options{})
+		r.First(mock.Main).Lacks("MCP_A", "MCP_B")
 		// Where the request lists MCP tools, it has none of the ctxtra
 		// server's; Pi, OpenCode and Antigravity list them only on demand.
 		for _, q := range r.Requests {
@@ -242,6 +248,9 @@ bindings:
 		}
 		if _, n := probeCalls(t, betaLog); n != betaStarts {
 			t.Errorf("beta started for a session in dev/c")
+		}
+		if _, err := os.Stat(s.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+			t.Errorf("session created update-check state: %v", err)
 		}
 	})
 }

@@ -1,4 +1,4 @@
-# With MCP servers in the config (experimental), setup adds the ctxtra MCP
+# With MCP servers in the config, setup adds the ctxtra MCP
 # server to OpenCode's opencode.json under mcp.servers, not pooled, so the
 # shared service starts one proxy per session folder.
 
@@ -7,7 +7,6 @@ cp config.yaml .config/ctxtra/config.yaml
 mkdir .config/opencode
 cp original.json .config/opencode/opencode.json
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --dry-run --agent opencode
 cmp .config/opencode/opencode.json original.json
 

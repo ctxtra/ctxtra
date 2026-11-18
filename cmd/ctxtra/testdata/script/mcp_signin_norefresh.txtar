@@ -1,7 +1,6 @@
 # A provider that gives no refresh token: ctxtra says the user signs in
 # again when the sign-in expires. Over SSH: --no-browser prints the link.
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 env BROWSER=fakebrowser
 fakeauth norefresh
 exec ctxtra-tty mcp add issues $FAKE_MCP

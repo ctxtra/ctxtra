@@ -6,12 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
-
-func mcpOnForTest(t *testing.T) { t.Setenv(experimental.MCPVar, "1") }
 
 // problemsWith reports whether exactly one problem contains each of want, in
 // order, and there are no others.
@@ -35,17 +32,12 @@ func serverNames(cfg *Config) []string {
 	return out
 }
 
-func TestMCPServersGate(t *testing.T) {
+func TestMCPServersWithoutOptIn(t *testing.T) {
 	h := testenv.Home(t)
 	path := testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  a: {url: https://x/mcp}\nbindings:\n  - {name: b, match: {global: true}, instructions: [x.md]}\n")
 	cfg := load(path)
-	if !cfg.Ignored() || len(cfg.MCPServers) != 0 || !strings.Contains(cfg.Problems[0], `unknown key "mcp-servers"`) {
-		t.Errorf("without the variable, mcp-servers is an unknown key: %v", cfg.Problems)
-	}
-	mcpOnForTest(t)
-	cfg = load(path)
 	if len(cfg.Problems) > 0 || !slices.Equal(serverNames(cfg), []string{"a"}) {
-		t.Errorf("with it: %v %v", cfg.Problems, cfg.MCPServers)
+		t.Errorf("without opt-in: %v %v", cfg.Problems, cfg.MCPServers)
 	}
 }
 
@@ -79,7 +71,6 @@ func TestServerNames(t *testing.T) {
 }
 
 func TestMCPServers(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
 mcp-servers:
@@ -150,7 +141,6 @@ mcp-servers:
 }
 
 func TestSecretLookingValues(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
 mcp-servers:
@@ -176,7 +166,6 @@ mcp-servers:
 }
 
 func TestBindingFileCantDeclareServers(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	cfg := setup(t, h, "schema: ctxtra/v1\nmcp-servers: {a: {command: [x]}}\n"+strings.TrimPrefix(head, "schema: ctxtra/v1\n")+
 		"  - {name: b, match: {global: true}, instructions: [x.md]}\n")
@@ -187,7 +176,6 @@ func TestBindingFileCantDeclareServers(t *testing.T) {
 }
 
 func TestBindingServers(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	commit := strings.Repeat("a", 40)
 	testenv.Write(t, filepath.Join(source.GenDir("https://h/team", commit), "b.yaml"),
@@ -231,7 +219,6 @@ include: [b.yaml, ctxtra://team/b.yaml]
 }
 
 func TestSourceCheckServerNames(t *testing.T) {
-	mcpOnForTest(t)
 	dir := t.TempDir()
 	testenv.Write(t, filepath.Join(dir, MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.com/mcp}\n")
 	testenv.Write(t, filepath.Join(dir, "b.yaml"), head+"  - {name: a, match: {global: true}, mcp-servers: [linear, Bad]}\n")
@@ -246,7 +233,6 @@ func TestSourceCheckServerNames(t *testing.T) {
 
 // A name declared twice: neither declaration is used.
 func TestDuplicateServer(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  a: {command: [first]}\n  b: {command: [b]}\n  a: {command: [second]}\n"))
 	if _, ok := cfg.MCPServer("a"); ok || !slices.Equal(serverNames(cfg), []string{"b"}) {

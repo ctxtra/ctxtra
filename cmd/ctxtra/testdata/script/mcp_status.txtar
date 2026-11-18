@@ -1,7 +1,6 @@
 # ctxtra mcp status says which servers a folder's last session got, and
 # why one is missing: here pg is too slow for Claude Code's 1.5 seconds.
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 mkdir dev/app other
 exec ctxtra mcp status dev/app
 stdout '^MCP servers of ~/dev/app:$'

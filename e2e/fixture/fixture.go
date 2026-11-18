@@ -19,8 +19,7 @@ type Fixture struct {
 	t    testing.TB
 	Home string
 	Bin  string // the ctxtra binary under test
-	// Extra are more variables for every process, such as
-	// CTXTRA_EXPERIMENTAL_MCP=1.
+	// Extra are more variables for every process, such as CTXTRA_CONFIG.
 	Extra []string
 }
 
@@ -122,7 +121,7 @@ func (f *Fixture) Clean(rels ...string) {
 // Config writes the ctxtra config, which includes one binding file with
 // the given content.
 func (f *Fixture) Config(bindings string) {
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ninclude: [bindings.yaml]\n")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\ninclude: [bindings.yaml]\n")
 	f.Write(".config/ctxtra/bindings.yaml", bindings)
 }
 

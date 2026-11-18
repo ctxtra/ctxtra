@@ -49,7 +49,7 @@ func (s Source) mcpOrigin() string {
 // LoadMCPCatalog loads every source manifest for list, setup and doctor.
 // Session binding resolution loads only the sources it references.
 func (c *Config) LoadMCPCatalog() {
-	if !mcpOn() || c.Ignored() {
+	if c.Ignored() {
 		return
 	}
 	for _, src := range c.Sources {
@@ -65,7 +65,7 @@ func (c *Config) LoadMCPSource(name string) {
 }
 
 func (c *Config) loadMCPManifest(src Source) {
-	if !mcpOn() || c.mcpLoaded[src.Name] {
+	if c.mcpLoaded[src.Name] {
 		return
 	}
 	if c.mcpLoaded == nil {

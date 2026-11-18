@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- MCP servers are available without `CTXTRA_EXPERIMENTAL_MCP=1`. Commands, setup and sessions accept MCP
+  configuration by default. Existing experimental setups keep working; approval and sign-in rules are unchanged.
+
+- Muse supports MCP servers. Run `ctxtra setup --agent muse` to add the entry. Muse hooks and its proxy use
+  the config path recorded by setup when `CTXTRA_CONFIG` is absent. Muse still cannot inherit shell proxy,
+  certificate or Linux keychain settings, or local servers' `env-pass` values.
+
+- MCP sign-in instructions describe the state at session start, so they do not claim tools are still missing
+  after a successful sign-in during the session.
+
 ## v0.5.3
 
 ### Experimental

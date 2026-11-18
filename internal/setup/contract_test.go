@@ -148,7 +148,7 @@ func inside(h, path string) bool {
 // too: testdata/contract/mcp/<agent> has the entry's file, and
 // testdata/clients/mcp-preview the same for the client test.
 func TestContractMCP(t *testing.T) {
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
+	t.Setenv("CTXTRA_NO_UPDATE_CHECK", "")
 	clients := testenv.Clients(t)
 	for _, a := range registry.All() {
 		m, ok := a.(agent.MCPAgent)
@@ -195,7 +195,7 @@ func TestContractMCP(t *testing.T) {
 // TestMCPUpgrade: setup turns the MCP entry of every older fixture into
 // the one it writes now, and finds nothing to change after that.
 func TestMCPUpgrade(t *testing.T) {
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
+	t.Setenv("CTXTRA_NO_UPDATE_CHECK", "")
 	ran := 0
 	for _, c := range testenv.Clients(t) {
 		if !c.MCP {

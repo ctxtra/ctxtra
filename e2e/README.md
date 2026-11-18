@@ -8,7 +8,8 @@ text or a scripted tool call, so the tests are free and deterministic.
 Every run gets its own home folder, with the agents' config folders inside it, a minimal environment and
 a dummy API key. Your agent configs, logins and history are never read or changed; the tests fail if
 your real agent config files change while they run. Update checks are disabled in the test environment so
-detached checks cannot outlive a fixture or contact GitHub.
+detached checks cannot outlive a fixture or contact GitHub. Fixture configs also disable release checks for
+agents such as Muse that clear the hook environment.
 
 This folder is a separate Go module: `go test ./...` at the repository root doesn't run it, and
 `go install` of ctxtra doesn't download it.
@@ -76,7 +77,7 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestCodexTrustTUI` | Interactive Codex in tmux: one "Trust all and continue" in the hook review trusts ctxtra's hooks, which set a finite `additionalContextLimit`; the session gets the text in full; `setup` run again asks for no new trust. Needs tmux |
 | `TestCodexUpgradeKeepsTrust` | Interactive Codex in tmux: after the user trusted ctxtra's hooks, a newer binary at the same path asks for no new trust, and the session gets the text in full. Needs tmux |
 | `TestImportTUI` | `ctxtra import --start AGENT` in tmux, with the ctxtra skill installed: import backs up the agent's own instruction file and starts the agent's interactive app through a shim pointed at the mock (Hermes, which has no such file, moves Claude Code's; DSH, without a terminal app, gets the prompt that `ctxtra import` prints). The first request has the import prompt with the file and its backup, and the ctxtra skill. It doesn't check what a real model does with them. Needs tmux |
-| `TestMCPProxy` | MCP servers (experimental, with `$CTXTRA_CONFIG` at a path of its own): in each agent that setup gives ctxtra's MCP proxy (not Muse, which starts MCP servers with a cleared environment), a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
+| `TestMCPProxy` | MCP servers with `$CTXTRA_CONFIG` at a path of its own, including Muse's setup-recorded fallback after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
 | `TestMCPRemoteCredential` | A remote MCP server on 127.0.0.1 that wants an API key, stored with `ctxtra mcp login` under a file key in the test's home (never the user's keychain): the proxy reaches it from inside each agent |
 | `TestMCPFailingServer` | A bound server that fails to start costs only its own tools |
 | `TestMCPInstructions` | Claude Code and Codex show the proxy's MCP instructions to the model: how to learn why a tool is missing, and which servers need sign-in |

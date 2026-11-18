@@ -19,7 +19,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/names"
 	"github.com/ctxtra/ctxtra/internal/mcp/oauth"
@@ -31,9 +30,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/term"
 )
 
-// errMCPOff is the error of the mcp commands while MCP servers are off.
-var errMCPOff = fmt.Errorf("MCP servers are experimental: set %s=1 to use them", experimental.MCPVar)
-
 // mcpConnectTimeout bounds how long add and show wait for a server.
 const mcpConnectTimeout = 30 * time.Second
 
@@ -41,36 +37,16 @@ func (a *app) mcpCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                   "mcp",
 		DisableFlagsInUseLine: true,
-		Short:                 "Add, list, show and remove MCP servers (experimental)",
+		Short:                 "Add, list, show and remove MCP servers",
 		Long: `MCP servers that sessions get by folder, like instructions and skills, through one
-MCP server named ctxtra-proxy that ctxtra setup adds to each agent. Experimental: on
-only with ` + experimental.MCPVar + `=1.`,
+MCP server named ctxtra-proxy that ctxtra setup adds to each agent.`,
 		Example: `  ctxtra mcp add pg -- npx -y @modelcontextprotocol/server-postgres postgresql://localhost/dev
   ctxtra mcp list`,
 		GroupID: "config",
-		Hidden:  !experimental.MCP(),
-		RunE: func(c *cobra.Command, args []string) error {
-			if !experimental.MCP() {
-				fmt.Fprintf(a.Err, "ctxtra mcp: %v\n", errMCPOff)
-				return exitCode(1)
-			}
-			return group(c, args)
-		},
+		RunE:    group,
 	}
 	c.AddCommand(a.mcpAddCmd(), a.mcpListCmd(), a.mcpShowCmd(), a.mcpStatusCmd(), a.mcpLoginCmd(), a.mcpLogoutCmd(), a.mcpRemoveCmd(), a.mcpApprovalCmd(false), a.mcpApprovalCmd(true), mcpProxyCmd())
 	return c
-}
-
-// mcpRun is a.run for the mcp commands: they refuse to run while MCP
-// servers are off.
-func (a *app) mcpRun(f func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
-	return a.run(func(cmd *cobra.Command, args []string) error {
-		if !experimental.MCP() {
-			fmt.Fprintf(a.Err, "%s: %v\n", cmd.CommandPath(), errMCPOff)
-			return exitCode(1)
-		}
-		return f(cmd, args)
-	})
 }
 
 // mcpProxyCmd documents the proxy entry point. Run calls the proxy before
@@ -133,7 +109,7 @@ stores them encrypted, never in the config.`,
 			}
 			return nil
 		},
-		RunE: a.mcpRun(func(c *cobra.Command, args []string) error {
+		RunE: a.run(func(c *cobra.Command, args []string) error {
 			dash := c.ArgsLenAtDash()
 			var url string
 			var command []string
@@ -495,7 +471,7 @@ func (a *app) mcpListCmd() *cobra.Command {
 		Short:   "List the MCP servers, with their sign-in state",
 		Example: "  ctxtra mcp list\n  ctxtra mcp list --json",
 		Args:    noArgs,
-		RunE: a.mcpRun(func(*cobra.Command, []string) error {
+		RunE: a.run(func(*cobra.Command, []string) error {
 			cfg := config.Load(paths.ConfigPath(), newReader())
 			out := mcpInfos(cfg)
 			var problems []string
@@ -540,7 +516,7 @@ see. A local server runs in the current folder, with its stderr on yours, to
 debug it: an agent that runs this command sees that output too.`,
 		Example: `  ctxtra mcp show pg`,
 		Args:    exactly("NAME"),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			cfg := config.Load(paths.ConfigPath(), newReader())
 			s, ok := cfg.MCPServer(args[0])
 			if !ok {
@@ -570,7 +546,7 @@ func (a *app) mcpRemoveCmd() *cobra.Command {
 		Short:   "Remove an MCP server from the config, with its credentials",
 		Example: `  ctxtra mcp remove pg`,
 		Args:    exactly("NAME"),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			s := newSources(a.IO)
 			if strings.Contains(name, "/") {

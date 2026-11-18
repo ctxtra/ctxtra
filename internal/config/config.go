@@ -208,10 +208,7 @@ func (c *Config) decode(d document) ([]*yaml.Node, *yaml.Node, error) {
 	if d.err != nil {
 		return nil, nil, d.err
 	}
-	keys := []string{"schema", "check-updates", "summary-message", "sources", "include", "bindings", "budget"}
-	if mcpOn() {
-		keys = append(keys, "mcp-servers")
-	}
+	keys := []string{"schema", "check-updates", "summary-message", "sources", "include", "bindings", "budget", "mcp-servers"}
 	f, err := fields(c.withoutNullSummary(d.node), keys...)
 	if err != nil {
 		return nil, nil, err
@@ -403,17 +400,13 @@ func (c *Config) loadBindings(file string, rd Reader, in *Source) {
 // configOnly are the keys a binding file can't have: only the config chooses
 // sources, other files, the budget, update checks and the summary. A source repository's
 // binding file must not.
-var configOnly = []string{"check-updates", "summary-message", "sources", "include", "budget"}
+var configOnly = []string{"check-updates", "summary-message", "sources", "include", "budget", "mcp-servers"}
 
 // decodeBindingFile checks the top level of a binding file and returns its
 // bindings list.
 func (c *Config) decodeBindingFile(doc *yaml.Node) (*yaml.Node, error) {
-	only := configOnly
-	if mcpOn() {
-		only = append(slices.Clip(only), "mcp-servers")
-	}
 	for i := 0; i+1 < len(doc.Content); i += 2 {
-		if k := doc.Content[i]; slices.Contains(only, k.Value) {
+		if k := doc.Content[i]; slices.Contains(configOnly, k.Value) {
 			if c.File == "" {
 				return nil, fmt.Errorf("line %d: %s works only in the config, not in a binding file", k.Line, k.Value)
 			}
@@ -461,10 +454,7 @@ func (c *Config) decodeBinding(n *yaml.Node, file string, in *Source) (Binding, 
 	if n.Kind == yaml.ScalarNode {
 		return Binding{}, fmt.Errorf("line %d: a binding is a map with name, match, instructions and skills; a binding file goes under include, in the config", n.Line)
 	}
-	keys := []string{"name", "match", "instructions", "skills"}
-	if mcpOn() {
-		keys = append(keys, "mcp-servers")
-	}
+	keys := []string{"name", "match", "instructions", "skills", "mcp-servers"}
 	f, err := fields(n, keys...)
 	if err != nil {
 		return Binding{}, err
@@ -480,10 +470,7 @@ func (c *Config) decodeBinding(n *yaml.Node, file string, in *Source) (Binding, 
 		return Binding{}, fmt.Errorf("line %d: name %q may only contain letters, digits, '.', '_' and '-'", f["name"].Line, b.Name)
 	}
 	if f["instructions"] == nil && f["skills"] == nil && f["mcp-servers"] == nil {
-		if mcpOn() {
-			return Binding{}, fmt.Errorf("line %d: a binding needs instructions, skills or mcp-servers", n.Line)
-		}
-		return Binding{}, fmt.Errorf("line %d: a binding needs instructions, skills or both", n.Line)
+		return Binding{}, fmt.Errorf("line %d: a binding needs instructions, skills or mcp-servers", n.Line)
 	}
 	if b.Selector, err = decodeSelector(f["match"]); err != nil {
 		return Binding{}, err

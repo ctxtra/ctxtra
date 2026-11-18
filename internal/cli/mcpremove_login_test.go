@@ -24,7 +24,6 @@ func TestMCPRemovalCancelsPendingAuthorization(t *testing.T) {
 	for _, mode := range []string{"other config", "legacy record in other config", "remove and readd"} {
 		t.Run(mode, func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			fake := oauthtest.New(t, oauthtest.Options{})
 			declaration := "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '" + fake.ResourceURL() + "'}\n"

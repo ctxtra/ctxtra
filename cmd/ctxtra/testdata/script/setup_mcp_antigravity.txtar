@@ -1,4 +1,4 @@
-# With MCP servers in the config (experimental), setup adds the ctxtra MCP
+# With MCP servers in the config, setup adds the ctxtra MCP
 # server to .gemini/config/mcp_config.json: dry run, add, idempotent, backups, remove.
 
 mkdir .config/ctxtra
@@ -6,10 +6,6 @@ cp config.yaml .config/ctxtra/config.yaml
 mkdir .gemini/config
 cp original.json .gemini/config/mcp_config.json
 
-exec ctxtra setup --agent antigravity
-cmp .gemini/config/mcp_config.json original.json
-
-env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --dry-run --agent antigravity
 cmp .gemini/config/mcp_config.json original.json
 

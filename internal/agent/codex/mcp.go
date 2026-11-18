@@ -16,7 +16,6 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 )
@@ -57,7 +56,8 @@ func (Agent) MCPPath() string { return filepath.Join(dir(), "config.toml") }
 func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.
-	vars := []string{"CTXTRA_CONFIG", "CTXTRA_LOG", experimental.MCPVar, "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"}
+	// Keep the legacy opt-in name in the serialized setup contract.
+	vars := []string{"CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"}
 	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"} {
 		vars = append(vars, v, strings.ToLower(v))
 	}

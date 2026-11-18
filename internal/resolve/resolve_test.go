@@ -342,7 +342,6 @@ func serverNames(res *Result) []string {
 // Sessions get the servers of the bindings that match, in binding order,
 // each once, with the binding that added it.
 func TestMCPServers(t *testing.T) {
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	h := testenv.Home(t)
 	mono := testenv.Repo(t, filepath.Join(h, "dev", "mono"), "git@github.com:acme/mono.git")
 	svc := testenv.Repo(t, filepath.Join(h, "dev", "svc"), "git@github.com:acme/svc.git")

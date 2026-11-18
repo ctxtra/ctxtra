@@ -20,7 +20,6 @@ func TestMCPAddReusesSharedCredentialsWithoutPromptsOrAuthorization(t *testing.T
 	for _, secretHeader := range []bool{false, true} {
 		t.Run(map[bool]string{false: "oauth", true: "secret header"}[secretHeader], func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			// Tool discovery may use the existing token, but unauthenticated
 			// OAuth detection must not start another authorization.
@@ -83,7 +82,6 @@ func TestMCPAddRefusesExplicitSharedSettingsChanges(t *testing.T) {
 	for _, flags := range [][]string{{"--client-id", "config-B-app", "--client-secret"}, {"--callback-port", "9999"}} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			file := testenv.Config(t, h, "schema: ctxtra/v1\n")
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}

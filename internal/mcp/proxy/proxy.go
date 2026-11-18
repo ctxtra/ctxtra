@@ -295,7 +295,7 @@ func (p *proxy) instructions() string {
 			if p.o.KeepsFirstList {
 				then = "; its tools come in a new session."
 			}
-			text += "\n" + s.ID + " needs sign-in and has no tools now: the user runs `ctxtra mcp login " + s.ID +
+			text += "\n" + s.ID + " needed sign-in at session start and had no tools then. If tools are still missing, the user runs `ctxtra mcp login " + s.ID +
 				"` in a terminal" + then
 		}
 	}
