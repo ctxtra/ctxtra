@@ -7,7 +7,8 @@ text or a scripted tool call, so the tests are free and deterministic.
 
 Every run gets its own home folder, with the agents' config folders inside it, a minimal environment and
 a dummy API key. Your agent configs, logins and history are never read or changed; the tests fail if
-your real agent config files change while they run.
+your real agent config files change while they run. Update checks are disabled in the test environment so
+detached checks cannot outlive a fixture or contact GitHub.
 
 This folder is a separate Go module: `go test ./...` at the repository root doesn't run it, and
 `go install` of ctxtra doesn't download it.

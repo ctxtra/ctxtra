@@ -136,6 +136,7 @@ func (f *Fixture) Env() []string {
 		"TMPDIR=" + f.Path("tmp"),
 		"LANG=en_US.UTF-8",
 		"TERM=dumb",
+		"CTXTRA_NO_UPDATE_CHECK=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@example.invalid",
