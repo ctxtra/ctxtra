@@ -13,13 +13,13 @@ import (
 
 	agentpkg "github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/logfile"
 	"github.com/ctxtra/ctxtra/internal/mcp/proxy"
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/state"
 )
 
 // started is when this process started: the proxy's deadline for the
@@ -54,9 +54,13 @@ func runProxy(args []string, stdio IO, version string) int {
 				log(proxy.Record{Event: "error", Error: "can't write the session's status record"})
 			}
 		}}
+	configPath := paths.ConfigPath()
+	if agent == "muse" {
+		configPath = state.SessionConfig(agent)
+	}
 	var notices []string
 	o.Servers = func(dir string) ([]upstream.Server, []string) {
-		res, _ := resolve.Session(dir, paths.ConfigPath())
+		res, _ := resolve.Session(dir, configPath)
 		for _, c := range res.MCPConflicts {
 			notices = append(notices, fmt.Sprintf("MCP server %s is shadowed by %s (tool prefix %s); no fallback to the other account", c.Loser, c.Winner, c.Prefix))
 		}
@@ -67,10 +71,7 @@ func runProxy(args []string, stdio IO, version string) int {
 		return out, res.Problems
 	}
 	o.Notices = func() []string { return notices }
-	switch {
-	case !experimental.MCP():
-		o.Servers = func(string) ([]upstream.Server, []string) { return nil, nil }
-	case err != nil:
+	if err != nil {
 		o.Log(proxy.Record{Event: "error", Error: "can't read the working directory"})
 		o.Servers = func(string) ([]upstream.Server, []string) { return nil, nil }
 	}

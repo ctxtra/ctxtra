@@ -324,7 +324,7 @@ func TestStartDue(t *testing.T) {
 			t.Errorf("%s: started %q, want %q", name, started[n:], args)
 		}
 	}
-	release := []string{"check-updates", "--background", "--release"}
+	release := []string{"check-updates", "--background", "--config", cfgPath, "--release"}
 	want("first session", "v0.2.3", release...)
 	want("second session", "v0.2.3")
 	at = at.Add(59 * time.Minute)
@@ -349,10 +349,10 @@ func TestStartDue(t *testing.T) {
 	// A source with check-updates on is due on its own, also in a dev build,
 	// and the check checks only that source.
 	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: 'https://h/team', branch: main}\n")
-	want("a source to check", "dev", "check-updates", "--background", "--source", "team")
+	want("a source to check", "dev", "check-updates", "--background", "--config", cfgPath, "--source", "team")
 	want("the source was just claimed", "dev")
 	at = at.Add(Interval)
-	want("both due", "v0.2.3", "check-updates", "--background", "--release", "--source", "team")
+	want("both due", "v0.2.3", "check-updates", "--background", "--config", cfgPath, "--release", "--source", "team")
 
 	// A check that can't start says so, for doctor.
 	spawn = func([]string) error { return fmt.Errorf("no such file") }

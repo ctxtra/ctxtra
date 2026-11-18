@@ -459,8 +459,9 @@ The notices go only to you, never to the model, in the agents that show a messag
   are off.
 - `ctxtra check-updates` runs the checks now and shows their results. It exits with 1 when a check fails,
   or when it can't save the results for sessions.
-- `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start, for CI and restricted networks.
-  Notices from earlier checks still show.
+- `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start when the hook inherits the variable.
+  Muse clears its hook environment: use top-level `check-updates: false` for release checks and
+  `check-updates: false` on each pinned source instead. Notices from earlier checks still show.
 - Only the config can turn checks on or off: a binding file can't have `check-updates`. A config that is
   ignored as a whole (see [Validation](#validation)) runs no checks, because its `check-updates: false`
   may be what failed.
@@ -649,12 +650,10 @@ that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent cl
 a word. `ctxtra doctor` and the [setup notices](#setup-notices) show the missing binary. Setup leaves a config
 alone that has a ctxtra hook changed by hand, and says so, instead of adding a second hook next to it.
 
-## Experimental: MCP servers
+## MCP servers
 
-> **Experimental, off by default.** ctxtra can give sessions MCP servers, scoped by folder like instructions and
-> skills. It is work in progress and on only when `CTXTRA_EXPERIMENTAL_MCP=1` is set, for commands and agents.
-> Without the variable, ctxtra ignores everything about MCP servers, and a config that declares them is an
-> error like any unknown key. Muse remains excluded.
+ctxtra gives sessions MCP servers, scoped by folder like instructions and skills.
+No experimental opt-in is required.
 
 `ctxtra setup` adds one MCP server named `ctxtra-proxy` to each agent. The agent starts it like any local MCP server.
 It gives the session the tools of the MCP servers bound to the session folder, and forwards each call.
@@ -849,7 +848,7 @@ old environment secrets until they exit. A shorter configured scope list does no
 
 ### Sign-in state and missing tools
 
-With `CTXTRA_EXPERIMENTAL_MCP=1`, the session summary counts the selected MCP servers in its first
+The session summary counts the selected MCP servers in its first
 line, for example `✓ ctxtra added 10 instructions, 2 skills and 1 MCP server`.
 An `MCP servers:` list follows the instructions and skills. It isn't grouped: a server from a source has an
 identity of the form `SOURCE/NAME`, a server of the config just its name. It shows up to 30 identities in binding
@@ -981,7 +980,7 @@ a newer format fails that server's calls with an upgrade hint, and changes nothi
 
 ### Setup
 
-With `CTXTRA_EXPERIMENTAL_MCP=1` and at least one MCP server in the config or a source catalog, `ctxtra setup` adds the entry to each
+With at least one MCP server in the config or a source catalog, `ctxtra setup` adds the entry to each supported
 agent it sets up. It never copies the user's servers into agent configs. Without servers, it adds no entry and
 keeps one that is there; `--remove` removes it.
 
@@ -992,10 +991,27 @@ keeps one that is there; `--remove` removes it.
 | Cursor | `~/.cursor/mcp.json` | `mcpServers.ctxtra-proxy: {command, args}` |
 | OpenCode | `~/.config/opencode/opencode.json` | `mcp.servers.ctxtra-proxy: {type: local, command, pool: false}` |
 | Pi | `~/.pi/agent/mcp.json` | `mcpServers.ctxtra-proxy: {command, args}` |
+| Muse | `~/.config/muse/settings.json` (`$XDG_CONFIG_HOME/muse/settings.json`) | `mcpServers.ctxtra-proxy: {type: stdio, command, args, mode: optional, env}`; top-level `schema_version: 1` when absent |
 | Antigravity | `~/.gemini/config/mcp_config.json` | `mcpServers.ctxtra-proxy: {command, args}` |
 
-Muse isn't supported yet: it starts MCP servers with a cleared environment, so ctxtra's proxy would get
-neither `CTXTRA_EXPERIMENTAL_MCP` nor ctxtra's other settings. Setup adds no entry to it.
+Muse clears the environment of hooks and MCP servers. Setup records the absolute ctxtra config path per agent
+in `~/.ctxtra/setup.json`. Muse hooks and its proxy use the last successful setup's config when `CTXTRA_CONFIG`
+is absent, otherwise that explicit override wins. Older setups without a record use the default config.
+A missing recorded config adds nothing; it does not fall back to a different config. Dry runs and failed agent
+setups do not change the record. Removing the matching setup clears it.
+
+Muse's entry has `env`, with setup-time values of `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
+Setup expands `~` and makes the log path absolute, so logs do not go into session folders. Setup owns only
+those two keys inside `env` and keeps user-added keys. The proxy starts no update checks, so its copied
+`CTXTRA_NO_UPDATE_CHECK` has no effect on Muse's hooks. It does not copy secret `env-pass` values,
+proxy or certificate variables, or Linux Secret Service variables. Muse therefore cannot inherit a shell proxy,
+custom certificate paths, a Linux keychain session, or local servers' `env-pass` values. Use explicit non-secret
+`env` settings or encrypted `secret-env` declarations for local servers. Its first tool list is fixed; start a
+new session after signing in. Muse hooks still use the default log path.
+
+CLI diagnostics (`context`, `doctor`, `mcp status`) and setup notices do not select Muse's recorded config
+automatically. Pass `--config FILE` or set `CTXTRA_CONFIG` to inspect the same config as Muse.
+Background update checks use the config selected by the hook, including Muse's recorded path.
 
 Agents write these files themselves too (Claude Code often writes `~/.claude.json`): when a file changes
 between setup's read and its write, setup makes its edit again on the new content, so the agent's change stays.
@@ -1018,7 +1034,8 @@ rewrites only its own keys' lines in the block, and keeps the rest of the file b
 the block, keys you added to ctxtra's table after it, and `[mcp_servers.ctxtra-proxy.*]` tables. Before it writes,
 it checks that the new file is valid TOML and says the same as the old one but for those keys; otherwise it
 changes nothing, because Codex refuses an invalid config. Codex starts MCP servers with an allow-listed
-environment, so `env_vars` lists ctxtra's variables (`CTXTRA_CONFIG`, `CTXTRA_LOG`, `CTXTRA_EXPERIMENTAL_MCP`),
+environment, so `env_vars` lists ctxtra's variables (`CTXTRA_CONFIG`, `CTXTRA_LOG`, plus the unused legacy
+`CTXTRA_EXPERIMENTAL_MCP` name for setup compatibility),
 the Secret Service's (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`), the proxy and certificate variables, and
 every local server's `env-pass` names. `startup_timeout_sec` is 30, and `required = true`: Codex waits about 1
 second for an optional server's tools, and for a required one up to `startup_timeout_sec`. A required server that
@@ -1111,7 +1128,7 @@ An upgrade keeps existing setups working with the same capacity. New features ma
 run setup, and `ctxtra doctor` reports what the existing setup is missing. In Codex, changing the hooks
 also requires trusting them again.
 
-The experimental MCP entry (see [Experimental: MCP servers](#experimental-mcp-servers)) and the arguments of
+The MCP entry (see [MCP servers](#mcp-servers)) and the arguments of
 `ctxtra mcp proxy` are part of the contract too.
 
 Answers only grow: fields are added, never renamed or given a new meaning, and a field that a released setup
@@ -1162,7 +1179,8 @@ temporary folder (`go run`). Apart from that record, the notices only read files
 that hangs.
 
 `setup` records in `~/.ctxtra/setup.json` where it set up each agent (`installed`, by config path, until
-`setup --remove` removes it) and every agent it found (`detected`, also those left out with `--agent`). The
+`setup --remove` removes it), the last successful setup's ctxtra config (`configs`, by agent, with absolute
+`agent_path` and `path` fields), and every agent it found (`detected`, also those left out with `--agent`). The
 notices use it to tell a setup that is gone from one that never was, and to find new agents (and add the ones
 they told about to `detected`): without the file there are no such notices, and a broken one is one notice, `~/.ctxtra/setup.json is unreadable: notices
 about new or removed setups are off until the next ctxtra setup`. The file never decides a change of an
@@ -1294,8 +1312,9 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | `match.global` | `match` needs one key | `true`: every session. |
 | `match.dirs[]` | `match` needs one key | Folder patterns. |
 | `match.repos[]` | `match` needs one key | A remote pattern, or `remote` with an optional `subpath`. See [Match](#match). |
-| `instructions[]` | `instructions` or `skills` | Instruction files. |
-| `skills[]` | `instructions` or `skills` | Skill folders. |
+| `instructions[]` | one of `instructions`, `skills`, `mcp-servers` | Instruction files. |
+| `skills[]` | one of `instructions`, `skills`, `mcp-servers` | Skill folders. |
+| `mcp-servers[]` | one of `instructions`, `skills`, `mcp-servers` | Server references; see [MCP servers](#mcp-servers). |
 
 **Environment**
 
@@ -1304,7 +1323,8 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | `CTXTRA_CONFIG` | `~/.config/ctxtra/config.yaml` |
 | `CTXTRA_LOG` | `~/.ctxtra/log.jsonl` |
 
-Muse Code runs hooks with a cleared environment, so its sessions always use the defaults.
+Muse Code clears the environment of hooks and MCP servers. When `CTXTRA_CONFIG` is absent, both use the config
+path from its last successful setup, or the default when no setup record exists. Hooks use the default log path.
 
 The session folder is the `cwd` the agent sends to the hook. If it is empty: the first `workspace_roots`
 entry (Cursor), else the first `workspacePaths` entry (Antigravity, which runs hooks in the hook file's

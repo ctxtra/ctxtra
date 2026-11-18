@@ -117,7 +117,7 @@ stderr 'say which sessions get it: --global, --dir or --repo'
 ! exec ctxtra binding add x --global --dir /a --instruction notes/me.md
 stderr '--global already matches every session'
 ! exec ctxtra binding add x --global
-stderr 'add at least one --instruction or --skill'
+stderr 'add at least one --instruction, --skill or --mcp'
 ! exec ctxtra binding add 'a b' --global --instruction notes/me.md
 stderr 'may only contain letters'
 ! exec ctxtra binding add --global --instruction notes/me.md

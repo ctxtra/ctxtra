@@ -190,7 +190,7 @@ tools in a new session; the others pick them up within seconds.`,
   ctxtra mcp login linear_work --no-browser
   ctxtra mcp login pg`,
 		Args: exactly("NAME"),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			return code(a.mcpLogin(args[0], secrets, o))
 		}),
 	}
@@ -311,7 +311,7 @@ it expires or you remove it in the provider's settings. The server stays in
 the config.`,
 		Example: `  ctxtra mcp logout linear_work`,
 		Args:    exactly("NAME"),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			if err := config.CheckMCPRef(name); err != nil {
 				return err

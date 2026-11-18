@@ -21,7 +21,6 @@ import (
 
 func TestMCPApprovalFailureExitCodes(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	commit := strings.Repeat("a", 40)
 	root := source.GenDir("https://example.invalid/context.git", commit)
 	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [build-mcp]}\n")
@@ -53,7 +52,6 @@ func TestMCPApprovalFailureExitCodes(t *testing.T) {
 
 func TestMCPAddRecoversLostCredentialKey(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInitWithError(errors.New("test: no keychain"))
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {
@@ -81,7 +79,6 @@ func TestMCPAddRecoversLostCredentialKey(t *testing.T) {
 
 func TestSourceRemovalReportsOnlyMCPReferences(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - name: mine\n    match: {dirs: ['~/work/**']}\n    mcp-servers: [work/build]\n")
 	var output bytes.Buffer
 	s := newSources(IO{Out: &output})
@@ -105,7 +102,6 @@ func TestSourceBindingListingExcludesManifest(t *testing.T) {
 
 func TestMCPStatusDoesNotResolveConfigReferenceBySuffix(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	root := filepath.Join(h, "context")
 	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {command: [linear-mcp]}\n")
 	testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  work: {trusted-path: '"+root+"'}\nbindings:\n  - {name: mine, match: {global: true}, mcp-servers: [linear, work/linear]}\n")
@@ -119,7 +115,6 @@ func TestMCPStatusDoesNotResolveConfigReferenceBySuffix(t *testing.T) {
 
 func TestNoAuthLoginDoesNotClaimToReplaceCredentials(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInit()
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	defer remote.Close()
@@ -150,7 +145,6 @@ func TestNoAuthLoginDoesNotClaimToReplaceCredentials(t *testing.T) {
 
 func TestSourceSecretWarningsReachMaintainersAndReview(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	root := filepath.Join(h, "context")
 	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.invalid/mcp, headers: {Authorization: embedded-value}}\n")
 	var output bytes.Buffer

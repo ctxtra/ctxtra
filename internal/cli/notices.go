@@ -6,7 +6,6 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/setup"
@@ -79,12 +78,12 @@ func trustNote(a agent.Agent) string {
 	return ""
 }
 
-// mcpNotices are the notices about an agent's MCP entry, while MCP servers
-// are on. An agent that isn't set up gets none: the notice about it says
+// mcpNotices are the notices about an agent's MCP entry.
+// An agent that isn't set up gets none: the notice about it says
 // to run setup already.
 func mcpNotices(a agent.Agent, bin string, known bool, setups state.Setups, mcp setup.MCPConfig) []string {
 	m, ok := a.(agent.MCPAgent)
-	if !ok || !experimental.MCP() {
+	if !ok {
 		return nil
 	}
 	host := m.MCP()

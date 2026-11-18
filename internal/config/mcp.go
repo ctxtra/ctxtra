@@ -12,7 +12,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
 )
@@ -407,7 +406,3 @@ func (c *Config) mcpScope(file string, in *Source) string {
 	}
 	return scope
 }
-
-// mcpOn reports whether MCP servers are on: everything about them is off
-// until they are released.
-func mcpOn() bool { return experimental.MCP() }

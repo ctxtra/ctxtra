@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
@@ -67,10 +66,7 @@ func (s *sources) review(r *source.Repo, src config.Source, commit string, full 
 	after := config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), src.Name, commit)
 	before.LoadMCPSource(src.Name)
 	after.LoadMCPSource(src.Name)
-	u := &used{files: map[string]bool{}}
-	if experimental.MCP() {
-		u.files[config.MCPManifest] = true
-	}
+	u := &used{files: map[string]bool{config.MCPManifest: true}}
 	u.add(before, oldGen)
 	u.add(after, newGen)
 

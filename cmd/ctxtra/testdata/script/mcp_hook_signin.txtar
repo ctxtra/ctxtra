@@ -1,7 +1,6 @@
 # The session summary names the bound MCP servers that need sign-in, from
 # their state files only: no key, no keychain, no network.
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --agent claude
 mkdir dev/app other
 

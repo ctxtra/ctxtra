@@ -1,5 +1,4 @@
 # Source catalogs are local, scoped, and cannot start unapproved servers.
-env CTXTRA_EXPERIMENTAL_MCP=1
 mkdir dev/app
 exec git -C pkg init -b main
 exec git -C pkg add .

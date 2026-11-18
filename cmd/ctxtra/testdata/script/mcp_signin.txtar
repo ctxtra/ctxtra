@@ -3,7 +3,6 @@
 # signs in again, logout deletes the sign-in on this machine only, and the
 # proxy uses the stored tokens. Tests have no keychain: the key is a file.
 
-env CTXTRA_EXPERIMENTAL_MCP=1
 env BROWSER=fakebrowser
 fakeauth account=me@example.com
 

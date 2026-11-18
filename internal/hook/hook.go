@@ -216,7 +216,11 @@ func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, up
 func session(a agent.Agent, d agent.Delivery, upgrade, version, ts, event string, p payload, dir string) (*resolve.Result, Entry) {
 	// Before resolving: the session lists the skills as they are on disk.
 	skillErr := skill.Refresh()
-	res, cfg := resolve.Session(dir, paths.ConfigPath())
+	configPath := paths.ConfigPath()
+	if a.Name() == "muse" {
+		configPath = state.SessionConfig(a.Name())
+	}
+	res, cfg := resolve.Session(dir, configPath)
 	if upgrade != "" {
 		res.Notices = append(slices.Clip(res.Notices), upgrade)
 	}

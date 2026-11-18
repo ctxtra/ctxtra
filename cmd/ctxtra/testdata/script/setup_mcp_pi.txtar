@@ -1,4 +1,4 @@
-# With MCP servers in the config (experimental), setup adds the ctxtra MCP
+# With MCP servers in the config, setup adds the ctxtra MCP
 # server to .pi/agent/mcp.json: dry run, add, idempotent, backups, remove.
 
 mkdir .config/ctxtra
@@ -6,10 +6,6 @@ cp config.yaml .config/ctxtra/config.yaml
 mkdir .pi/agent
 cp original.json .pi/agent/mcp.json
 
-exec ctxtra setup --agent pi
-cmp .pi/agent/mcp.json original.json
-
-env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --dry-run --agent pi
 cmp .pi/agent/mcp.json original.json
 

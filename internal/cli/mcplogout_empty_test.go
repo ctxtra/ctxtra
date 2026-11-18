@@ -18,7 +18,6 @@ func TestMCPLogoutWithoutCredentialsDoesNotBlockAnotherConfigAdd(t *testing.T) {
 	for _, declared := range []bool{false, true} {
 		t.Run(map[bool]string{false: "undeclared", true: "declared"}[declared], func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}
 			cfg := "schema: ctxtra/v1\n"

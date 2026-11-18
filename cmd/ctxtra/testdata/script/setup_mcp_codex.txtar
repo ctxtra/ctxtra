@@ -1,4 +1,4 @@
-# With MCP servers in the config (experimental), setup adds the ctxtra MCP
+# With MCP servers in the config, setup adds the ctxtra MCP
 # proxy to Codex's config.toml between markers, with env_vars and
 # startup_timeout_sec, keeps the rest byte for byte, and --remove restores
 # the file. A user key in ctxtra's table stays.
@@ -8,10 +8,6 @@ cp config.yaml .config/ctxtra/config.yaml
 mkdir .codex
 cp original.toml .codex/config.toml
 
-exec ctxtra setup --agent codex
-cmp .codex/config.toml original.toml
-
-env CTXTRA_EXPERIMENTAL_MCP=1
 exec ctxtra setup --dry-run --agent codex
 cmp .codex/config.toml original.toml
 

@@ -17,7 +17,6 @@ import (
 
 func TestMCPAddConfigFailurePreservesSharedCredentials(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInit()
 	file := testenv.Config(t, h, "schema: ctxtra/v1\n# second config\n")
 	testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp, client-id: old-app}\n")

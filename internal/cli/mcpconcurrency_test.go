@@ -48,7 +48,6 @@ func (r *credentialHookReader) Read(p []byte) (int, error) {
 
 func TestMCPAddRechecksBindingAtCredentialWrite(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInitWithError(errors.New("test: no keychain"))
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {
@@ -82,7 +81,6 @@ func TestMCPAddRechecksBindingAtCredentialWrite(t *testing.T) {
 
 func TestMCPLoginRechecksBindingAfterPrompt(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInit()
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	defer remote.Close()
@@ -115,7 +113,6 @@ func TestMCPReplacementFailureKeepsOldRecord(t *testing.T) {
 	for _, step := range []string{"client-secret prompt", "OAuth discovery"} {
 		t.Run(step, func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)

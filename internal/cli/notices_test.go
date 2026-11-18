@@ -342,13 +342,13 @@ func TestNewAgentNoticeDuringSetup(t *testing.T) {
 }
 
 // The MCP entry: missing while the config declares servers, running
-// another binary, gone from its file; and nothing while MCP is off.
+// another binary, gone from its file; and nothing without configured servers.
 func TestMCPNotices(t *testing.T) {
 	h, bin := noticeHome(t)
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
+	testenv.Config(t, h, "schema: ctxtra/v1\n")
 	setUp(t, bin, "claude")
-	wantNotices(t, "MCP off")
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
+	wantNotices(t, "no servers")
+	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
 	wantNotices(t, "servers added after setup", "claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude")
 	o := setup.Options{Agents: []string{"claude"}, MCP: setup.LoadMCP()}
 	o.Binary = bin

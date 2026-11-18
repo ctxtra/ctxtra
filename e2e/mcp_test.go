@@ -23,7 +23,6 @@ func TestMCPInstructions(t *testing.T) {
 			t.Skip("checked in Claude Code and Codex")
 		}
 		s := newSession(t, a)
-		s.Extra = append(s.Extra, "CTXTRA_EXPERIMENTAL_MCP=1")
 		s.Repo("dev/svc", "git@github.com:Acme/Svc.git", nil)
 		// Servers are declared in the config itself, not in a binding file.
 		// A local server with tools too: Codex shows the instructions only
@@ -43,7 +42,7 @@ bindings:
 		r := s.Run(s.Path("dev/svc"), driver.Options{})
 		body, _ := json.Marshal(r.Requests[0].Body)
 		for _, want := range []string{"run `ctxtra mcp status` in the session folder",
-			"linear_work needs sign-in and has no tools now: the user runs `ctxtra mcp login linear_work`"} {
+			"linear_work needed sign-in at session start and had no tools then. If tools are still missing, the user runs `ctxtra mcp login linear_work`"} {
 			if !strings.Contains(string(body), jsonText(want)) {
 				t.Errorf("the model request lacks %q", want)
 			}

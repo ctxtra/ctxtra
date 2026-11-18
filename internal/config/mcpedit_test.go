@@ -6,7 +6,6 @@ import (
 )
 
 func TestMCPServerEdits(t *testing.T) {
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	pg := NewMCPServer{Name: "pg", Command: []string{"npx", "-y", "@modelcontextprotocol/server-postgres"}, Env: [][2]string{{"PGUSER", "dev"}},
 		EnvPass: []string{"HTTPS_PROXY"}, SecretEnv: []string{"PGPASSWORD"}, Notes: "the dev database"}
 	lw := NewMCPServer{Name: "linear_work", URL: "https://mcp.linear.app/mcp", Scopes: []string{"read"}}

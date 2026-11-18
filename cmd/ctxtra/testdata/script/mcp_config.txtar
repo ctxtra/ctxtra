@@ -1,15 +1,10 @@
-# MCP servers in the config (experimental): without CTXTRA_EXPERIMENTAL_MCP,
-# mcp-servers is an unknown key like any other, and the whole config is
-# ignored. With it, servers are checked one by one, and bindings name them.
+# MCP servers work without opt-in: servers are checked one by one,
+# and bindings name them.
 
 mkdir .config/ctxtra
 cp config.yaml .config/ctxtra/config.yaml
 mkdir dev/api
 
-! exec ctxtra doctor dev/api
-stdout 'PROBLEM: ~/.config/ctxtra/config.yaml: line \d+: unknown key "mcp-servers"'
-
-env CTXTRA_EXPERIMENTAL_MCP=1
 ! exec ctxtra doctor dev/api
 stdout 'PROBLEM: ~/.config/ctxtra/config.yaml: line 6: mcp-servers.linear-work: server name "linear-work": names are 1 to 20 characters of a-z, 0-9 and _, start with a letter, and have no __ and no _ at the end; for example linear_work; server skipped'
 stdout 'PROBLEM: ~/.config/ctxtra/config.yaml: line 7: mcp-servers.plain: url "http://example.com/mcp": remote servers need https'

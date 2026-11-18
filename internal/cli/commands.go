@@ -11,7 +11,6 @@ import (
 	"github.com/ctxtra/ctxtra"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/setup"
 )
@@ -557,7 +556,7 @@ shows the bindings of the included binding files.`,
 	var b config.NewBinding
 	var dryRun bool
 	add := &cobra.Command{
-		Use:   "add NAME (--global | {--dir PATTERN | --repo PATTERN}...) {--instruction FILE | --skill DIR}...",
+		Use:   "add NAME (--global | {--dir PATTERN | --repo PATTERN}...) {--instruction FILE | --skill DIR | --mcp REF}...",
 		Short: "Add a binding to the config",
 		Long: `Add a binding to the config. It is written only when it works: its files
 exist and are trusted, as a session would read them. --dir and --repo may be
@@ -580,10 +579,7 @@ matches x itself.`,
 	f.StringArrayVar(&b.Repos, "repo", nil, "add it to sessions in repositories whose remote matches `PATTERN` (repeatable), such as github.com/acme/**")
 	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE` (repeatable); !FILE leaves files out")
 	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md (repeatable); !DIR leaves skills out")
-	f.StringArrayVar(&b.MCPServers, "mcp", nil, "add a config or source MCP server by `REF` (repeatable; experimental)")
-	if !experimental.MCP() {
-		_ = f.MarkHidden("mcp")
-	}
+	f.StringArrayVar(&b.MCPServers, "mcp", nil, "add a config or source MCP server by `REF` (repeatable)")
 	f.BoolVar(&dryRun, "dry-run", false, "check the binding and show it; change nothing")
 	var asJSON bool
 	list := &cobra.Command{

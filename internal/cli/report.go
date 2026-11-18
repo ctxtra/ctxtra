@@ -11,7 +11,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/hook"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
@@ -443,9 +442,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	res, cfg := r.resolve(dir)
 	loadedProblems := len(cfg.Problems)
 	cfg.LoadMCPCatalog()
-	if experimental.MCP() {
-		cfg.Notes = append(cfg.Notes, mcpOrphans(cfg)...)
-	}
+	cfg.Notes = append(cfg.Notes, mcpOrphans(cfg)...)
 	res.Problems = append(res.Problems, cfg.Problems[loadedProblems:]...)
 	_, statErr := os.Stat(cfg.File)
 	setups, _, _ := state.LoadSetups()
@@ -456,7 +453,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 		known := setups.Known(a.Name(), a.ConfigPath())
 		st := a.Status(bin, known)
 		details := append([]string{}, st.Details...)
-		if m, isMCP := a.(agent.MCPAgent); isMCP && experimental.MCP() {
+		if m, isMCP := a.(agent.MCPAgent); isMCP {
 			host := m.MCP()
 			ms := host.MCPStatus(bin, agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: mcp.Want && known, EnvPass: mcp.EnvPass})
 			details = append(details, "MCP: "+ms.State+" ("+paths.Tilde(host.MCPPath())+")")
@@ -488,7 +485,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 			"files": hits(res.Files, false), "skills": hits(res.Skills, true), "agents_over": agentDrops(res),
 			"hooks": agents, "last_hook_runs": runs,
 		}
-		if experimental.MCP() && len(cfg.MCPServers) > 0 {
+		if len(cfg.MCPServers) > 0 {
 			out["mcp"] = map[string]any{"key": keyLocation(), "servers": mcpInfos(cfg)}
 		}
 		writeJSON(r.Out, out, slices.Concat(sessionDiagnostics(res), diagnostics("error", others), diagnostics("notice", cfg.Notes)))
@@ -531,7 +528,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	}
 	r.sizeWarnings(res, "  ")
 
-	if experimental.MCP() && len(cfg.MCPServers) > 0 {
+	if len(cfg.MCPServers) > 0 {
 		fmt.Fprintln(r.Out, "\nMCP servers:")
 		fmt.Fprintf(r.Out, "  credentials: %s\n", keyNote())
 		for _, s := range mcpInfos(cfg) {

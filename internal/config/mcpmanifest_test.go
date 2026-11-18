@@ -13,7 +13,6 @@ import (
 const linearManifest = "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.com/mcp}\n"
 
 func TestMCPManifestScope(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	root := filepath.Join(h, "context")
 	testenv.Write(t, filepath.Join(root, MCPManifest), linearManifest)
@@ -36,7 +35,6 @@ func TestMCPManifestScope(t *testing.T) {
 }
 
 func TestMCPManifestLazyCatalog(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	commit := strings.Repeat("a", 40)
 	root := source.GenDir("https://example.com/team.git", commit)
@@ -57,7 +55,6 @@ func TestMCPManifestLazyCatalog(t *testing.T) {
 }
 
 func TestMCPManifestExplicitAliasAndPhysicalDuplicate(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	root := filepath.Join(h, "ctx")
 	testenv.Write(t, filepath.Join(root, MCPManifest), linearManifest)
@@ -72,7 +69,6 @@ func TestMCPManifestExplicitAliasAndPhysicalDuplicate(t *testing.T) {
 }
 
 func TestMCPManifestBrokenDoesNotDropBinding(t *testing.T) {
-	mcpOnForTest(t)
 	h := testenv.Home(t)
 	root := filepath.Join(h, "ctx")
 	testenv.Write(t, filepath.Join(root, MCPManifest), "schema: ctxtra/v1\nmcp-servers: [\n")
@@ -84,7 +80,6 @@ func TestMCPManifestBrokenDoesNotDropBinding(t *testing.T) {
 }
 
 func TestMCPManifestCheck(t *testing.T) {
-	mcpOnForTest(t)
 	root := t.TempDir()
 	testenv.Write(t, filepath.Join(root, MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.com/one}\n  linear: {url: https://example.com/two}\n  valid: {command: [installed-mcp]}\n")
 	testenv.Write(t, filepath.Join(root, "b.yaml"), head+"  - {name: all, match: {global: true}, mcp-servers: [linear, valid, unknown, other/valid]}\n")

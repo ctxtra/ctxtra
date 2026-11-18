@@ -15,7 +15,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/experimental"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -37,11 +36,8 @@ type MCPConfig struct {
 }
 
 // LoadMCP reads the config the way sessions do ($CTXTRA_CONFIG or the
-// default file). With MCP servers off, agents get no entry.
+// default file).
 func LoadMCP() MCPConfig {
-	if !experimental.MCP() {
-		return MCPConfig{}
-	}
 	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
 	cfg.LoadMCPCatalog()
 	m := MCPConfig{Want: len(cfg.MCPServers) > 0}
@@ -104,9 +100,7 @@ func Run(o Options) (Report, error) {
 	for _, a := range agents {
 		n := len(r.Changes)
 		err := a.Setup(o.Options, &r.Report)
-		// With MCP servers off, setup doesn't touch MCP entries, also with
-		// --remove.
-		if m, ok := a.(agent.MCPAgent); ok && err == nil && experimental.MCP() {
+		if m, ok := a.(agent.MCPAgent); ok && err == nil {
 			err = m.MCP().SetupMCP(agent.MCPOptions{Options: o.Options, Want: o.MCP.Want, EnvPass: o.MCP.EnvPass}, &r.Report)
 		}
 		r.Agents = append(r.Agents, Agent{a, slices.Clone(r.Changes[n:]), err})
@@ -135,8 +129,9 @@ func record(remove, mcp bool, done []agent.Agent) error {
 			s.Uninstall(a.Name(), a.ConfigPath())
 		} else {
 			s.Install(a.Name(), a.ConfigPath())
+			s.SetConfig(a.Name(), a.ConfigPath(), paths.ConfigPath())
 		}
-		if m, ok := a.(agent.MCPAgent); ok && experimental.MCP() {
+		if m, ok := a.(agent.MCPAgent); ok {
 			switch {
 			case remove:
 				s.Uninstall(MCPKey(a.Name()), m.MCP().MCPPath())

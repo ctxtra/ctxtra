@@ -46,7 +46,7 @@ func TestMCPClientContract(t *testing.T) {
 				"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [pg]}\n")
 			cmd := exec.Command(argv[0], append(argv[1:], "--from-a-later-version")...)
 			cmd.Dir = h
-			cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1", "CTXTRA_EXPERIMENTAL_MCP=1",
+			cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
 				"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()

@@ -18,7 +18,6 @@ func TestMCPAddRejectsStoredBindingBeforeMutation(t *testing.T) {
 	for _, kind := range []string{"remote", "local"} {
 		t.Run(kind, func(t *testing.T) {
 			h := testenv.Home(t)
-			t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 			keyring.MockInit()
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {
@@ -62,7 +61,6 @@ func TestMCPAddRejectsStoredBindingBeforeMutation(t *testing.T) {
 
 func TestMCPStillDeclaredChecksCommandAndOrigin(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	cfg := testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [tools, --read]}\n")
 	srv := upstream.Server{ID: "build", Name: "build", Command: []string{"tools", "--read"}}
 	saved := false
@@ -84,7 +82,6 @@ func TestMCPStillDeclaredChecksCommandAndOrigin(t *testing.T) {
 
 func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	keyring.MockInit()
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {
@@ -119,7 +116,6 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 
 func TestMCPStatusReportsUnavailableReferencesLocally(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  build: {command: ['./relative-command']}\nbindings:\n  - {name: work, match: {global: true}, mcp-servers: [build, missing]}\n")
 	var output bytes.Buffer
 	a := &app{IO: IO{Out: &output}}

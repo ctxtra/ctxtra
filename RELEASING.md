@@ -13,7 +13,7 @@ Tag a release candidate to try a change in real use before users get it. Install
 to get it: users of `atelpis/tap/ctxtra` don't see release candidates, in the tap or in update notices.
 When the candidate works, tag the release on the same commit. Its users then get exactly what you tested.
 Tags are in one line: while a candidate is out, the next release includes it. To release a fix without an
-unfinished feature, keep the feature off behind an experimental variable (see `internal/experimental`).
+unfinished feature, keep the feature off behind an experimental variable.
 
 The workflow verifies every archive and the checksum file against the release workflow, tag and commit.
 It attaches their signed attestation bundle as `ctxtra.sigstore.json` before publishing the draft.

@@ -1,7 +1,7 @@
-# Experimental MCP servers
+# MCP servers
 
-MCP requires `CTXTRA_EXPERIMENTAL_MCP=1` for commands and agents. Read `ctxtra help config` before editing its
-definitions. Use `ctxtra mcp list --json` for the catalog and `ctxtra mcp status DIR` for a folder's selection and
+MCP needs no experimental opt-in. Read `ctxtra help config` before editing its definitions.
+Use `ctxtra mcp list --json` for the catalog and `ctxtra mcp status DIR` for a folder's selection and
 missing tools, and for how long the last session's first tool list took. "waits up to" in its output is the
 agent's deadline, not the time it took. Status reads only local files and has no JSON flag.
 
@@ -24,6 +24,12 @@ Configs with the same identity and target share credentials. Add reuses a matchi
 authorization. It asks only for declared secret names that have no stored value, and adds them to the record. It
 never replaces stored values or tokens. It refuses client-secret or callback-port changes to that record; use login
 after adding the definition to change shared credentials. Use different names for separate accounts.
+
+Muse clears the hook and MCP environment. Run setup with the intended `CTXTRA_CONFIG`; both use the recorded
+path when the variable is absent. Muse cannot inherit shell proxy/certificate settings, Linux keychain variables,
+or local servers' `env-pass` values. Do not copy secrets into its agent config. Use encrypted secret declarations.
+Start a new Muse session after sign-in, as with Codex. CLI diagnostics do not select Muse's recorded config:
+pass `--config FILE` or set `CTXTRA_CONFIG` when inspecting it.
 
 Logout deletes local credentials, not provider grants or connection approval. Revoke withdraws approval for new
 connections, not an immediate live-session kill. Recommend new sessions after account changes or local-secret

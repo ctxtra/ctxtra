@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
@@ -31,6 +32,13 @@ type Config struct {
 	// Extra are keys setup also owns, with their values, in this order: for
 	// example "type": "stdio".
 	Extra []KV
+	// Env are environment keys setup owns inside the entry's env object.
+	// Their nonempty setup-time values are copied; other values are removed.
+	Env []string
+	// EnvPaths are Env keys whose values are expanded and made absolute.
+	EnvPaths []string
+	// Defaults are top-level keys added only when missing.
+	Defaults []KV
 }
 
 var _ agent.MCPHost = Config{}
@@ -101,6 +109,13 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", c.Path, err)
 	}
+	if !o.Remove {
+		for _, kv := range c.Defaults {
+			if _, ok := data.Get(kv.Key); !ok {
+				data.Set(kv.Key, kv.Value)
+			}
+		}
+	}
 	servers, err := c.servers(data, !o.Remove)
 	if err != nil {
 		return err
@@ -136,6 +151,29 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 		}
 		for _, kv := range c.owned(o.Binary) {
 			cur.Set(kv.Key, kv.Value)
+		}
+		if c.Env != nil {
+			v, has := cur.Get("env")
+			env, ok := v.(*jsonorder.Map)
+			if has && !ok {
+				return fmt.Errorf("%s: MCP env is not an object; left alone", c.Path)
+			}
+			if env == nil {
+				env = jsonorder.NewMap()
+			}
+			for _, key := range c.Env {
+				env.Delete(key)
+				if value := os.Getenv(key); value != "" {
+					if slices.Contains(c.EnvPaths, key) {
+						value, err = filepath.Abs(paths.Expand(value))
+						if err != nil {
+							return err
+						}
+					}
+					env.Set(key, value)
+				}
+			}
+			cur.Set("env", env)
 		}
 		servers.Set(agent.MCPEntryName, cur)
 	}

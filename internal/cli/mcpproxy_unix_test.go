@@ -60,7 +60,7 @@ func TestProxyBrokenStdout(t *testing.T) {
 	}
 	cmd := exec.Command(exe, "mcp", "proxy", "test")
 	cmd.Dir = h
-	cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1", "CTXTRA_EXPERIMENTAL_MCP=1",
+	cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
 		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
@@ -163,7 +163,7 @@ func TestProxyStartBudget(t *testing.T) {
 func proxyStart(exe, dir, cfg string) (initialize, list time.Duration, err error) {
 	cmd := exec.Command(exe, "mcp", "proxy", "codex")
 	cmd.Dir = dir
-	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1", "CTXTRA_EXPERIMENTAL_MCP=1",
+	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
 		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()

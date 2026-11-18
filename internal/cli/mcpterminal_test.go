@@ -16,7 +16,6 @@ import (
 
 func TestMCPShowSanitizesSourceBeforeApproval(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	commit := strings.Repeat("a", 40)
 	root := source.GenDir("https://example.com/context", commit)
 	testenv.Write(t, filepath.Join(root, "mcp-servers.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  build:\n    command: [missing-mcp, \"\\e]0;command\\a\"]\n    notes: \"\\e]0;notes\\a\\u202e\"\n")
@@ -41,7 +40,6 @@ func TestMCPShowSanitizesSourceBeforeApproval(t *testing.T) {
 
 func TestMCPStatusSanitizesUnapprovedCommand(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	commit := strings.Repeat("b", 40)
 	root := source.GenDir("https://example.com/context", commit)
 	testenv.Write(t, filepath.Join(root, "mcp-servers.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  build:\n    command: [\"evil\\e]0;title\\a\\u009b2J\"]\n")
@@ -54,7 +52,6 @@ func TestMCPStatusSanitizesUnapprovedCommand(t *testing.T) {
 
 func TestMCPHumanCatalogSanitizesIssuerWithoutChangingJSON(t *testing.T) {
 	h := testenv.Home(t)
-	t.Setenv("CTXTRA_EXPERIMENTAL_MCP", "1")
 	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp}\n")
 	issuer := "issuer\x1b]0;title\x07\u009b2J"
 	state, err := json.Marshal(creds.State{Version: 1, Name: "shared", URL: "https://example.com/mcp", SignedIn: true, Issuer: issuer})

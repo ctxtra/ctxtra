@@ -45,7 +45,7 @@ type Client struct {
 	// element. Plugins leave it out: their code is the reader.
 	Reads  string   `json:"reads,omitempty"`
 	Events []string `json:"events"`
-	// MCP: the fixture is ctxtra's MCP entry (experimental), which runs
+	// MCP: the fixture is ctxtra's MCP entry, which runs
 	// ctxtra mcp proxy AGENT.
 	MCP bool `json:"mcp,omitempty"`
 }

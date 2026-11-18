@@ -19,8 +19,7 @@ type Fixture struct {
 	t    testing.TB
 	Home string
 	Bin  string // the ctxtra binary under test
-	// Extra are more variables for every process, such as
-	// CTXTRA_EXPERIMENTAL_MCP=1.
+	// Extra are more variables for every process, such as CTXTRA_CONFIG.
 	Extra []string
 }
 
@@ -37,6 +36,12 @@ func New(t testing.TB, bin, dir string) *Fixture {
 	}
 	f := &Fixture{t: t, Home: home, Bin: bin}
 	f.mkdir("tmp")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
+	t.Cleanup(func() {
+		if _, err := os.Stat(f.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+			t.Errorf("fixture created update-check state: %v", err)
+		}
+	})
 	return f
 }
 
@@ -122,7 +127,7 @@ func (f *Fixture) Clean(rels ...string) {
 // Config writes the ctxtra config, which includes one binding file with
 // the given content.
 func (f *Fixture) Config(bindings string) {
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ninclude: [bindings.yaml]\n")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\ninclude: [bindings.yaml]\n")
 	f.Write(".config/ctxtra/bindings.yaml", bindings)
 }
 
@@ -136,6 +141,7 @@ func (f *Fixture) Env() []string {
 		"TMPDIR=" + f.Path("tmp"),
 		"LANG=en_US.UTF-8",
 		"TERM=dumb",
+		"CTXTRA_NO_UPDATE_CHECK=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@example.invalid",

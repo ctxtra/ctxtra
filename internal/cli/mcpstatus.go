@@ -28,7 +28,7 @@ tools in time, later, or none, and why. Reads local files only.`,
 		Example: `  ctxtra mcp status
   ctxtra mcp status ~/dev/app`,
 		Args: atMost(1),
-		RunE: a.mcpRun(func(_ *cobra.Command, args []string) error {
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			dir, _ := os.Getwd()
 			if len(args) == 1 {
 				dir = paths.Resolve(dir, args[0])
