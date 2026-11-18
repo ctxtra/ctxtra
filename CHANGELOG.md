@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.6.0
+
 - MCP servers are available without `CTXTRA_EXPERIMENTAL_MCP=1`. Commands, setup and sessions accept MCP
   configuration by default. Existing experimental setups keep working; approval and sign-in rules are unchanged.
 
