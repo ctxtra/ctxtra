@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
@@ -34,6 +35,8 @@ type Config struct {
 	// Env are environment keys setup owns inside the entry's env object.
 	// Their nonempty setup-time values are copied; other values are removed.
 	Env []string
+	// EnvPaths are Env keys whose values are expanded and made absolute.
+	EnvPaths []string
 	// Defaults are top-level keys added only when missing.
 	Defaults []KV
 }
@@ -161,6 +164,12 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 			for _, key := range c.Env {
 				env.Delete(key)
 				if value := os.Getenv(key); value != "" {
+					if slices.Contains(c.EnvPaths, key) {
+						value, err = filepath.Abs(paths.Expand(value))
+						if err != nil {
+							return err
+						}
+					}
 					env.Set(key, value)
 				}
 			}

@@ -13,7 +13,8 @@ and read only a version number or a commit ID. They never change what a session 
   turn checks off. A local-git source checks only the clone's local HEAD.
 - `ctxtra check-updates` checks now and shows the results. `ctxtra doctor` shows what the last checks
   found, and why one failed. A failed check never means "up to date".
-- `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start, for CI and restricted networks.
+- `CTXTRA_NO_UPDATE_CHECK=1` stops session checks when the hook inherits it. Muse clears that variable:
+  set top-level `check-updates: false` and disable checks on each pinned source instead.
 
 A notice is for the user. Don't upgrade ctxtra, and don't run `ctxtra source update`, because of one,
 unless the user asks. Accepting new commits stays the user's decision (rule 4).

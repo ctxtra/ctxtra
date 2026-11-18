@@ -36,6 +36,12 @@ func New(t testing.TB, bin, dir string) *Fixture {
 	}
 	f := &Fixture{t: t, Home: home, Bin: bin}
 	f.mkdir("tmp")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
+	t.Cleanup(func() {
+		if _, err := os.Stat(f.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+			t.Errorf("fixture created update-check state: %v", err)
+		}
+	})
 	return f
 }
 

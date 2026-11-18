@@ -459,8 +459,9 @@ The notices go only to you, never to the model, in the agents that show a messag
   are off.
 - `ctxtra check-updates` runs the checks now and shows their results. It exits with 1 when a check fails,
   or when it can't save the results for sessions.
-- `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start, for CI and restricted networks.
-  Notices from earlier checks still show.
+- `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start when the hook inherits the variable.
+  Muse clears its hook environment: use top-level `check-updates: false` for release checks and
+  `check-updates: false` on each pinned source instead. Notices from earlier checks still show.
 - Only the config can turn checks on or off: a binding file can't have `check-updates`. A config that is
   ignored as a whole (see [Validation](#validation)) runs no checks, because its `check-updates: false`
   may be what failed.
@@ -1000,11 +1001,17 @@ A missing recorded config adds nothing; it does not fall back to a different con
 setups do not change the record. Removing the matching setup clears it.
 
 Muse's entry has `env`, with setup-time values of `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
-Setup owns only those keys inside `env` and keeps user-added keys. It does not copy secret `env-pass` values,
+Setup expands `~` and makes the log path absolute, so logs do not go into session folders. Setup owns only
+those two keys inside `env` and keeps user-added keys. The proxy starts no update checks, so its copied
+`CTXTRA_NO_UPDATE_CHECK` has no effect on Muse's hooks. It does not copy secret `env-pass` values,
 proxy or certificate variables, or Linux Secret Service variables. Muse therefore cannot inherit a shell proxy,
 custom certificate paths, a Linux keychain session, or local servers' `env-pass` values. Use explicit non-secret
 `env` settings or encrypted `secret-env` declarations for local servers. Its first tool list is fixed; start a
 new session after signing in. Muse hooks still use the default log path.
+
+CLI diagnostics (`context`, `doctor`, `mcp status`) and setup notices do not select Muse's recorded config
+automatically. Pass `--config FILE` or set `CTXTRA_CONFIG` to inspect the same config as Muse.
+Background update checks use the config selected by the hook, including Muse's recorded path.
 
 Agents write these files themselves too (Claude Code often writes `~/.claude.json`): when a file changes
 between setup's read and its write, setup makes its edit again on the new content, so the agent's change stays.

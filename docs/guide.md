@@ -129,7 +129,8 @@ start that the binary is missing; the other agents add nothing, without a word.
 At most once an hour, a session checks in the background for a new ctxtra release, and the next session
 tells you when there is one, with the command that upgrades it. The check sends your IP address and ctxtra
 version to GitHub. To turn it off, add `check-updates: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
-one environment, such as CI. See [Update checks](spec.md#update-checks).
+one environment, such as CI, if the hook inherits it. Muse clears that variable: turn release checks off in
+its config and checks off on each pinned source instead. See [Update checks](spec.md#update-checks).
 
 To get release candidates before each release, install the `ctxtra-rc` formula instead:
 `brew uninstall ctxtra && brew install atelpis/tap/ctxtra-rc`. A release candidate, such as
@@ -497,7 +498,9 @@ Logs are in `~/.ctxtra/log.jsonl`.
   default config. Hooks use the default log path. The MCP entry copies `CTXTRA_LOG` at setup time. Muse cannot
   inherit shell proxy or certificate settings, a Linux keychain session, or local servers' `env-pass` values.
   Use explicit non-secret `env` values or stored `secret-env` values for local servers. Start a new Muse session
-  after signing in to an MCP server. A resumed Muse session runs the hook again, and
+  after signing in to an MCP server. To inspect Muse's recorded config with `context`, `doctor` or `mcp status`,
+  pass `--config FILE` or set `CTXTRA_CONFIG`; CLI diagnostics do not select it automatically.
+  A resumed Muse session runs the hook again, and
   Muse replaces the earlier text with the current version of the files.
 - Devin: the hook goes into `~/.config/devin/config.json`, which Devin CLI and Devin Desktop's agent both
   read. Devin has no subagent hook. It allows comments in that file; `setup` leaves such a file alone. Devin

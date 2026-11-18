@@ -17,10 +17,10 @@ stdin hook.json
 exec ctxtra hook muse SessionStart --slot 0 --of 40
 stdout 'CUSTOM_CONFIG_MARKER'
 
-# An explicit override still wins.
+# A new session's explicit override still wins.
 env CTXTRA_CONFIG=$HOME/ctx/override.yaml
+stdin override-hook.json
 exec ctxtra hook muse SessionStart --slot 0 --of 40
-stdin hook.json
 ! stdout 'CUSTOM_CONFIG_MARKER'
 
 env CTXTRA_CONFIG=$HOME/ctx/custom.yaml
@@ -43,4 +43,6 @@ check-updates: false
 -- ctx/custom.md --
 CUSTOM_CONFIG_MARKER
 -- hook.json --
-{"cwd":"$HOME","session_id":"muse-test"}
+{"session_id":"muse-test"}
+-- override-hook.json --
+{"session_id":"muse-override"}

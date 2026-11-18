@@ -9,7 +9,8 @@ Every run gets its own home folder, with the agents' config folders inside it, a
 a dummy API key. Your agent configs, logins and history are never read or changed; the tests fail if
 your real agent config files change while they run. Update checks are disabled in the test environment so
 detached checks cannot outlive a fixture or contact GitHub. Fixture configs also disable release checks for
-agents such as Muse that clear the hook environment.
+agents such as Muse that clear the hook environment. Every fixture starts with that config, even before a
+test adds bindings or installs skills. Cleanup rejects any unexpected update-check state.
 
 This folder is a separate Go module: `go test ./...` at the repository root doesn't run it, and
 `go install` of ctxtra doesn't download it.
@@ -80,6 +81,7 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestMCPProxy` | MCP servers with `$CTXTRA_CONFIG` at a path of its own, including Muse's setup-recorded fallback after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
 | `TestMCPRemoteCredential` | A remote MCP server on 127.0.0.1 that wants an API key, stored with `ctxtra mcp login` under a file key in the test's home (never the user's keychain): the proxy reaches it from inside each agent |
 | `TestMCPFailingServer` | A bound server that fails to start costs only its own tools |
+| `TestMuseBackgroundConfig` | A cleared-environment Muse hook starts a detached check using its recorded config, not a same-named source in the default config. Uses only local repositories |
 | `TestMCPInstructions` | Claude Code and Codex show the proxy's MCP instructions to the model: how to learn why a tool is missing, and which servers need sign-in |
 | `TestMCPSignInDuringSession` | Claude Code: a server missing at the start because its secret value isn't set gets its tools once the user sets it during the session |
 | `TestMCPOpenCodeService` | OpenCode's shared background service (started explicitly on a port of its own, stopped at the end): a repository's subfolder and a worktree each get their own proxy, in their folder, with their servers |

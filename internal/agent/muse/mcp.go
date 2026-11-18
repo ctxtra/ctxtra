@@ -15,6 +15,7 @@ func (a Agent) MCP() agent.MCPHost {
 	return mcpentry.Config{Agent: a.Name(), Path: a.ConfigPath(), Servers: []string{"mcpServers"},
 		Extra:    []mcpentry.KV{{Key: "type", Value: "stdio"}, {Key: "mode", Value: "optional"}},
 		Env:      []string{"CTXTRA_LOG", "CTXTRA_NO_UPDATE_CHECK"},
+		EnvPaths: []string{"CTXTRA_LOG"},
 		Defaults: []mcpentry.KV{{Key: "schema_version", Value: 1}}}
 }
 
