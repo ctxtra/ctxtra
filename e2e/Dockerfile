@@ -9,7 +9,7 @@
 # is downloaded while building the image.
 FROM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS go
 
-FROM node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 COPY --from=go /usr/local/go /usr/local/go
 # Python 3.13 for Hermes, tmux for the TUI tests.
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl python3 python3-venv tmux \
