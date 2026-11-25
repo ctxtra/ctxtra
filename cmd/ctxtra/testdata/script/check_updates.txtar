@@ -54,12 +54,12 @@ stdout 'CTXMARK-NEW'
 ! stdout 'ℹ'
 
 # Results that can't be saved are shown from the check, and the command fails.
-rm .ctxtra/state.lock
-mkdir .ctxtra/state.lock
+rm .local/state/ctxtra/state.lock
+mkdir .local/state/ctxtra/state.lock
 ! exec ctxtra check-updates
 stdout '^team-ctx: no new commits \(checked '
-stderr 'can''t save the results in ~/.ctxtra/state.json, so sessions won''t show them'
-rm .ctxtra/state.lock
+stderr 'can''t save the results in ~/.local/state/ctxtra/state.json, so sessions won''t show them'
+rm .local/state/ctxtra/state.lock
 
 # A check that fails says why, and is no notice.
 mv srv/team-ctx srv/moved
@@ -71,7 +71,8 @@ runhook claude SessionStart notes
 ! stdout 'ℹ'
 
 # With every check off, there is nothing to check.
-exec ctxtra check-updates --config off.yaml
+cp off.yaml .config/ctxtra/config.yaml
+exec ctxtra check-updates
 stdout '^nothing to check: the config has check-updates: false, and no source has update checks enabled$'
 
 -- .config/ctxtra/config.yaml --

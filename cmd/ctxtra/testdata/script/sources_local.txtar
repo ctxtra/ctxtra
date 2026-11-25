@@ -15,10 +15,8 @@ exec ctxtra binding-file add .config/ctxtra/bindings.yaml
 stdout 'bindings.yaml is included already'
 exec ctxtra binding-file list
 stdout '^bindings.yaml \(bindings: me\)$'
-env CTXTRA_CONFIG=.config/ctxtra/config.yaml
 exec ctxtra binding-file list
 stdout '^bindings.yaml \(bindings: me\)$'
-env CTXTRA_CONFIG=
 
 # A binding file in a repository that isn't a source: binding-file add
 # never adds one; it names the commands that do.
@@ -85,7 +83,7 @@ stdin yes.txt
 exec ctxtra-tty source update
 stdout '^accepted team [0-9a-f]{7}, the first version'
 exec ctxtra context files notes
-stdout '/.ctxtra/store/.*/a.md'
+stdout '/.local/share/ctxtra/store/.*/a.md'
 
 # Bad input. A path that doesn't exist is never tried as a URL.
 ! exec ctxtra source add git file:///tmp/x

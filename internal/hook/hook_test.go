@@ -96,7 +96,7 @@ func TestOutputPerAgent(t *testing.T) {
 	if m := run("vim", "start", input); len(m) != 0 {
 		t.Errorf("unknown agent: %v", m)
 	}
-	b, err := os.ReadFile(filepath.Join(h, ".ctxtra", "log.jsonl"))
+	b, err := os.ReadFile(filepath.Join(h, ".local/state/ctxtra", "log.jsonl"))
 	if err != nil || strings.Count(string(b), "\n") != 12 {
 		t.Errorf("log: %v %q", err, b)
 	}

@@ -27,7 +27,7 @@ func fileKey(t *testing.T, s *Session) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := s.Path(".ctxtra/mcp")
+	dir := s.Path(".local/state/ctxtra/mcp")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ bindings:
 		if out, err := login.CombinedOutput(); err != nil || !strings.Contains(string(out), "stored its secret values") {
 			t.Fatalf("mcp login: %v\n%s", err, out)
 		}
-		if strings.Contains(readFile(t, s.Path("ctx/ctxtra.yaml")), key) {
+		if strings.Contains(readFile(t, s.Path("ctx-config/ctxtra/config.yaml")), key) {
 			t.Fatal("the key is in the config")
 		}
 		s.Run(s.Path("dev/a"), driver.Options{}, mcpScript(a.Name(), "web__web_ping")...)

@@ -115,7 +115,7 @@ bindings:
 		if st, _ := service("status"); !strings.Contains(st, strconv.Itoa(port)) {
 			t.Errorf("the service isn't running on port %d:\n%s", port, st)
 		}
-		dirs := proxyDirs(t, s.Path(".ctxtra/log.jsonl"))
+		dirs := proxyDirs(t, s.Path(".local/state/ctxtra/log.jsonl"))
 		for _, want := range []string{realPath(wt), realPath(billing)} {
 			if !slices.Contains(dirs, want) {
 				t.Errorf("no proxy started in %s; started in %v", want, dirs)

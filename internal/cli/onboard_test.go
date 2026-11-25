@@ -49,7 +49,7 @@ func TestOnboardImport(t *testing.T) {
 				if len(f.started) != 0 {
 					t.Fatalf("started without consent: %+v", f.started)
 				}
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*"))
 				if len(backups) != 0 {
 					t.Fatalf("backed up without consent: %v", backups)
 				}
@@ -57,7 +57,7 @@ func TestOnboardImport(t *testing.T) {
 				if len(f.started) != 1 || f.started[0].bin != tc.started {
 					t.Fatalf("started %+v", f.started)
 				}
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*", "claude", ".claude", "CLAUDE.md"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*", "claude", ".claude", "CLAUDE.md"))
 				if len(backups) != 1 {
 					t.Fatalf("backups: %v", backups)
 				}
@@ -182,7 +182,7 @@ func TestOnboardFailure(t *testing.T) {
 				t.Fatal("installed skill after failed setup")
 			}
 			if mode == "choice" {
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*"))
 				if len(backups) != 0 {
 					t.Fatalf("backup before valid choice: %v", backups)
 				}
@@ -205,7 +205,7 @@ func TestOnboardDeclineHooks(t *testing.T) {
 			if b, err := os.ReadFile(config); err != nil || string(b) != "{}\n" {
 				t.Fatalf("config changed: %q %v", b, err)
 			}
-			if _, err := os.Stat(filepath.Join(h, ".ctxtra")); !errors.Is(err, os.ErrNotExist) {
+			if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("onboarding wrote state: %v", err)
 			}
 			if skillBound("ctxtra") != nil || skillBound(follow) != nil || len(f.started) != 0 || strings.Contains(out, "Your agents can set up") {

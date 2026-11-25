@@ -19,7 +19,7 @@ type Fixture struct {
 	t    testing.TB
 	Home string
 	Bin  string // the ctxtra binary under test
-	// Extra are more variables for every process, such as CTXTRA_CONFIG.
+	// Extra are more variables for every process, such as XDG_CONFIG_HOME.
 	Extra []string
 }
 
@@ -38,7 +38,7 @@ func New(t testing.TB, bin, dir string) *Fixture {
 	f.mkdir("tmp")
 	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
 	t.Cleanup(func() {
-		if _, err := os.Stat(f.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+		if _, err := os.Stat(f.Path(".local/state/ctxtra/state.json")); !os.IsNotExist(err) {
 			t.Errorf("fixture created update-check state: %v", err)
 		}
 	})
@@ -177,7 +177,7 @@ type LogEntry struct {
 
 // Log is ctxtra's hook log in the home folder.
 func (f *Fixture) Log() []LogEntry {
-	fh, err := os.Open(f.Path(".ctxtra/log.jsonl"))
+	fh, err := os.Open(f.Path(".local/state/ctxtra/log.jsonl"))
 	if err != nil {
 		return nil
 	}

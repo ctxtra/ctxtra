@@ -11,14 +11,15 @@ import (
 	"time"
 )
 
-// The detached checker must follow the hook's chosen config even when
-// Muse drops CTXTRA_CONFIG. Both sources are local, so no network is used.
+// The detached checker inherits the hook's recorded XDG values. Both sources
+// are local, so no network is used.
 func TestMuseBackgroundConfig(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+		"TMPDIR=" + filepath.Join(home, "tmp"),
 		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid"}
 	write := func(path string, b []byte) {
 		t.Helper()
@@ -54,17 +55,25 @@ func TestMuseBackgroundConfig(t *testing.T) {
 	cfg := func(repo, commit string) []byte {
 		return []byte(fmt.Sprintf("schema: ctxtra/v1\ncheck-updates: false\nsources:\n  team: {local-git: %q, commit: %q}\n", repo, commit))
 	}
-	custom := filepath.Join(home, "custom.yaml")
+	custom := filepath.Join(home, "custom", "ctxtra", "config.yaml")
 	write(custom, cfg(chosen, head))
 	write(filepath.Join(home, ".config/ctxtra/config.yaml"), cfg(other, otherHead))
-	agentPath := filepath.Join(home, ".config/muse/settings.json")
-	setup, _ := json.Marshal(map[string]any{
-		"installed": map[string][]string{"muse": {agentPath}},
-		"configs":   map[string]any{"muse": map[string]string{"agent_path": agentPath, "path": custom}},
-	})
-	write(filepath.Join(home, ".ctxtra/setup.json"), setup)
-	run(home, ctxtraBin, "hook", "muse", "SessionStart", "--slot", "0", "--of", "40")
-	file := filepath.Join(home, ".ctxtra/state.json")
+	write(filepath.Join(home, "tmp", ".keep"), nil)
+	env = append(env, "XDG_CONFIG_HOME="+filepath.Join(home, "custom"))
+	run(home, ctxtraBin, "setup", "--agent", "muse")
+	b, err := os.ReadFile(filepath.Join(home, "custom", "muse", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+	}
+	if err := json.Unmarshal(b, &settings); err != nil {
+		t.Fatal(err)
+	}
+	env = env[:len(env)-1]
+	run(home, "/bin/sh", "-c", settings.Hooks["SessionStart"][0].Hooks[0].Command)
+	file := filepath.Join(home, ".local/state/ctxtra/state.json")
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		b, _ := os.ReadFile(file)

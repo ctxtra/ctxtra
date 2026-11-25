@@ -67,7 +67,7 @@ func (Pi) Interactive(_, home, mockURL string, env []string) (Interactive, error
 func (Pi) Answer(string) []string { return nil }
 
 func (OpenCode) Interactive(_, home, mockURL string, env []string) (Interactive, error) {
-	if err := openCodeConfig(home, mockURL); err != nil {
+	if err := openCodeConfig(home, mockURL, env); err != nil {
 		return Interactive{}, err
 	}
 	return Interactive{Pre: []string{"--standalone"}, Env: append(env, "E2E_MOCK_KEY=mock",

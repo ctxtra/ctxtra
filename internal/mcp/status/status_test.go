@@ -1,6 +1,7 @@
 package status
 
 import (
+	"github.com/ctxtra/ctxtra/internal/testenv"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,7 @@ import (
 // Each folder has its own record: a start in folder B leaves folder A's,
 // for the same server, as it was.
 func TestFoldersKeepTheirRecords(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.Home(t)
 	a := Record{Dir: "/home/u/dev/a", Agent: "codex", Started: time.Now().UTC(), DeadlineMs: 10000,
 		Servers: []Server{{Name: "pg", State: Late, Reason: "too slow for the first tool list", Ms: 15200}}}
 	b := Record{Dir: "/home/u/dev/b", Agent: "claude", Started: time.Now().UTC(), DeadlineMs: 1500,
@@ -32,7 +33,7 @@ func TestFoldersKeepTheirRecords(t *testing.T) {
 
 // An older session in the folder doesn't replace a newer one's record.
 func TestNewerSessionWins(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.Home(t)
 	now := time.Now().UTC()
 	newer := Record{Dir: "/d", Agent: "claude", Started: now, Servers: []Server{{Name: "pg", State: Ready}}}
 	older := Record{Dir: "/d", Agent: "codex", Started: now.Add(-time.Minute), Servers: []Server{{Name: "pg", State: Late, Ms: 15000}}}
@@ -49,8 +50,7 @@ func TestNewerSessionWins(t *testing.T) {
 
 // A folder reached through a symlink has the record of its real path.
 func TestSymlinkedFolder(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := testenv.Home(t)
 	real := filepath.Join(home, "real")
 	os.Mkdir(real, 0o755)
 	link := filepath.Join(home, "link")

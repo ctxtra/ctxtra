@@ -52,8 +52,8 @@ func TestTextEdits(t *testing.T) {
 	if _, err := AddSource([]byte(commented), "dotfiles", [][2]string{{"trusted-path", "/x"}}); err == nil {
 		t.Error("AddSource: an existing name was accepted")
 	}
-	out, err = AddBinding([]byte(commented), NewBinding{Name: "ctxtra", Global: true, Skills: []string{"~/.ctxtra/skills/ctxtra"}})
-	want = strings.Replace(commented, "[me.md]\n", "[me.md]\n  - name: ctxtra\n    match:\n      global: true\n    skills:\n      - ~/.ctxtra/skills/ctxtra\n", 1)
+	out, err = AddBinding([]byte(commented), NewBinding{Name: "ctxtra", Global: true, Skills: []string{"~/.local/share/ctxtra/skills/ctxtra"}})
+	want = strings.Replace(commented, "[me.md]\n", "[me.md]\n  - name: ctxtra\n    match:\n      global: true\n    skills:\n      - ~/.local/share/ctxtra/skills/ctxtra\n", 1)
 	if err != nil || string(out) != want {
 		t.Errorf("AddBinding %v:\n%s", err, out)
 	}
@@ -143,7 +143,7 @@ func TestEdit(t *testing.T) {
 	if st, _ := os.Stat(real); st.Mode().Perm() != 0o640 {
 		t.Errorf("mode %v", st.Mode())
 	}
-	if b, _ := os.ReadDir(filepath.Join(h, ".ctxtra", "backups")); len(b) != 1 {
+	if b, _ := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "backups")); len(b) != 1 {
 		t.Errorf("backups: %v", b)
 	}
 	// An edit that makes the config invalid changes nothing.

@@ -35,7 +35,7 @@ func TestRun(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h, ".cursor", "hooks.json")); !os.IsNotExist(err) {
 		t.Error("dry run wrote files")
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra")); !os.IsNotExist(err) {
 		t.Error("dry run wrote setup.json or its lock")
 	}
 }

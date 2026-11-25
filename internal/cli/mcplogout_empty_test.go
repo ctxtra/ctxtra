@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
-func TestMCPLogoutWithoutCredentialsDoesNotBlockAnotherConfigAdd(t *testing.T) {
+func TestMCPLogoutWithoutCredentialsDoesNotBlockAdd(t *testing.T) {
 	for _, declared := range []bool{false, true} {
 		t.Run(map[bool]string{false: "undeclared", true: "declared"}[declared], func(t *testing.T) {
 			h := testenv.Home(t)
@@ -44,9 +43,7 @@ func TestMCPLogoutWithoutCredentialsDoesNotBlockAnotherConfigAdd(t *testing.T) {
 			if _, err := store.SaveSignIn(srv, generation, "issuer", creds.Client{}, creds.Token{Access: "late"}); !errors.Is(err, creds.ErrSignInChanged) {
 				t.Fatalf("empty logout did not cancel first sign-in: %v", err)
 			}
-			second := filepath.Join(h, "second.yaml")
-			testenv.Write(t, second, "schema: ctxtra/v1\n")
-			t.Setenv("CTXTRA_CONFIG", second)
+			testenv.Config(t, h, "schema: ctxtra/v1\n")
 			output.Reset()
 			if n := Run([]string{"mcp", "add", "shared", srv.URL, "--no-login"}, stdio, "test"); n != 0 || strings.Contains(output.String(), "reusing") {
 				t.Fatalf("empty logout blocked or falsely reused credentials: %d, %s", n, &output)

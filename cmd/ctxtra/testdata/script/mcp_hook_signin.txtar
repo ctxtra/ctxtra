@@ -10,12 +10,12 @@ stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstr
 ! stdout 'needs sign-in'
 
 # A session found that it needs sign-in.
-mkdir .ctxtra/mcp/state
-cp state.json .ctxtra/mcp/state/linear_work.json
+mkdir .local/state/ctxtra/mcp/state
+cp state.json .local/state/ctxtra/mcp/state/linear_work.json
 runhook claude SessionStart dev/app
 stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\nMCP servers:\\n  - linear_work\\n\\n⚠ linear_work needs sign-in: run ctxtra mcp login linear_work"'
 ! stdout 'CTXMARK-SECRET'
-! exists .ctxtra/mcp/key.json
+! exists .local/state/ctxtra/mcp/key.json
 
 # A folder that doesn't bind it gets no line.
 runhook claude SessionStart other

@@ -25,7 +25,7 @@ stdout '^  clone: ~/dev/team-ctx '
 # the committed version. Uncommitted edits are not used.
 cp uncommitted.md dev/team-ctx/jira-ticket.md
 runhook claude SessionStart notes
-stdout 'Contents of .*/.ctxtra/store/.*/jira-ticket.md'
+stdout 'Contents of .*/.local/share/ctxtra/store/.*/jira-ticket.md'
 stdout 'LOCAL-COMMIT'
 ! stdout 'UNCOMMITTED'
 ! stdout 'ctxtra notices'

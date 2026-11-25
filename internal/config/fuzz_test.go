@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 func FuzzConfig(f *testing.F) {
@@ -57,7 +58,7 @@ func FuzzSourceReference(f *testing.F) {
 		f.Add(s)
 	}
 	root := filepath.Join(f.TempDir(), "source")
-	f.Setenv("HOME", f.TempDir())
+	testenv.Home(f)
 	pinned := Source{Name: "team", Git: "https://example.com/team", Commit: strings.Repeat("a", 40)}
 	f.Fuzz(func(t *testing.T, ref string) {
 		c := &Config{Sources: []Source{{Name: "team", TrustedPath: root}, {Name: "other", TrustedPath: root + "-other"}}}

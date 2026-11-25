@@ -1,3 +1,4 @@
+cp .config/ctxtra/config.yaml original.yaml
 # binding add adds a binding to the config and keeps the rest of it as
 # written. It writes only a binding that sessions would get as asked: its
 # files exist and are trusted. binding remove takes it out again.
@@ -44,7 +45,7 @@ cmp .config/ctxtra/config.yaml want.yaml
 # --dry-run checks and changes nothing, also where nothing can be written,
 # as in an agent's sandbox.
 chmod 0555 .config/ctxtra
-chmod 0555 .ctxtra
+chmod 0555 .local/state/ctxtra
 exec ctxtra binding add x --global --instruction notes/me.md --dry-run
 stdout '^would add binding x to ~/.config/ctxtra/config.yaml: for every session$'
 stdout '^nothing changed \(--dry-run\)$'
@@ -53,7 +54,7 @@ stderr '^  missing: ~/notes/nope.md$'
 ! exec ctxtra binding add x --global --instruction notes/me.md
 stderr 'permission denied'
 chmod 0755 .config/ctxtra
-chmod 0755 .ctxtra
+chmod 0755 .local/state/ctxtra
 cmp .config/ctxtra/config.yaml want.yaml
 
 # Once the repository is a source, its files can be bound.
@@ -83,23 +84,23 @@ stderr 'no binding named team'
 
 # A problem that exists already still fails a binding that brings it again:
 # a reference to a commit not in the store is skipped.
-env CTXTRA_CONFIG=$HOME/pinned.yaml
+cp pinned.yaml .config/ctxtra/config.yaml
 cp pinned.yaml pinned-want.yaml
 ! exec ctxtra binding add y --global --instruction ctxtra://pin/a.md
 stderr 'is not in ctxtra''s store'
-cmp pinned.yaml pinned-want.yaml
+cmp .config/ctxtra/config.yaml pinned-want.yaml
 
 # A file over budget.max-chars by itself never reaches a session.
-env CTXTRA_CONFIG=$HOME/budget.yaml
+cp budget.yaml .config/ctxtra/config.yaml
 ! exec ctxtra binding add y --global --instruction notes/work.md
 stderr '^  ~/notes/work.md alone is over budget.max-chars \(5\)$'
-env CTXTRA_CONFIG=
+cp original.yaml .config/ctxtra/config.yaml
 
 # binding remove also removes a broken binding, which sessions skip.
-env CTXTRA_CONFIG=$HOME/broken.yaml
+cp broken.yaml .config/ctxtra/config.yaml
 exec ctxtra binding remove broken
 stdout '^removed binding broken'
-! grep broken broken.yaml
+! grep broken .config/ctxtra/config.yaml
 # binding-file list fails on a binding file that can't be read.
 ! exec ctxtra binding-file list
 stderr '^problem: .*missing.yaml'
@@ -108,8 +109,8 @@ stderr '^problem: .*missing.yaml'
 stderr 'a binding named ctxtra already exists'
 ! exec ctxtra skill install ctxtra
 stderr 'a binding named ctxtra already exists'
-! exists .ctxtra/skills/ctxtra
-env CTXTRA_CONFIG=
+! exists .local/share/ctxtra/skills/ctxtra
+cp original.yaml .config/ctxtra/config.yaml
 
 # Usage errors.
 ! exec ctxtra binding add x --instruction notes/me.md
@@ -167,7 +168,7 @@ bindings:
       - ctxtra://pin/a.md
 -- broken.yaml --
 schema: ctxtra/v1
-include: [missing.yaml]
+include: [~/missing.yaml]
 bindings:
   - name: broken
     match: {global: true}

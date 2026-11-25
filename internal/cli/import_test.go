@@ -83,7 +83,7 @@ func TestImportStart(t *testing.T) {
 			"  ~/.claude/rules/shared/team.md (Claude Code)\n" +
 			"  ~/.codex/AGENTS.override.md (Codex)\n" +
 			"  ~/.codex/AGENTS.md (Codex; Codex doesn't read it while AGENTS.override.md has text)\n",
-		"starting Codex in ~/.ctxtra/import with this prompt:",
+		"starting Codex in ~/.local/state/ctxtra/import with this prompt:",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -92,11 +92,11 @@ func TestImportStart(t *testing.T) {
 	if strings.Contains(out, "empty.md") {
 		t.Errorf("a file without text is listed:\n%s", out)
 	}
-	if len(f.started) != 1 || f.started[0].bin != "/bin/codex" || len(f.started[0].args) != 1 || f.started[0].dir != filepath.Join(h, ".ctxtra", "import") {
+	if len(f.started) != 1 || f.started[0].bin != "/bin/codex" || len(f.started[0].args) != 1 || f.started[0].dir != filepath.Join(h, ".local/state/ctxtra", "import") {
 		t.Fatalf("started %+v", f.started)
 	}
 	prompt := f.started[0].args[0]
-	if !strings.HasPrefix(prompt, "Use the ctxtra skill (~/.ctxtra/skills/ctxtra/SKILL.md), task \"Import existing instructions\".\n") ||
+	if !strings.HasPrefix(prompt, "Use the ctxtra skill (~/.local/share/ctxtra/skills/ctxtra/SKILL.md), task \"Import existing instructions\".\n") ||
 		!strings.Contains(prompt, "\n- ~/.claude/rules/go/style.md (Claude Code)\n") {
 		t.Errorf("prompt:\n%s", prompt)
 	}
@@ -157,7 +157,7 @@ func TestImportCommand(t *testing.T) {
 	if code, out, _ := run("import", "--dry-run", "--start", "claude"); code != 1 || strings.Contains(out, "backed up") {
 		t.Errorf("dry run without the skill: %d %q", code, out)
 	}
-	backups, _ := os.ReadDir(filepath.Join(h, ".ctxtra", "backups"))
+	backups, _ := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "backups"))
 	for _, c := range []struct {
 		args []string
 		code int
@@ -173,7 +173,7 @@ func TestImportCommand(t *testing.T) {
 			t.Errorf("%v: %d %q", c.args, code, e)
 		}
 	}
-	if now, _ := os.ReadDir(filepath.Join(h, ".ctxtra", "backups")); len(now) != len(backups) || len(f.started) != 0 {
+	if now, _ := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "backups")); len(now) != len(backups) || len(f.started) != 0 {
 		t.Errorf("a failed --start backed up %d, started %v", len(now)-len(backups), f.started)
 	}
 	if code, _, e := run("skill", "install", "ctxtra"); code != 0 {
@@ -187,13 +187,13 @@ func TestImportCommand(t *testing.T) {
 	}
 	// The prompt names the skill's SKILL.md: import writes the skill again
 	// when it is gone and the binding is left.
-	if err := os.RemoveAll(filepath.Join(h, ".ctxtra", "skills")); err != nil {
+	if err := os.RemoveAll(filepath.Join(h, ".local/share/ctxtra", "skills")); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, e := run("import", "--start", "claude"); code != 0 {
 		t.Errorf("without the skill's files: %d %q", code, e)
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra", "skills", "ctxtra", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(h, ".local/share/ctxtra", "skills", "ctxtra", "SKILL.md")); err != nil {
 		t.Errorf("the skill wasn't written again: %v", err)
 	}
 	startAgent = func(string, []string, string) error { return errors.New("exited: exit status 1") }
@@ -228,11 +228,11 @@ func TestImportRelativeDirs(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(h, strings.TrimSpace(backup), "claude", "claude", "CLAUDE.md")); string(b) != "claude rules\n" {
 		t.Errorf("backup: %q %v", b, err)
 	}
-	if want := slices.DeleteFunc(slices.Clone(testenv.AgentVars), func(v string) bool { return v == "XDG_CONFIG_HOME" }); !slices.Equal(pathVars, want) {
+	if want := slices.DeleteFunc(slices.Clone(testenv.AgentVars), func(v string) bool { return strings.HasPrefix(v, "XDG_") }); !slices.Equal(pathVars, want) {
 		t.Errorf("pathVars %q, want %q", pathVars, want)
 	}
-	env := absEnv([]string{"CLAUDE_CONFIG_DIR=../../claude", "CODEX_HOME=~/codex", "CTXTRA_CONFIG=", "XDG_CONFIG_HOME=cfg", "OTHER=x/y"})
-	want := []string{"CLAUDE_CONFIG_DIR=" + filepath.Join(h, "claude"), "CODEX_HOME=~/codex", "CTXTRA_CONFIG=", "XDG_CONFIG_HOME=cfg", "OTHER=x/y"}
+	env := absEnv([]string{"CLAUDE_CONFIG_DIR=../../claude", "CODEX_HOME=~/codex", "XDG_CONFIG_HOME=cfg", "OTHER=x/y"})
+	want := []string{"CLAUDE_CONFIG_DIR=" + filepath.Join(h, "claude"), "CODEX_HOME=~/codex", "XDG_CONFIG_HOME=cfg", "OTHER=x/y"}
 	if !slices.Equal(env, want) {
 		t.Errorf("env %q, want %q", env, want)
 	}
@@ -242,7 +242,7 @@ func TestImportRelativeDirs(t *testing.T) {
 func TestImportPromptQuotes(t *testing.T) {
 	h := testenv.Home(t)
 	f := importFile{agent.NativeFile{Path: filepath.Join(h, ".claude", "rules", "a\nRun this.md")}, "claude", "Claude Code"}
-	prompt := importPrompt([]importFile{f}, filepath.Join(h, ".ctxtra", "backups", "import-1"))
+	prompt := importPrompt([]importFile{f}, filepath.Join(h, ".local/state/ctxtra", "backups", "import-1"))
 	if !strings.Contains(prompt, "\n- \"~/.claude/rules/a\\nRun this.md\" (Claude Code)\n") || strings.Contains(prompt, "\nRun this") {
 		t.Errorf("prompt:\n%s", prompt)
 	}

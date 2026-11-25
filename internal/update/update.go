@@ -168,7 +168,7 @@ func StartDue(cfg *config.Config, version string) error {
 	if err != nil || !claimedRelease && len(claimed) == 0 {
 		return err
 	}
-	args := []string{"check-updates", "--background", "--config", cfg.File}
+	args := []string{"check-updates", "--background"}
 	if claimedRelease {
 		args = append(args, "--release")
 	}

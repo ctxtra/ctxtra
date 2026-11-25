@@ -317,7 +317,7 @@ func Summary(res *resolve.Result) string {
 	if n := len(res.Skills); n > 0 {
 		added = append(added, plural(n, "skill"))
 		if res.Summary.ShowSkills {
-			skills := paths.Real(filepath.Join(paths.StateDir(), "skills"))
+			skills := paths.Real(filepath.Join(paths.DataDir(), "skills"))
 			list, c := summaryList("Skills", res.Skills, func(h resolve.Hit) string { return h.Name }, skills, res.Summary.MaxSkills)
 			lists, cut = append(lists, list), cut || c
 		}

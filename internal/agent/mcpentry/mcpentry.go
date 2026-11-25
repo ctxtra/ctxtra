@@ -89,7 +89,9 @@ func toAny(s []string) []any {
 // is made again on the new content.
 func (c Config) SetupMCP(o agent.MCPOptions, r *agent.Report) error {
 	if !o.Remove && !o.Want {
-		return nil
+		if _, exists := c.MCPCommand(); !exists {
+			return nil
+		}
 	}
 	for range 3 {
 		err := c.setupOnce(o, r)
@@ -116,12 +118,15 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 			}
 		}
 	}
-	servers, err := c.servers(data, !o.Remove)
+	servers, err := c.servers(data, !o.Remove && o.Want)
 	if err != nil {
 		return err
 	}
 	cur, has := entry(servers, agent.MCPEntryName)
 	legacy := c.legacy(servers)
+	if !o.Remove && !o.Want && !has && legacy == nil {
+		return nil
+	}
 	switch {
 	case has && cur == nil, has && !c.ours(cur):
 		again := "ctxtra setup"
@@ -404,6 +409,18 @@ func (c Config) check(data *jsonorder.Map, bin string, o agent.MCPCheck) []strin
 		return nil
 	}
 	out := agent.BinaryNotices("the ctxtra MCP proxy runs", []string{c.binary(cur)}, bin, repair)
+	if slices.Contains(c.Env, "XDG_CONFIG_HOME") {
+		env := map[string]string{}
+		if v, ok := cur.Get("env"); ok {
+			if recorded, ok := v.(*jsonorder.Map); ok {
+				for _, key := range paths.XDGVars {
+					v, _ := recorded.Get(key)
+					env[key], _ = v.(string)
+				}
+			}
+		}
+		out = append(out, agent.XDGNotices("the ctxtra MCP proxy entries", c.Agent, env)...)
+	}
 	if !slices.Equal(c.commandLine(cur)[1:], agent.MCPArgs(c.Agent)) {
 		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't run as %s; %s", c.Agent, repair))
 	}

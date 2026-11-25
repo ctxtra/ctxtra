@@ -61,6 +61,8 @@ type Config struct {
 	// RepairNote follows the command that sets up the agent again, in
 	// Check's notices.
 	RepairNote string
+	// RecordXDG copies folder variables into the command for a cleared environment.
+	RecordXDG bool
 }
 
 func (c Config) key() string {
@@ -284,6 +286,18 @@ func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string
 		return nil
 	}
 	out := agent.BinaryNotices("the hooks run", bins, bin, repair)
+	if c.RecordXDG {
+		for _, ev := range c.Events {
+			for _, cmd := range cmds[ev.Name] {
+				h, _ := agent.ParseCommand(cmd.Text, c.Missing)
+				for _, notice := range agent.XDGNotices("the hooks", c.Agent, h.Env) {
+					if !slices.Contains(out, notice) {
+						out = append(out, notice)
+					}
+				}
+			}
+		}
+	}
 	for _, ev := range c.Events {
 		list := c.entries(data, ev.Name)
 		if len(cmds[ev.Name]) == 0 {
@@ -406,6 +420,9 @@ func (c Config) wanted(bin string, ev Event) (entries []any, handler any) {
 
 // entry is one entry that runs cmd, and for a grouped layout its handler.
 func (c Config) entry(cmd string, ev Event) (entry, handler *jsonorder.Map) {
+	if c.RecordXDG {
+		cmd = agent.WithXDG(cmd)
+	}
 	entry = jsonorder.NewMap()
 	if c.Flat {
 		entry.Set("command", cmd)

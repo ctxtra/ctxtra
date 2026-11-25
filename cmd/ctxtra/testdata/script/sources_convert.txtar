@@ -36,7 +36,7 @@ stdout '^note: ~/dev/team-ctx/... paths in your bindings were served from the pi
 grep 'git: .*team-ctx' .config/ctxtra/config.yaml
 # ctxtra://team-ctx stays pinned; a plain path is now live.
 exec ctxtra context show notes
-stdout 'Contents of .*/.ctxtra/store/.*/services-overview.md'
+stdout 'Contents of .*/.local/share/ctxtra/store/.*/services-overview.md'
 stdout 'Contents of .*/dev/team-ctx/jira-ticket.md'
 
 # Without a known clone, trust needs the folder to read.

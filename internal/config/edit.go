@@ -31,7 +31,7 @@ const NewConfig = "schema: " + Schema + "\n"
 // Edit changes the config at path under a lock. fn gets the current content
 // (nil when there is no file) and returns the new one, which must be a
 // valid config. The file is replaced atomically and keeps its mode; a
-// symlink stays a symlink. The old content is kept in ~/.ctxtra/backups.
+// symlink stays a symlink. The old content is kept in ~/.local/state/ctxtra/backups.
 func Edit(path string, fn func(old []byte) ([]byte, error)) error {
 	return EditThen(path, fn, nil)
 }

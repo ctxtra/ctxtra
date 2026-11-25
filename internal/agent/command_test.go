@@ -5,15 +5,49 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 // message is an agent whose hook answer shows the user a message.
 type message struct{}
+
+func TestRecordedXDGQuoting(t *testing.T) {
+	h := testenv.Home(t)
+	for _, key := range paths.XDGVars {
+		t.Setenv(key, filepath.Join(h, "quotes'\"$() `value` \\ and\nnewline", key))
+	}
+	bin := filepath.Join(h, "ctxtra")
+	testenv.Write(t, bin, "#!/bin/sh\nprintf '%s\\000' \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_STATE_HOME\" \"$XDG_CACHE_HOME\"\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := agent.WithXDG(agent.Command(bin, "muse", "SessionStart", nil))
+	hook, ok := agent.ParseCommand(command, nil)
+	if !ok {
+		t.Fatalf("unrecognized command: %s", command)
+	}
+	cmd := exec.Command("/bin/sh", "-c", command)
+	cmd.Env = []string{"HOME=" + h}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command: %v %s", err, out)
+	}
+	values := strings.Split(string(out), "\x00")
+	if len(values) != 5 {
+		t.Fatalf("output: %q", out)
+	}
+	for i, key := range paths.XDGVars {
+		if values[i] != os.Getenv(key) || hook.Env[key] != os.Getenv(key) {
+			t.Errorf("%s: output %q, parsed %q, want %q", key, values[i], hook.Env[key], os.Getenv(key))
+		}
+	}
+}
 
 func (message) MissingAnswer(event, msg string) string { return agent.SystemMessage(event, msg) }
 
@@ -29,7 +63,7 @@ func TestCommandIsStable(t *testing.T) {
 		if got != want {
 			t.Errorf("hook command changed:\n got %s\nwant %s", got, want)
 		}
-		if c, ok := agent.ParseCommand(got, nil); !ok || c != (agent.Hook{Binary: bin, Agent: "codex", Event: "SessionStart", Slot: -1}) {
+		if c, ok := agent.ParseCommand(got, nil); !ok || !reflect.DeepEqual(c, agent.Hook{Binary: bin, Agent: "codex", Event: "SessionStart", Slot: -1}) {
 			t.Errorf("ParseCommand(%s) = %+v, %v", got, c, ok)
 		}
 	}

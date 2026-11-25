@@ -26,7 +26,7 @@ stdout '^\{"skills":\[\{"name":"deploy","description":"Ship the service","path":
 stdin noversion.json
 exec ctxtra hook claude PluginStart
 stdout '^\{"skills":\[\]\}$'
-grep '"event":"PluginStart".*"error":"bad hook input: no ctxtra_plugin"' .ctxtra/log.jsonl
+grep '"event":"PluginStart".*"error":"bad hook input: no ctxtra_plugin"' .local/state/ctxtra/log.jsonl
 
 # Without the plugin, every command says to run setup; doctor too.
 rm .claude/skills/ctxtra/hooks/ctxtra.js

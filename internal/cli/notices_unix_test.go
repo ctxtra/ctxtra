@@ -30,7 +30,7 @@ func TestNoticesFIFO(t *testing.T) {
 	select {
 	case got := <-done:
 		want := []string{
-			"~/.ctxtra/setup.json is unreadable",
+			"~/.local/state/ctxtra/setup.json is unreadable",
 			"claude: can't check the setup in ~/.claude/settings.json: ",
 			"hermes: can't tell whether the ctxtra plugin is enabled: ",
 		}

@@ -1,3 +1,4 @@
+cp .config/ctxtra/config.yaml original.yaml
 # files, show and explain describe what a session in a folder gets, without
 # running any agent.
 
@@ -25,7 +26,7 @@ stdout '/ctx/other.md'
 
 # A file over budget.max-chars doesn't reach the session: each command says so
 # and exits with 1.
-env CTXTRA_CONFIG=$HOME/budget.yaml
+cp budget.yaml .config/ctxtra/config.yaml
 ! exec ctxtra context files dev/svc
 stderr '^dropped \(over budget.max-chars\): .*/ctx/svc.md$'
 ! exec ctxtra context files --json dev/svc
@@ -36,22 +37,22 @@ stderr '^dropped \(over budget.max-chars\): .*/ctx/svc.md$'
 stdout 'dropped .*/ctx/svc.md \(over budget.max-chars\)'
 ! exec ctxtra doctor dev/svc
 stdout 'DROPPED \(over budget.max-chars\): .*/ctx/svc.md'
-env CTXTRA_CONFIG=
+cp original.yaml .config/ctxtra/config.yaml
 
 # doctor checks the bindings that don't match its folder too. The context
 # commands report only what a session in the folder gets.
 exec ctxtra doctor dev/svc
-env CTXTRA_CONFIG=$HOME/broken.yaml
+cp broken.yaml .config/ctxtra/config.yaml
 ! exec ctxtra doctor dev/svc
-stdout 'PROBLEM: other \(~/broken.yaml\): missing: .*/ctx/gone.md'
-stdout 'PROBLEM: other \(~/broken.yaml\): missing: .*/skills/gone/SKILL.md'
-stdout 'PROBLEM: other \(~/broken.yaml\): .*/skills/broken/SKILL.md: .*; skipped'
+stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): missing: .*/ctx/gone.md'
+stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): missing: .*/skills/gone/SKILL.md'
+stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): .*/skills/broken/SKILL.md: .*; skipped'
 ! stdout 'MISSING'
 ! exec ctxtra doctor --json dev/svc
-stdout '"severity": "error",\s+"message": "other \(~/broken.yaml\): missing: .*/ctx/gone.md"'
+stdout '"severity": "error",\s+"message": "other \(~/.config/ctxtra/config.yaml\): missing: .*/ctx/gone.md"'
 exec ctxtra context files dev/svc
 ! stderr .
-env CTXTRA_CONFIG=
+cp original.yaml .config/ctxtra/config.yaml
 
 -- broken.yaml --
 schema: ctxtra/v1
@@ -60,13 +61,13 @@ bindings:
     match:
       repos:
         - remote: github.com/acme/svc
-    instructions: [ctx/svc.md]
+    instructions: [~/ctx/svc.md]
   - name: other
     match:
       repos:
         - remote: github.com/acme/other
-    instructions: [ctx/other.md, ctx/gone.md]
-    skills: [skills/gone, skills/broken]
+    instructions: [~/ctx/other.md, ~/ctx/gone.md]
+    skills: [~/skills/gone, ~/skills/broken]
 -- skills/broken/SKILL.md --
 ---
 description: [
@@ -79,7 +80,7 @@ bindings:
   - name: me
     match:
       global: true
-    instructions: [ctx/svc.md]
+    instructions: [~/ctx/svc.md]
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/v1
 include: [b.yaml]

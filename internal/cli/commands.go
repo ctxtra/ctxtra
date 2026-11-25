@@ -30,7 +30,7 @@ func (a *app) root() *cobra.Command {
 folder and repository, through the agents' session-start hooks.
 
 Agents: ` + strings.Join(registry.Names(), ", ") + `.
-Config: $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml (format: ctxtra help config).`,
+Config: $XDG_CONFIG_HOME/ctxtra/config.yaml or ~/.config/ctxtra/config.yaml (format: ctxtra help config).`,
 		Version:           a.version,
 		SilenceErrors:     true,
 		SilenceUsage:      true,
@@ -43,7 +43,6 @@ Config: $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml (format: ctxtra help conf
 	// Defined here, so that cobra doesn't add -v for it.
 	root.Flags().Bool("version", false, "print the version")
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.config, "config", "", "use the config `FILE` instead of $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml")
 	pf.BoolVar(&a.noInput, "no-input", false, "never ask; a step that needs an answer fails instead")
 	root.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Set up:"},
@@ -645,7 +644,7 @@ func (a *app) skillCmd() *cobra.Command {
 	install := &cobra.Command{
 		Use:   "install NAME",
 		Short: "Install a skill and add it to every session",
-		Long: `Write the skill to ~/.ctxtra/skills/NAME and add a binding of the same name
+		Long: `Write the skill to ~/.local/share/ctxtra/skills/NAME and add a binding of the same name
 that adds it to every session, unless a binding has it already.`,
 		Example: `  ctxtra skill install ctxtra
   ctxtra skill install ctxtra-follow`,

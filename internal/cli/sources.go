@@ -35,8 +35,6 @@ type sources struct {
 	full   bool         // source update --full: show every changed file in full
 	prompt bool         // source update may ask whether to accept a commit
 	diags  []diagnostic // content warnings, for source update --check --json
-	// registerErr is set when the config couldn't be registered.
-	registerErr error
 }
 
 func newSources(stdio IO) *sources {
@@ -94,28 +92,7 @@ func (s *sources) changeUsing(edit func() error) (created bool, err error) {
 	if err := edit(); err != nil {
 		return false, err
 	}
-	s.register()
 	return !existed, nil
-}
-
-// register records the config in configs.json, so that cleaning the store
-// keeps its accepted commits. Without it, source update doesn't clean.
-func (s *sources) register() {
-	abs, err := filepath.Abs(s.file)
-	if err == nil {
-		// Under the config lock, which cleanStore holds while it reads the
-		// list: a config registered meanwhile is never missed.
-		var unlock func()
-		if unlock, err = fsutil.Lock(filepath.Join(paths.StateDir(), "config.lock")); err == nil {
-			err = state.RecordConfig(abs)
-			unlock()
-		}
-	}
-	if err != nil && s.registerErr == nil {
-		s.registerErr = err
-		fmt.Fprintf(s.Err, "warning: can't record %s in %s (%v); the store is not cleaned\n",
-			paths.Tilde(s.file), paths.Tilde(state.ConfigsPath()), err)
-	}
 }
 
 func (s *sources) fail(cmd string, err error) int {
@@ -963,8 +940,6 @@ func (s *sources) update(names []string, mode syncMode, asJSON bool) int {
 	var results []updateResult
 	if len(todo) == 0 {
 		fmt.Fprintln(s.Out, "no pinned sources")
-	} else {
-		s.register()
 	}
 	n := 0
 	for _, src := range todo {
@@ -1156,40 +1131,29 @@ func (s *sources) first(src config.Source, r *source.Repo, mode syncMode) (strin
 }
 
 // cleanStore deletes the generations no session used for a while, except
-// the accepted commits of this config and of every other config that a
-// command changed. It holds the config lock, so that no commit is accepted
-// meanwhile.
+// the accepted commits in the config. It holds the config lock, so that no
+// commit is accepted meanwhile.
 func (s *sources) cleanStore() {
-	if s.registerErr != nil {
-		return
-	}
 	unlock, err := fsutil.Lock(filepath.Join(paths.StateDir(), "config.lock"))
 	if err != nil {
 		return
 	}
 	defer unlock()
-	configs, err := state.LoadConfigs()
-	if err != nil {
-		fmt.Fprintf(s.Err, "warning: %v; the store is not cleaned\n", err)
+	keep := map[string]bool{}
+	f := s.file
+	data, err := fsutil.ReadBounded(f, config.MaxFileBytes)
+	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
-	keep := map[string]bool{}
-	files := append([]string{s.file}, configs...)
-	for _, f := range files {
-		data, err := fsutil.ReadBounded(f, config.MaxFileBytes)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		c, perr := config.Parse(data)
-		if err != nil || perr != nil {
-			// A config that can't be read may pin anything: keep it all.
-			fmt.Fprintf(s.Err, "warning: %s can't be read; the store is not cleaned\n", paths.Tilde(f))
-			return
-		}
-		for _, src := range c.Sources {
-			if src.Pinned() && src.Commit != "" {
-				keep[src.Gen()] = true
-			}
+	c, perr := config.Parse(data)
+	if err != nil || perr != nil {
+		// A config that can't be read may pin anything: keep it all.
+		fmt.Fprintf(s.Err, "warning: %s can't be read; the store is not cleaned\n", paths.Tilde(f))
+		return
+	}
+	for _, src := range c.Sources {
+		if src.Pinned() && src.Commit != "" {
+			keep[src.Gen()] = true
 		}
 	}
 	if n := source.Clean(keep, genAge); n > 0 {

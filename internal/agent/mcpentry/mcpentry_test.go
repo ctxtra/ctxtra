@@ -117,7 +117,7 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-// Without MCP servers in the config, setup adds nothing and keeps an entry.
+// Without MCP servers in the config, setup only refreshes an existing entry.
 func TestNotWanted(t *testing.T) {
 	h := testenv.Home(t)
 	p := filepath.Join(h, ".claude.json")
@@ -133,6 +133,16 @@ func TestNotWanted(t *testing.T) {
 	apply(t, c, agent.MCPOptions{Options: agent.Options{Binary: "/bin/ctxtra"}})
 	if read(t, p) != before {
 		t.Errorf("an existing entry stays")
+	}
+	apply(t, c, agent.MCPOptions{Options: agent.Options{Binary: "/new/ctxtra"}})
+	if got := read(t, p); !strings.Contains(got, `"command": "/new/ctxtra"`) {
+		t.Errorf("existing entry wasn't refreshed: %s", got)
+	}
+	for _, body := range []string{`{"mcpServers":{"other":{"command":"other"}}}`, `{"mcpServers":{"ctxtra-proxy":{"command":"other"}}}`, `{"mcpServers":[]}`, `{`} {
+		testenv.Write(t, p, body)
+		if r := apply(t, c, agent.MCPOptions{Options: agent.Options{Binary: "/new/ctxtra"}}); len(r.Changes) != 0 || read(t, p) != body {
+			t.Errorf("changed a file without an owned entry: %+v", r)
+		}
 	}
 }
 

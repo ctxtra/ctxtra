@@ -479,6 +479,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 			runs = []hook.Entry{}
 		}
 		out := map[string]any{
+			"folders": map[string]string{"config": paths.ConfigDir(), "data": paths.DataDir(), "state": paths.StateDir(), "cache": paths.CacheDir()},
 			"ctxtra":  releaseInfo(cfg, state.Load(), r.version),
 			"config":  map[string]any{"file": cfg.File, "exists": statErr == nil, "binding_files": len(cfg.BindingFiles), "bindings": len(cfg.Bindings)},
 			"sources": sources, "session": session(res),
@@ -495,6 +496,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 		return 1
 	}
 	fmt.Fprintf(r.Out, "ctxtra %s: %s\n", r.version, releaseStatus(cfg, state.Load(), r.version))
+	fmt.Fprintf(r.Out, "folders:\n  config: %s\n  data: %s\n  state: %s\n  cache: %s\n", paths.ConfigDir(), paths.DataDir(), paths.StateDir(), paths.CacheDir())
 	fmt.Fprintf(r.Out, "config: %s\n", cfg.File)
 	if statErr != nil {
 		fmt.Fprintln(r.Out, "  not found: nothing is added (the format: ctxtra help config)")

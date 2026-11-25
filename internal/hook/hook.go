@@ -217,9 +217,6 @@ func session(a agent.Agent, d agent.Delivery, upgrade, version, ts, event string
 	// Before resolving: the session lists the skills as they are on disk.
 	skillErr := skill.Refresh()
 	configPath := paths.ConfigPath()
-	if a.Name() == "muse" {
-		configPath = state.SessionConfig(a.Name())
-	}
 	res, cfg := resolve.Session(dir, configPath)
 	if upgrade != "" {
 		res.Notices = append(slices.Clip(res.Notices), upgrade)

@@ -12,7 +12,7 @@ cmp .gemini/config/mcp_config.json original.json
 exec ctxtra setup --agent antigravity
 stdout '~/.gemini/config/mcp_config.json'
 cmpenv .gemini/config/mcp_config.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 exec ctxtra setup --agent antigravity
 stdout 'is already set up for'
 

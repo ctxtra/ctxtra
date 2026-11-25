@@ -14,9 +14,11 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/hookjson"
+	"github.com/ctxtra/ctxtra/internal/agent/mcpentry"
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/state"
 )
 
 // Agent is Muse Code.
@@ -64,14 +66,50 @@ func (Agent) Detect() bool {
 // "schema_version": 1.
 func (a Agent) hooks() hookjson.Config {
 	return hookjson.Config{Agent: a.Name(), Path: a.ConfigPath(), Events: events,
-		Version: 1, VersionKey: "schema_version", Slots: a.Delivery().Slots, Missing: a}
+		Version: 1, VersionKey: "schema_version", Slots: a.Delivery().Slots, Missing: a, RecordXDG: true}
 }
 
 func (a Agent) Setup(o agent.Options, r *agent.Report) error { return a.hooks().Apply(o, r) }
 
-func (a Agent) Status(bin string, known bool) agent.Status { return a.hooks().Status(bin, known) }
+func (a Agent) Status(bin string, known bool) agent.Status {
+	s := a.hooks().Status(bin, known)
+	notices := a.previousFolders(bin)
+	s.Details = append(s.Details, notices...)
+	s.OK = s.OK && len(notices) == 0
+	return s
+}
 
-func (a Agent) Check(bin string, known bool) []string { return a.hooks().Check(bin, known) }
+func (a Agent) Check(bin string, known bool) []string {
+	return append(a.hooks().Check(bin, known), a.previousFolders(bin)...)
+}
+
+// A changed XDG_CONFIG_HOME also moves Muse's settings. Find its last setup
+// through the recorded agent paths when the current settings have no hooks.
+func (a Agent) previousFolders(bin string) []string {
+	cmds, err := a.hooks().Commands()
+	if err != nil || len(cmds) != 0 {
+		return nil
+	}
+	s, _, err := state.LoadSetups()
+	if err != nil {
+		return nil
+	}
+	for _, p := range slices.Backward(s.Installed[a.Name()]) {
+		if p == a.ConfigPath() {
+			continue
+		}
+		c := a.hooks()
+		c.Path = p
+		cmds, err := c.Commands()
+		if err != nil || len(cmds) == 0 {
+			continue
+		}
+		m := a.MCP().(mcpentry.Config)
+		m.Path = p
+		return append(c.Check(bin, true), m.CheckMCP(bin, agent.MCPCheck{})...)
+	}
+	return nil
+}
 
 // Answer is the whole text in one hook. The hooks that setup writes have
 // slots, and get SlotAnswer.

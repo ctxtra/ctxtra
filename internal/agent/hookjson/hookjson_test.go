@@ -82,7 +82,7 @@ func TestApplyKeepsOtherEntries(t *testing.T) {
 	if string(gb) != string(wb) {
 		t.Errorf("remove: got %s, want %s", gb, wb)
 	}
-	if backups, _ := os.ReadDir(filepath.Join(h, ".ctxtra", "backups")); len(backups) != 2 {
+	if backups, _ := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "backups")); len(backups) != 2 {
 		t.Errorf("want a backup per change, got %d", len(backups))
 	}
 }
@@ -280,7 +280,7 @@ func TestOwnFileRemoved(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if b, err := os.ReadDir(filepath.Join(h, ".ctxtra", "backups")); err != nil || len(b) != 3 {
+	if b, err := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "backups")); err != nil || len(b) != 3 {
 		t.Fatalf("want three backups after removal: %v, %v", b, err)
 	}
 	target := filepath.Join(h, "dotfiles", "ctxtra.json")

@@ -76,16 +76,16 @@ func TestImportTUI(t *testing.T) {
 			text = s.Run(t.TempDir(), driver.Options{Prompt: printedPrompt(t, tui)}).First(mock.Main).text
 		}
 		for _, want := range []string{
-			`Use the ctxtra skill (~/.ctxtra/skills/ctxtra/SKILL.md), task "Import existing instructions".`,
+			`Use the ctxtra skill (~/.local/share/ctxtra/skills/ctxtra/SKILL.md), task "Import existing instructions".`,
 			"- ~/" + file + " (",
-			"ctxtra backed them up to ~/.ctxtra/backups/import-",
+			"ctxtra backed them up to ~/.local/state/ctxtra/backups/import-",
 			"Set up and change ctxtra", // the skill's description, from the hook
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("the first request lacks %q:\n%s", want, clip(text, 4000))
 			}
 		}
-		backups, _ := filepath.Glob(s.Path(".ctxtra/backups/import-*/" + owner + "/" + file))
+		backups, _ := filepath.Glob(s.Path(".local/state/ctxtra/backups/import-*/" + owner + "/" + file))
 		if len(backups) != 1 {
 			t.Fatalf("backups %v", backups)
 		}

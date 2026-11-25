@@ -104,6 +104,9 @@ func setupEnv(e *testscript.Env) error {
 		return err
 	}
 	e.Defer(stop)
+	for _, key := range testenv.AgentVars {
+		e.Setenv(key, "")
+	}
 	for k, v := range map[string]string{
 		"HOME": home, "BIN": bin, "GITSRV": srv, "GIT_SSL_NO_VERIFY": "1",
 		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
@@ -164,8 +167,8 @@ func environ(ts *testscript.TestScript) []string {
 	var env []string
 	for _, k := range []string{"PATH", "HOME", "TMPDIR", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
 		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
-		"CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_NO_UPDATE_CHECK", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR",
-		"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "HERMES_HOME", "DSH_HOME", "GIT_SSL_NO_VERIFY",
+		"CTXTRA_LOG", "CTXTRA_NO_UPDATE_CHECK", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR",
+		"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HERMES_HOME", "DSH_HOME", "GIT_SSL_NO_VERIFY",
 		"DEVIN_PROJECT_DIR", "CTXTRA_EXPERIMENTAL_MCP", "GITHUB_TOKEN", "SSL_CERT_FILE"} {
 		if v := ts.Getenv(k); v != "" {
 			env = append(env, k+"="+v)
@@ -205,7 +208,11 @@ func runHook(ts *testscript.TestScript, neg bool, args []string) {
 		cfg := map[string]string{"claude": ".claude/settings.json", "codex": ".codex/hooks.json",
 			"copilot": ".copilot/hooks/ctxtra.json", "muse": ".config/muse/settings.json",
 			"devin": ".config/devin/config.json"}[agent]
-		cmd = exec.Command("/bin/sh", "-c", hookCommand(ts, filepath.Join(home, cfg), event))
+		path := filepath.Join(home, cfg)
+		if agent == "muse" && filepath.IsAbs(ts.Getenv("XDG_CONFIG_HOME")) {
+			path = filepath.Join(ts.Getenv("XDG_CONFIG_HOME"), "muse", "settings.json")
+		}
+		cmd = exec.Command("/bin/sh", "-c", hookCommand(ts, path, event))
 	case "antigravity":
 		// No cwd in the input, and the hook runs in the hook file's folder.
 		cfg := filepath.Join(home, ".gemini/config/hooks.json")

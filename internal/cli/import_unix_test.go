@@ -46,7 +46,7 @@ func TestNativeFilesFIFO(t *testing.T) {
 		!strings.Contains(e, "can't read some of the files above: fix or move them, then run ctxtra import") {
 		t.Errorf("import: %d %q %q", code, out, e)
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra", "backups")); err == nil {
+	if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra", "backups")); err == nil {
 		t.Error("backed up with a file that can't be read")
 	}
 }

@@ -23,7 +23,7 @@ const proxyServer = "ctxtra-proxy"
 var mcpAgents = []string{"claude", "codex", "pi", "opencode", "muse", "antigravity"}
 
 // mcpSession is a session with MCP servers on: the config is at a path of
-// its own ($CTXTRA_CONFIG), so a proxy that serves tools read the same
+// its own (XDG_CONFIG_HOME), so a proxy that serves tools read the same
 // config as the hook. The agent approves the proxy's tools.
 func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session {
 	t.Helper()
@@ -31,9 +31,9 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 		t.Skip("no MCP entry for " + a.Name())
 	}
 	s := newSession(t, a)
-	cfg := s.Path("ctx/ctxtra.yaml")
-	s.Extra = append(s.Extra, "CTXTRA_CONFIG="+cfg)
-	s.Write("ctx/ctxtra.yaml", "check-updates: false\n"+config(s))
+	cfg := s.Path("ctx-config")
+	s.Extra = append(s.Extra, "XDG_CONFIG_HOME="+cfg)
+	s.Write("ctx-config/ctxtra/config.yaml", "check-updates: false\n"+config(s))
 	s.Setup()
 	s.Adjust = func(cmd *exec.Cmd) { approveMCP(s, a.Name(), cmd) }
 	return s
@@ -170,7 +170,7 @@ func probeCalls(t *testing.T, file string) (calls []string, starts int) {
 // folder gets that folder's server and calls it, also through a shortened
 // name, which reaches the server as it lists it; another folder gets its
 // own server; an unbound folder starts none. The proxy reads the config
-// the hook reads ($CTXTRA_CONFIG).
+// the hook reads (XDG_CONFIG_HOME).
 func TestMCPProxy(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
 		probe := probeBinary(t)
@@ -249,7 +249,7 @@ bindings:
 		if _, n := probeCalls(t, betaLog); n != betaStarts {
 			t.Errorf("beta started for a session in dev/c")
 		}
-		if _, err := os.Stat(s.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+		if _, err := os.Stat(s.Path(".local/state/ctxtra/state.json")); !os.IsNotExist(err) {
 			t.Errorf("session created update-check state: %v", err)
 		}
 	})

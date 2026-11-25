@@ -291,9 +291,9 @@ func runAgent(bin string, args []string, dir string) error {
 }
 
 // pathVars are the variables with a path that ctxtra and the agents read
-// (a test checks them against testenv.AgentVars). XDG_CONFIG_HOME isn't
-// one: a relative value is ignored, by ctxtra too, and stays so.
-var pathVars = []string{"CTXTRA_CONFIG", "CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
+// (a test checks them against testenv.AgentVars). XDG folder values stay
+// as written: relative values are ignored.
+var pathVars = []string{"CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
 	"PI_CODING_AGENT_DIR", "OPENCODE_CONFIG_DIR", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR"}
 
 // absEnv is env with the relative paths in pathVars made absolute: the
