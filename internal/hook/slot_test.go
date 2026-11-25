@@ -58,7 +58,7 @@ func runSlotsOf(t *testing.T, event, input string, slots int) []slotAnswer {
 	for k := range out {
 		wg.Go(func() {
 			var b bytes.Buffer
-			RunArgs("claude", event, Args{Slot: k, Slots: slots}, strings.NewReader(input), &b, io.Discard)
+			RunArgs("claude-code", event, Args{Slot: k, Slots: slots}, strings.NewReader(input), &b, io.Discard)
 			var m struct {
 				HookSpecificOutput struct{ AdditionalContext string }
 				SystemMessage      string
@@ -178,7 +178,7 @@ func age(t *testing.T, d string) {
 func TestSnapshot(t *testing.T) {
 	h, r := bigSession(t, 1000)
 	p := payload{Cwd: r, SessionID: "s2", Source: "startup"}
-	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
 	calls := 0
 	mk := func() snapshot { calls++; return snapshot{Parts: []string{fmt.Sprint(calls)}} }
 	at, s, err := shared(d, 0, mk)
@@ -235,7 +235,7 @@ func TestSnapshot(t *testing.T) {
 	if n := len(generations(d)); n != 3 {
 		t.Errorf("%d generations, want 3", n)
 	}
-	if slotKey("claude", "SessionStart", 0, payload{Cwd: r}, r) != "" {
+	if slotKey("claude-code", "SessionStart", 0, payload{Cwd: r}, r) != "" {
 		t.Error("a key without a session ID")
 	}
 }
@@ -343,8 +343,8 @@ func TestSnapshotGeneration(t *testing.T) {
 	h, r := bigSession(t, 1000)
 	input := `{"cwd": "` + r + `", "session_id": "same", "source": "clear"}`
 	p := payload{Cwd: r, SessionID: "same", Source: "clear"}
-	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
-	RunSlot("claude", "SessionStart", 0, strings.NewReader(input), io.Discard, io.Discard)
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
+	RunSlot("claude-code", "SessionStart", 0, strings.NewReader(input), io.Discard, io.Discard)
 	testenv.Write(t, filepath.Join(h, "big.md"), "NEW-GENERATION-CONTEXT")
 	if got := runSlots(t, "SessionStart", input); strings.Contains(got[0].text, "NEW-GENERATION-CONTEXT") || !strings.Contains(got[0].text, "big L00000") {
 		t.Errorf("within joinWindow: %q", got[0].text)
@@ -370,12 +370,12 @@ func TestOverlappingGenerations(t *testing.T) {
 	h, r := bigSession(t, 30_000)
 	input := `{"cwd": "` + r + `", "session_id": "same", "source": "resume"}`
 	p := payload{Cwd: r, SessionID: "same", Source: "resume"}
-	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
-	claude, _ := registry.Get("claude")
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
+	claude, _ := registry.Get("claude-code")
 	var want []string
 	for k := range 10 {
 		_, s, err := shared(d, k, func() snapshot {
-			res, e := session(claude, claude.Delivery(), "", "", "", "SessionStart", p, r)
+			res, e := session(claude, claude.Delivery(), "", "", "SessionStart", p, r)
 			return snapshot{Parts: claude.Delivery().Chunks(res), Entry: &e}
 		})
 		if err != nil {

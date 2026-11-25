@@ -54,10 +54,6 @@ type Config struct {
 	// Missing is the agent when its hook answer can show the user that the
 	// binary is gone; nil for none.
 	Missing agent.Missing
-	// Legacy is what a hook that an older version set up gets, from the hook
-	// and whether its handler has ContextLimit; nil when every older hook
-	// gets as much as a new one.
-	Legacy func(event string, h agent.Hook, limited bool) (agent.Delivery, bool)
 	// RepairNote follows the command that sets up the agent again, in
 	// Check's notices.
 	RepairNote string
@@ -304,22 +300,18 @@ func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string
 			out = append(out, fmt.Sprintf("%s has no ctxtra hook; %s", ev.Name, repair))
 			continue
 		}
-		legacy := false
 		for _, cmd := range cmds[ev.Name] {
-			if c.Legacy == nil {
-				break
+			if h, _ := agent.ParseCommand(cmd.Text, c.Missing); !h.Current {
+				out = append(out, fmt.Sprintf("%s hook %d:%d in %s is from an earlier ctxtra; %s", ev.Name, cmd.Group, cmd.Handler, paths.Tilde(c.Path), repair))
 			}
-			h, _ := agent.ParseCommand(cmd.Text, c.Missing)
-			limited := c.ContextLimit == 0 || limit(data, list, cmd) == fmt.Sprint(c.ContextLimit)
-			if old, ok := c.Legacy(ev.Name, h, limited); ok {
-				if n := agent.LegacyNotice(old, repair); !slices.Contains(out, n) {
-					out = append(out, n)
-				}
-				legacy = true
+		}
+		for _, cmd := range cmds[ev.Name] {
+			if c.ContextLimit > 0 && limit(data, list, cmd) != fmt.Sprint(c.ContextLimit) {
+				out = append(out, fmt.Sprintf("%s has a different additionalContextLimit; %s", ev.Name, repair))
 				break
 			}
 		}
-		if n, of, ok := c.slots(cmds[ev.Name]); !legacy && c.Slots > 0 && !ok {
+		if n, of, ok := c.slots(cmds[ev.Name]); c.Slots > 0 && !ok {
 			out = append(out, fmt.Sprintf("%s has %d of the %d ctxtra hooks; %s", ev.Name, n, of, repair))
 		}
 	}
@@ -566,11 +558,24 @@ func runsHook(cmd, agent string) bool {
 	unquote := strings.NewReplacer(`'`, "", `"`, "", `\`, "")
 	words := strings.FieldsFunc(cmd, func(r rune) bool { return strings.ContainsRune(" \t\n\r;&|()<>`", r) })
 	for i := 0; i+1 < len(words); i++ {
-		if unquote.Replace(words[i]) == "hook" && unquote.Replace(words[i+1]) == agent {
+		if unquote.Replace(words[i]) == "hook" && currentName(unquote.Replace(words[i+1])) == agent {
 			return true
 		}
 	}
 	return false
+}
+
+// currentName identifies commands written before the agent IDs changed.
+func currentName(name string) string {
+	switch name {
+	case "claude":
+		return "claude-code"
+	case "copilot":
+		return "github-copilot"
+	case "hermes":
+		return "hermes-agent"
+	}
+	return name
 }
 
 // updateMixed handles a group with our handler next to other tools'

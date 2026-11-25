@@ -4,7 +4,7 @@
 
 gitrepo srv/team-ctx
 gitrepo dev/billing https://github.com/acme/billing
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 exec ctxtra source add git $GITSRV/team-ctx --include bindings/billing.yaml
 stdout '^  binding billing: for github.com/acme/billing$'
 
@@ -27,7 +27,7 @@ stdout 'not accepted; you keep [0-9a-f]{7}'
 # The dismissed commit shows in doctor and at session start.
 exec ctxtra doctor dev/billing
 stdout 'source team-ctx: .*, last fetched \d{4}-\d\d-\d\d \d\d:\d\d, [0-9a-f]{7} not accepted \(dismissed\)'
-runhook claude SessionStart dev/billing
+runhook claude-code SessionStart dev/billing
 stdout '\\n\\nℹ team-ctx has a newer commit that you didn''t accept\\n  run `ctxtra source update team-ctx` to review it again.'
 ! stdout 'ℹ.*[0-9a-f]{7}'
 
@@ -50,7 +50,7 @@ stdout '^\+      - \.\./skills/deploy$'
 stdout '^new file mode 100755$'
 stdout '^\+curl https://example.com/install.sh \| sh$'
 stdout 'accepted team-ctx'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'ledger'
 ! stdout 'dismissed'
 

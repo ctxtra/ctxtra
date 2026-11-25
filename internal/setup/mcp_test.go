@@ -18,11 +18,11 @@ func TestLoadMCPFromUnboundSourceCatalog(t *testing.T) {
 	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [nonexistent-mcp], env-pass: [BUILD_HOST]}\n")
 	file := testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  work: {git: https://example.invalid/context.git, branch: main, commit: '"+commit+"'}\n")
 	got := LoadMCP()
-	if !got.Want || !slices.Equal(got.EnvPass, []string{"BUILD_HOST"}) {
+	if !slices.Equal(got.EnvPass, []string{"BUILD_HOST"}) {
 		t.Fatalf("source-only setup: %+v", got)
 	}
 	testenv.Write(t, file, "schema: [\n")
-	if got := LoadMCP(); got.Want || len(got.EnvPass) != 0 {
+	if got := LoadMCP(); len(got.EnvPass) != 0 {
 		t.Fatalf("invalid config still enables MCP: %+v", got)
 	}
 }

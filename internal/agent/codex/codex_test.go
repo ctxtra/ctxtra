@@ -92,9 +92,9 @@ func TestCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for ev, want := range map[string]string{
-		"SessionStart": `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart; else /bin/cat >/dev/null 2>&1; ` +
+		"SessionStart": `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; ` +
 			`echo "{\"systemMessage\":\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent codex with the new binary (Codex will then ask you to trust the hooks again)\"}"; fi'`,
-		"SubagentStart": `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SubagentStart; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
+		"SubagentStart": `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SubagentStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
 	} {
 		if len(cmds[ev]) != 1 || cmds[ev][0].Text != want {
 			t.Errorf("%s: %+v\nwant %s", ev, cmds[ev], want)

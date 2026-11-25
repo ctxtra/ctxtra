@@ -189,13 +189,13 @@ func setupPlugin(o agent.Options, r *agent.Report) error {
 // A folder that isn't ctxtra's is no notice: setup said so, and the hooks
 // work without it.
 func checkPlugin(bin string) []string {
-	repair := agent.Repair("claude")
+	repair := agent.Repair("claude-code")
 	if why, err := foreign(); err != nil {
 		return []string{agent.UnreadableNotice(pluginDir(), err)}
 	} else if why != "" {
 		return nil
 	}
-	notices, ours := extfile.CheckSetup(extfile.Ext{Path: Agent{}.PluginPath(), Agent: "claude", Noun: "plugin"}, bin, false)
+	notices, ours := extfile.CheckSetup(extfile.Ext{Path: Agent{}.PluginPath(), Agent: "claude-code", Noun: "plugin"}, bin, false)
 	if !ours {
 		if len(notices) > 0 {
 			return notices
@@ -260,7 +260,7 @@ async function answer($) {
 	const path = await binary($);
 	if (!path) return {};
 	const stdin = JSON.stringify({ cwd: await $.session.cwd(), session_id: await $.session.id(), ctxtra_plugin: ` + strconv.Itoa(protocol) + ` });
-	const r = await $.process.run([path, "hook", "claude", "` + pluginEvent + `"], { stdin, timeoutMs: 10000 });
+	const r = await $.process.run([path, "hook", "claude-code", "` + pluginEvent + `", "--setup-version=1"], { stdin, timeoutMs: 10000 });
 	if (r.exitCode !== 0 || r.isStdoutTruncated) return {};
 	return JSON.parse(r.stdout) ?? {};
 }

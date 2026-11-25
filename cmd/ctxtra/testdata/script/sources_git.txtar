@@ -4,7 +4,7 @@
 
 chmod 755 srv/team-ctx/skills/deploy/run.sh
 gitrepo srv/team-ctx
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 
 # source add fetches, writes the source and the binding file to the config,
 # and shows what the binding does.
@@ -17,7 +17,7 @@ stdout '^    instructions: services-overview.md$'
 stdout '^    skills: skills/deploy$'
 stdout '^executable files: skills/deploy/run.sh$'
 grep '^    commit: ''[0-9a-f]{40}''$' .config/ctxtra/config.yaml
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
 stdout 'Contents of .*/.local/share/ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/services-overview.md'
 stdout '<location>.*/.local/share/ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/skills/deploy/SKILL.md</location>'
@@ -36,7 +36,7 @@ stdout '^  binding escape: for github.com/\\u001b\]8;;x\\u0007/billing$'
 # A new commit changes nothing until sync.
 cp new-overview.md srv/team-ctx/services-overview.md
 gitcommit srv/team-ctx
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
 ! stdout 'CTXMARK-NEW'
 
@@ -54,7 +54,7 @@ exec ctxtra source update --check --json
 stdout '"pending": true'
 exec ctxtra source show team-ctx
 ! stdout 'dismissed'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'CTXMARK-NEW'
 
 # Input that ends without an answer decides nothing.
@@ -77,7 +77,7 @@ stdout '^team-ctx: git https://.*, [0-9a-f]{7} not accepted \(dismissed\); no ne
 stdin yes.txt
 exec ctxtra-tty source update team-ctx
 stdout 'accepted team-ctx [0-9a-f]{7} \(commit: updated in config.yaml\)$'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-NEW'
 exec ctxtra-tty source update
 stdout '^team-ctx: up to date \(main at [0-9a-f]{7}\)$'
@@ -89,13 +89,13 @@ grep '^  - bindings.yaml  # mine$' .config/ctxtra/config.yaml
 # A new laptop: the config is there, the store isn't. Restore fetches the
 # accepted commit, not the branch.
 rm .local/share/ctxtra .cache/ctxtra .local/state/ctxtra
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'CTXMARK'
 ! exec ctxtra doctor notes
 stdout 'source team-ctx: git https://.*, branch main, pinned to [0-9a-f]{7}, NOT IN THE STORE \(run: ctxtra source restore team-ctx\)'
 exec ctxtra source restore
 stdout '^team-ctx: fetched [0-9a-f]{7} \(the commit in config.yaml\)$'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-NEW'
 exec ctxtra source restore
 stdout '^team-ctx: [0-9a-f]{7} is in the store$'

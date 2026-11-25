@@ -34,20 +34,20 @@ func otherTool(s *Session, agent string) {
 	s.Marked("other-tool/context.md", "OTHERTOOL")
 	path := s.Path("other-tool/context.md")
 	switch agent {
-	case "claude", "codex", "muse":
+	case "claude-code", "codex", "muse":
 		// Plain stdout is added as context by Claude, Codex and Muse. Muse
 		// also needs the schema version.
 		cmd := `/bin/sh -c 'cat >/dev/null; /bin/cat ` + path + `'`
 		hooks := `"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "` + cmd + `"}]}]}`
 		switch agent {
-		case "claude":
+		case "claude-code":
 			s.Write(".claude/settings.json", "{"+hooks+"}")
 		case "codex":
 			s.Write(".codex/hooks.json", "{"+hooks+"}")
 		case "muse":
 			s.Write(".config/muse/settings.json", `{"schema_version": 1, `+hooks+"}")
 		}
-	case "copilot":
+	case "github-copilot":
 		// Copilot reads only JSON from a hook; the tool has a file of its
 		// own next to ctxtra's.
 		s.Write("other-tool/answer.json", `{"additionalContext": "CTXMARK-OTHERTOOL"}`)
@@ -80,7 +80,7 @@ export default {
 	},
 };
 `)
-	case "hermes":
+	case "hermes-agent":
 		s.Write(".hermes/plugins/other-tool/plugin.yaml", "name: other-tool\n")
 		s.Write(".hermes/plugins/other-tool/__init__.py", `def register(ctx):
     def add(is_first_turn=False, **kwargs):

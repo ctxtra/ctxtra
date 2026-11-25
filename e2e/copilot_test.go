@@ -22,7 +22,7 @@ const compacted = "Some of the conversation history has been summarized"
 // (README "Limits", docs/spec.md "Capacity") and remove this test.
 func TestCopilotCompactionDropsText(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
-		if a.Name() != "copilot" {
+		if a.Name() != "github-copilot" {
 			t.Skip("Copilot only")
 		}
 		s := newSession(t, a)

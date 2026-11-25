@@ -33,12 +33,6 @@ func BinaryNotices(what string, bins []string, bin, repair string) []string {
 	return out
 }
 
-// LegacyNotice is Check's notice about a setup by an older version, which
-// gets what old describes.
-func LegacyNotice(old Delivery, repair string) string {
-	return fmt.Sprintf("set up by an older ctxtra, with %s; %s", old.Over(), repair)
-}
-
 // GoneNotice is Check's notice about a setup that setup.json lists, but
 // whose files no longer have it: what is gone from path.
 func GoneNotice(what, path, agent, repair string) string {

@@ -136,7 +136,7 @@ existing instruction files into ctxtra. Each step explains what it changes.
 Needs an interactive terminal. For scripts and agents, use setup, skill install
 and import separately. Without --agent, sets up every agent found on this machine.`,
 		Example: `  ctxtra onboard
-  ctxtra onboard --agent claude --agent codex`,
+  ctxtra onboard --agent claude-code --agent codex`,
 		Args:    noArgs,
 		GroupID: "setup",
 		RunE: a.run(func(*cobra.Command, []string) error {
@@ -158,7 +158,7 @@ every agent found on this machine. Run it again after you move the binary.
 
 Agents: ` + strings.Join(registry.Names(), ", ") + `.`,
 		Example: `  ctxtra setup
-  ctxtra setup --agent claude --agent codex --dry-run
+  ctxtra setup --agent claude-code --agent codex --dry-run
   ctxtra setup --remove --agent cursor`,
 		Args:    noArgs,
 		GroupID: "setup",
@@ -185,7 +185,7 @@ The agent shows you the result and empties the files only if you agree.
 
 --start needs a terminal and the ctxtra skill (ctxtra skill install ctxtra).`,
 		Example: `  ctxtra import
-  ctxtra import --start claude`,
+  ctxtra import --start claude-code`,
 		Args:    noArgs,
 		GroupID: "setup",
 		RunE: a.run(func(*cobra.Command, []string) error {

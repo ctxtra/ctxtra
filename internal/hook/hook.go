@@ -11,7 +11,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
@@ -145,7 +144,7 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 			return 0
 		}
 	}
-	d, upgrade, err := delivery(a, event, input)
+	d, err := delivery(a, event, input)
 	if err != nil {
 		logEntry(Entry{Ts: ts, Harness: harness, Event: event, Dir: dir, Error: err.Error()})
 		fmt.Fprintln(out, empty)
@@ -160,10 +159,10 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 			fmt.Fprintln(out, empty)
 			return 0
 		}
-		runSlot(a, sl, d, upgrade, args.Version, slot, ts, event, p, input, dir, out, errOut)
+		runSlot(a, sl, d, args.Version, slot, ts, event, p, input, dir, out, errOut)
 		return 0
 	}
-	res, e := session(a, d, upgrade, args.Version, ts, event, p, dir)
+	res, e := session(a, d, args.Version, ts, event, p, dir)
 	if pluginEvent {
 		// The plugin adds no text: the agent's hooks add the files.
 		e.Files, e.Dropped, e.Chars = nil, nil, 0
@@ -176,60 +175,45 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 	return 0
 }
 
-// delivery is what the hook that in describes gets: what a hook that an
-// older version set up got then, with a notice that says to run setup, or
-// the agent's Delivery in the slots that its setup has. A hook of an agent
-// with slots that doesn't say how many its setup has, or one of a plugin
-// that doesn't say its version, is an error.
-func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, upgrade string, err error) {
-	if u, ok := a.(agent.Upgrader); ok {
-		if old, ok := u.Legacy(event, in); ok {
-			return old, fmt.Sprintf("the hook is from an older version of ctxtra, with %s\nrun `ctxtra setup` to update it.", old.Over()), nil
-		}
-	}
+// delivery validates the setup's slots and plugin input, then limits text to
+// the slots available in that setup.
+func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, err error) {
 	d = a.Delivery()
 	// The answer to an event of the agent's plugin has no text, so no slots.
 	if pe, ok := a.(agent.PluginEvents); ok && pe.PluginEvent(event) {
 		if in.Plugin <= 0 {
-			return d, "", errors.New("bad hook input: no ctxtra_plugin")
+			return d, errors.New("bad hook input: no ctxtra_plugin")
 		}
-		return d, "", nil
+		return d, nil
 	}
 	_, slotted := a.(agent.Slotted)
 	_, plugin := a.(agent.PluginClient)
 	switch {
 	case slotted && (in.Slot < 0 || in.Slots == 0):
-		return d, "", errors.New("bad hook arguments: the hook has no --slot K --of N")
+		return d, errors.New("bad hook arguments: the hook has no --slot K --of N")
 	case plugin && in.Plugin <= 0:
-		return d, "", errors.New("bad hook input: no ctxtra_plugin")
+		return d, errors.New("bad hook input: no ctxtra_plugin")
 	case d.Slots > 0 && in.Slots == 0:
-		return d, "", errors.New("bad hook input: no ctxtra_slots")
+		return d, errors.New("bad hook input: no ctxtra_slots")
 	}
-	return d.WithSlots(in.Slots), "", nil
+	return d.WithSlots(in.Slots), nil
 }
 
 // session resolves what a session in dir gets, with the files that d
-// doesn't get in full dropped, and its log entry. The user and the log get
-// the notice upgrade. The user also gets a notice about a newer release of
-// ctxtra (at version) that an earlier check found, and a due check starts in
-// the background.
-func session(a agent.Agent, d agent.Delivery, upgrade, version, ts, event string, p payload, dir string) (*resolve.Result, Entry) {
+// doesn't get in full dropped, and its log entry. The user gets a notice
+// about a newer release of ctxtra (at version) that an earlier check found,
+// and a due check starts in the background.
+func session(a agent.Agent, d agent.Delivery, version, ts, event string, p payload, dir string) (*resolve.Result, Entry) {
 	// Before resolving: the session lists the skills as they are on disk.
 	skillErr := skill.Refresh()
 	configPath := paths.ConfigPath()
 	res, cfg := resolve.Session(dir, configPath)
-	if upgrade != "" {
-		res.Notices = append(slices.Clip(res.Notices), upgrade)
-	}
 	if n := update.ReleaseNotice(cfg, state.Load(), version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
 	checkErr := update.StartDue(cfg, version)
 	d.Fit(res)
 	e := newEntry(ts, a.Name(), event, p, res, resolve.Chars(res.Render()))
-	if upgrade != "" {
-		e.Problems = append(slices.Clip(e.Problems), strings.ReplaceAll(upgrade, "\n", "; "))
-	}
 	if skillErr != nil {
 		e.Problems = append(slices.Clip(e.Problems), "can't update ctxtra's skills: "+skillErr.Error())
 	}

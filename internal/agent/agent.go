@@ -145,13 +145,6 @@ type Skipper interface {
 	Skip(in Input) string
 }
 
-// Upgrader is an agent whose hook, as an older version of ctxtra set it up,
-// gets less text than Delivery. Legacy is what such a hook gets, and ok is
-// false for a hook of this version.
-type Upgrader interface {
-	Legacy(event string, in Input) (d Delivery, ok bool)
-}
-
 // Retrust is an agent that runs a changed hook only after the user trusts
 // it again (Codex): a notice whose command changes its hooks says so.
 type Retrust interface {
@@ -611,5 +604,8 @@ const MCPEntryName = "ctxtra-proxy"
 // alone.
 const LegacyMCPEntryName = "ctxtra"
 
+// SetupVersionArg marks entries belonging to the current setup contract.
+const SetupVersionArg = "--setup-version=1"
+
 // MCPArgs are the arguments of the entry's command for agent.
-func MCPArgs(agent string) []string { return []string{"mcp", "proxy", agent} }
+func MCPArgs(agent string) []string { return []string{"mcp", "proxy", agent, SetupVersionArg} }

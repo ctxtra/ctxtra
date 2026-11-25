@@ -19,7 +19,7 @@ import (
 // description of the server's tools; other agents may drop them.
 func TestMCPInstructions(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
-		if a.Name() != "claude" && a.Name() != "codex" {
+		if a.Name() != "claude-code" && a.Name() != "codex" {
 			t.Skip("checked in Claude Code and Codex")
 		}
 		s := newSession(t, a)

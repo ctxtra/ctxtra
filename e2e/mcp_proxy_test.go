@@ -20,7 +20,7 @@ const proxyServer = "ctxtra-proxy"
 
 // mcpAgents are the agents that ctxtra setup gives its MCP proxy, and
 // that the proxy is checked in.
-var mcpAgents = []string{"claude", "codex", "pi", "opencode", "muse", "antigravity"}
+var mcpAgents = []string{"claude-code", "codex", "pi", "opencode", "muse", "antigravity"}
 
 // mcpSession is a session with MCP servers on: the config is at a path of
 // its own (XDG_CONFIG_HOME), so a proxy that serves tools read the same
@@ -33,8 +33,9 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 	s := newSession(t, a)
 	cfg := s.Path("ctx-config")
 	s.Extra = append(s.Extra, "XDG_CONFIG_HOME="+cfg)
-	s.Write("ctx-config/ctxtra/config.yaml", "check-updates: false\n"+config(s))
+	s.Write("ctx-config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
 	s.Setup()
+	s.Write("ctx-config/ctxtra/config.yaml", "check-updates: false\n"+config(s))
 	s.Adjust = func(cmd *exec.Cmd) { approveMCP(s, a.Name(), cmd) }
 	return s
 }
@@ -43,7 +44,7 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 func approveMCP(s *Session, agent string, cmd *exec.Cmd) {
 	args := cmd.Args[1:]
 	switch agent {
-	case "claude":
+	case "claude-code":
 		// Every MCP tool in the first request, not behind tool search.
 		cmd.Env = append(cmd.Env, "ENABLE_TOOL_SEARCH=false")
 		for i, a := range args {

@@ -29,7 +29,7 @@ var (
 // session doesn't have it otherwise.
 var events = []hookjson.Event{{Name: "sessionStart"}, {Name: "subagentStart"}}
 
-func (Agent) Name() string { return "copilot" }
+func (Agent) Name() string { return "github-copilot" }
 
 func dir() string {
 	if d := os.Getenv("COPILOT_HOME"); d != "" {

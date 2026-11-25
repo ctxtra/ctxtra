@@ -6,8 +6,8 @@ gitrepo dev/team https://github.com/acme/team
 gitrepo dev/dotfiles git@github.com:me/dotfiles.git
 gitrepo own
 
-exec ctxtra setup --agent claude
-runhook claude SessionStart notes
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-NOTES'
 stdout 'CTXMARK-OWN'
 ! stdout 'CTXMARK-TEAM'

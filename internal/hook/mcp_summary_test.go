@@ -10,7 +10,7 @@ import (
 )
 
 func TestMCPSummary(t *testing.T) {
-	for _, harness := range []string{"claude", "codex"} {
+	for _, harness := range []string{"claude-code", "codex"} {
 		t.Run(harness, func(t *testing.T) {
 			h := testenv.Home(t)
 			testenv.Write(t, h+"/rule.md", "A rule.")

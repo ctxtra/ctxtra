@@ -7,8 +7,8 @@ exec ctxtra context show .
 stdout 'LOCAL_A'
 stdout 'LOCAL_B'
 ! stdout 'EXCLUDED'
-exec ctxtra setup --agent claude
-runhook claude SessionStart .
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart .
 stdout 'LOCAL_A'
 stdout 'LOCAL_B'
 
@@ -23,7 +23,7 @@ stdout 'skills/deploy'
 exec ctxtra context explain .
 stdout 'skip +.*trim/drafts/draft.md \(excluded\)'
 stdout 'skip +.*skills/exp-x/SKILL.md \(excluded\)'
-runhook claude SessionStart .
+runhook claude-code SessionStart .
 stdout 'KEPT'
 ! stdout 'DRAFT'
 ! stdout 'Experimental'

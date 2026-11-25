@@ -53,25 +53,25 @@ func TestLastRunsRotated(t *testing.T) {
 	}{
 		{
 			name:    "only in the rotated log",
-			rotated: []any{run("codex", "SessionStart", "1", dir), run("claude", "SessionStart", "2", dir)},
-			want:    "claude SessionStart 2, codex SessionStart 1",
+			rotated: []any{run("codex", "SessionStart", "1", dir), run("claude-code", "SessionStart", "2", dir)},
+			want:    "claude-code SessionStart 2, codex SessionStart 1",
 		},
 		{
 			name:    "the current log wins",
-			rotated: []any{run("claude", "SessionStart", "1", dir), run("codex", "SessionStart", "2", dir)},
-			current: []any{run("claude", "SessionStart", "3", dir), run("claude", "SessionStart", "4", other)},
-			want:    "claude SessionStart 3, codex SessionStart 2",
+			rotated: []any{run("claude-code", "SessionStart", "1", dir), run("codex", "SessionStart", "2", dir)},
+			current: []any{run("claude-code", "SessionStart", "3", dir), run("claude-code", "SessionStart", "4", other)},
+			want:    "claude-code SessionStart 3, codex SessionStart 2",
 		},
 		{
 			name:    "malformed lines",
-			rotated: []any{"{not json", run("claude", "SessionStart", "1", dir), ""},
+			rotated: []any{"{not json", run("claude-code", "SessionStart", "1", dir), ""},
 			current: []any{run("codex", "SessionStart", "2", dir), `{"ts": 5`},
-			want:    "claude SessionStart 1, codex SessionStart 2",
+			want:    "claude-code SessionStart 1, codex SessionStart 2",
 		},
 		{
 			name:    "no rotated log",
-			current: []any{run("claude", "SessionStart", "1", dir)},
-			want:    "claude SessionStart 1",
+			current: []any{run("claude-code", "SessionStart", "1", dir)},
+			want:    "claude-code SessionStart 1",
 		},
 		{name: "no logs"},
 	}
@@ -97,13 +97,13 @@ func TestLastRunsUnreadableLog(t *testing.T) {
 	h := testenv.Home(t)
 	log := paths.LogPath()
 	repo := filepath.Join(h, "repo")
-	e := Entry{Ts: "1", Harness: "claude", Event: "SessionStart", Dir: filepath.Join(repo, "sub"), Repo: repo}
+	e := Entry{Ts: "1", Harness: "claude-code", Event: "SessionStart", Dir: filepath.Join(repo, "sub"), Repo: repo}
 
 	if err := os.MkdirAll(log+".1", 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeLog(t, log, e)
-	if got := runsString(LastRuns("", repo)); got != "claude SessionStart 1" {
+	if got := runsString(LastRuns("", repo)); got != "claude-code SessionStart 1" {
 		t.Errorf("rotated log is a folder: runs %q", got)
 	}
 
@@ -113,7 +113,7 @@ func TestLastRunsUnreadableLog(t *testing.T) {
 	if err := os.MkdirAll(log, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := runsString(LastRuns("", repo)); got != "claude SessionStart 1" {
+	if got := runsString(LastRuns("", repo)); got != "claude-code SessionStart 1" {
 		t.Errorf("current log is a folder: runs %q", got)
 	}
 }

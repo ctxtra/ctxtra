@@ -18,7 +18,7 @@ import (
 // notices: they don't read it, and say so.
 func TestNoticesFIFO(t *testing.T) {
 	h, bin := noticeHome(t)
-	setUp(t, bin, "claude", "hermes")
+	setUp(t, bin, "claude-code", "hermes-agent")
 	for _, p := range []string{filepath.Join(h, ".claude", "settings.json"), filepath.Join(h, ".hermes", "config.yaml"), state.SetupsPath()} {
 		os.Remove(p)
 		if err := syscall.Mkfifo(p, 0o600); err != nil {
@@ -31,8 +31,8 @@ func TestNoticesFIFO(t *testing.T) {
 	case got := <-done:
 		want := []string{
 			"~/.local/state/ctxtra/setup.json is unreadable",
-			"claude: can't check the setup in ~/.claude/settings.json: ",
-			"hermes: can't tell whether the ctxtra plugin is enabled: ",
+			"claude-code: can't check the setup in ~/.claude/settings.json: ",
+			"hermes-agent: can't tell whether the ctxtra plugin is enabled: ",
 		}
 		if len(got) != len(want) {
 			t.Fatalf("notices %q", got)
@@ -51,7 +51,7 @@ func TestNoticesFIFO(t *testing.T) {
 // of a new agent is skipped, nor setup, which fails.
 func TestLockFIFO(t *testing.T) {
 	h, bin := noticeHome(t)
-	setUp(t, bin, "claude")
+	setUp(t, bin, "claude-code")
 	if err := os.MkdirAll(filepath.Join(h, ".cursor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestLockFIFO(t *testing.T) {
 	done := make(chan error)
 	go func() {
 		notices()
-		o := setup.Options{Agents: []string{"claude"}}
+		o := setup.Options{Agents: []string{"claude-code"}}
 		o.Binary = bin
 		_, err := setup.Run(o)
 		done <- err

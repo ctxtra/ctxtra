@@ -64,7 +64,7 @@ func TestSetup(t *testing.T) {
 	}
 	testenv.Write(t, filepath.Join(h, ".hermes", "config.yaml"), "plugins:\n  enabled: [ctxtra]\n")
 	os.Remove(manifestPath())
-	if st := a.Status("", false); st.OK || st.Details[0] != "~/.hermes/plugins/ctxtra/plugin.yaml is missing; run ctxtra setup --agent hermes" {
+	if st := a.Status("", false); st.OK || st.Details[0] != "~/.hermes/plugins/ctxtra/plugin.yaml is missing; run ctxtra setup --agent hermes-agent" {
 		t.Errorf("no plugin.yaml: %+v", st)
 	}
 
@@ -194,8 +194,8 @@ print(json.dumps({
 		}
 	}
 	got, _ := os.ReadFile(calls)
-	want := strings.Repeat("hook hermes pre_llm_call {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n"+
-		"hook hermes subagent {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n", 3)
+	want := strings.Repeat("hook hermes-agent pre_llm_call {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n"+
+		"hook hermes-agent subagent {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n", 3)
 	if string(got) != want {
 		t.Errorf("calls:\n%s\nwant:\n%s", got, want)
 	}

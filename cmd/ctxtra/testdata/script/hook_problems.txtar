@@ -1,10 +1,10 @@
 # The hook never breaks a session: a missing file, a broken config or a
 # missing binary still give the agent a valid answer and exit 0.
 
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 
 # A missing bound file is skipped and reported to the user.
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-PERSONAL'
 stdout '"systemMessage":"✓ ctxtra added 2 instructions; 1 not found \(run ctxtra doctor\)\\nInstructions:\\n  local\\n  - ~/ctx/me.md\\n  - ~/ctx/notes.md"'
 stderr 'ctxtra: bound file not found: .*/ctx/gone.md'
@@ -15,7 +15,7 @@ stdout 'CTXMARK-NOTES'
 
 # A config with a wrong schema adds nothing.
 cp broken.yaml .config/ctxtra/config.yaml
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'CTXMARK'
 stdout 'systemMessage'
 ! exec ctxtra doctor
@@ -26,17 +26,17 @@ stdout 'schema must be ctxtra/v1 \(found "ctxtra/v9"\)'
 # then delete the copy.
 mkdir bin
 exec cp $BIN bin/ctxtra
-exec bin/ctxtra setup --agent claude
+exec bin/ctxtra setup --agent claude-code
 rm bin/ctxtra
-runhook claude SessionStart notes
-stdout '^\{"systemMessage":"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude with the new binary"\}$'
-runhook claude SubagentStart notes
+runhook claude-code SessionStart notes
+stdout '^\{"systemMessage":"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude-code with the new binary"\}$'
+runhook claude-code SubagentStart notes
 stdout '^\{\}$'
 ! exec ctxtra doctor
-stdout 'claude: .*MISSING'
+stdout 'claude-code: .*MISSING'
 ! stderr .
 ! exec ctxtra context files
-stderr '^claude: the hooks run ~/bin/ctxtra, which doesn''t exist; run ctxtra setup --agent claude$'
+stderr '^claude-code: the hooks run ~/bin/ctxtra, which doesn''t exist; run ctxtra setup --agent claude-code$'
 
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/v1

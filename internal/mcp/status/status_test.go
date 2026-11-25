@@ -14,7 +14,7 @@ func TestFoldersKeepTheirRecords(t *testing.T) {
 	testenv.Home(t)
 	a := Record{Dir: "/home/u/dev/a", Agent: "codex", Started: time.Now().UTC(), DeadlineMs: 10000,
 		Servers: []Server{{Name: "pg", State: Late, Reason: "too slow for the first tool list", Ms: 15200}}}
-	b := Record{Dir: "/home/u/dev/b", Agent: "claude", Started: time.Now().UTC(), DeadlineMs: 1500,
+	b := Record{Dir: "/home/u/dev/b", Agent: "claude-code", Started: time.Now().UTC(), DeadlineMs: 1500,
 		Servers: []Server{{Name: "pg", State: Ready, Ms: 300}}}
 	if err := Write(a); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestFoldersKeepTheirRecords(t *testing.T) {
 func TestNewerSessionWins(t *testing.T) {
 	testenv.Home(t)
 	now := time.Now().UTC()
-	newer := Record{Dir: "/d", Agent: "claude", Started: now, Servers: []Server{{Name: "pg", State: Ready}}}
+	newer := Record{Dir: "/d", Agent: "claude-code", Started: now, Servers: []Server{{Name: "pg", State: Ready}}}
 	older := Record{Dir: "/d", Agent: "codex", Started: now.Add(-time.Minute), Servers: []Server{{Name: "pg", State: Late, Ms: 15000}}}
 	if err := Write(newer); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestNewerSessionWins(t *testing.T) {
 	if err := Write(older); err != nil {
 		t.Fatal(err)
 	}
-	if got, _, _ := Read("/d"); got.Agent != "claude" {
+	if got, _, _ := Read("/d"); got.Agent != "claude-code" {
 		t.Errorf("record: %+v", got)
 	}
 }
@@ -57,7 +57,7 @@ func TestSymlinkedFolder(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skip(err)
 	}
-	if err := Write(Record{Dir: real, Agent: "claude", Started: time.Now().UTC()}); err != nil {
+	if err := Write(Record{Dir: real, Agent: "claude-code", Started: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, err := Read(link); !ok || err != nil {

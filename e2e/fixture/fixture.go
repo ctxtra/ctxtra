@@ -186,9 +186,12 @@ func (f *Fixture) Log() []LogEntry {
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
-		var e LogEntry
-		if json.Unmarshal(sc.Bytes(), &e) == nil {
-			out = append(out, e)
+		var e struct {
+			LogEntry
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) == nil && e.Kind == "" {
+			out = append(out, e.LogEntry)
 		}
 	}
 	return out

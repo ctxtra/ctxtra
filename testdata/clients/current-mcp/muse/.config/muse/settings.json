@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "mcpServers": {
+    "ctxtra-proxy": {
+      "type": "stdio",
+      "command": "@@HOME@@/bin/ctxtra",
+      "args": [
+        "mcp",
+        "proxy",
+        "muse",
+        "--setup-version=1"
+      ],
+      "mode": "optional",
+      "env": {}
+    }
+  }
+}

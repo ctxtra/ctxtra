@@ -18,27 +18,27 @@ func TestSetups(t *testing.T) {
 	}
 	var s Setups
 	t.Chdir(h)
-	s.Install("hermes", "rel/.hermes/plugins/ctxtra/__init__.py")
-	s.Install("hermes", filepath.Join(h, "rel", ".hermes", "plugins", "ctxtra", "..", "ctxtra", "__init__.py"))
-	s.Install("claude", "/c/settings.json")
+	s.Install("hermes-agent", "rel/.hermes/plugins/ctxtra/__init__.py")
+	s.Install("hermes-agent", filepath.Join(h, "rel", ".hermes", "plugins", "ctxtra", "..", "ctxtra", "__init__.py"))
+	s.Install("claude-code", "/c/settings.json")
 	s.Detect("cursor")
 	s.Detect("cursor")
 	if err := WriteSetups(s); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := LoadSetups()
-	if !ok || err != nil || !slices.Equal(got.Installed["hermes"], []string{filepath.Join(h, "rel/.hermes/plugins/ctxtra/__init__.py")}) ||
+	if !ok || err != nil || !slices.Equal(got.Installed["hermes-agent"], []string{filepath.Join(h, "rel/.hermes/plugins/ctxtra/__init__.py")}) ||
 		!slices.Equal(got.Detected, []string{"cursor"}) {
 		t.Fatalf("%+v, %v, %v", got, ok, err)
 	}
-	if !got.Known("claude", "/c/../c/settings.json") || got.Known("claude", "/d/settings.json") || got.Known("codex", "/c/settings.json") {
+	if !got.Known("claude-code", "/c/../c/settings.json") || got.Known("claude-code", "/d/settings.json") || got.Known("codex", "/c/settings.json") {
 		t.Error("Known")
 	}
-	if !got.Seen("cursor") || !got.Seen("claude") || got.Seen("pi") {
+	if !got.Seen("cursor") || !got.Seen("claude-code") || got.Seen("pi") {
 		t.Error("Seen")
 	}
-	got.Uninstall("claude", "/c/settings.json")
-	if got.Seen("claude") || len(got.Installed) != 1 {
+	got.Uninstall("claude-code", "/c/settings.json")
+	if got.Seen("claude-code") || len(got.Installed) != 1 {
 		t.Errorf("uninstall: %+v", got)
 	}
 	if err := os.WriteFile(SetupsPath(), []byte(`{"detected": "x"}`), 0o600); err != nil {

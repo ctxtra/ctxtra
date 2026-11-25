@@ -29,8 +29,8 @@ mcp dev/app
 exec ctxtra mcp status dev/app
 stdout 'work/linear'
 stdout 'needs sign-in'
-exec ctxtra setup --agent claude
-runhook claude SessionStart dev/app
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart dev/app
 stdout 'work/linear needs sign-in: run ctxtra mcp login work/linear'
 ! stdout 'run ctxtra mcp login linear'
 

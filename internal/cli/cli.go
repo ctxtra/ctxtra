@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/hook"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/term"
@@ -154,11 +155,10 @@ func writeJSON(w io.Writer, data any, diags []diagnostic) {
 	e.Encode(jsonDoc{1, data, diags})
 }
 
-// runHook is ctxtra hook AGENT [EVENT [--slot K --of N]]. It never fails
-// and parses no flags but its own, so that hooks that any version set up
-// keep running.
+// runHook reads an entry of the current setup contract. It never fails a
+// session, and ignores unknown flags within that contract.
 func runHook(args []string, stdio IO, version string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || !slices.Contains(args, agent.SetupVersionArg) {
 		fmt.Fprintln(stdio.Out, "{}")
 		return 0
 	}

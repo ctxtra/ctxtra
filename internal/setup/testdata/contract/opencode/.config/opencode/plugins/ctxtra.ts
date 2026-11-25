@@ -1,6 +1,7 @@
 // @ctxtra-managed
 // binary: $HOME/bin/ctxtra
 // protocol: 1
+// --setup-version=1
 // Written by ctxtra setup. Adds the instruction files and skills that
 // ctxtra binds to the session's folder. Safe to delete; `ctxtra setup --remove` removes it.
 import { execFile } from "node:child_process";
@@ -15,7 +16,7 @@ type Answer = { text?: string; skills?: Skill[] };
 function run(ev: string, cwd: string): Promise<Answer> {
 	return new Promise((resolve) => {
 		try {
-			const child = execFile(bin, ["hook", "opencode", ev], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
+			const child = execFile(bin, ["hook", "opencode", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
 				(err, stdout) => {
 					if (err) return resolve({});
 					try {

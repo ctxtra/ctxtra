@@ -13,7 +13,7 @@ import (
 // step `hermes plugins enable NAME` does for the user.
 type Hermes struct{}
 
-func (Hermes) Name() string       { return "hermes" }
+func (Hermes) Name() string       { return "hermes-agent" }
 func (Hermes) Executable() string { return "hermes" }
 func (Hermes) Caps() []Cap        { return []Cap{Subagent} }
 
