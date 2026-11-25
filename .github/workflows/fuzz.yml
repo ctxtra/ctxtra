@@ -28,6 +28,8 @@ jobs:
             target: FuzzConfig
           - package: config
             target: FuzzSourceReference
+          - package: manifest
+            target: FuzzManifest
           - package: source
             target: FuzzStorePath
           - package: hook

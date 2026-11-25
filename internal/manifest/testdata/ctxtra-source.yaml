@@ -1,0 +1,19 @@
+schema: ctxtra/source/v1
+collections:
+  base:
+    instructions: [docs/conventions/*.md]
+  essentials:
+    collections: [base]             # only collections of this manifest
+    instructions: [docs/*.md, '!docs/draft-*.md']
+    skills: [skills/*]
+    mcp-servers: [jira]             # a server declared below, by its name
+mcp-servers:
+  jira:
+    url: https://mcp.atlassian.com/v1/mcp
+    notes: Sign in with your acme.atlassian.net account
+repo-sets:                          # where the team works; a binding may use it in location
+  services:
+    - github.com/acme/iam-*
+    - '!github.com/acme/iam-sandbox'
+    - {repo: github.com/acme/mono, subdirs: [services/iam/**]}
+# No bindings or sources: a source only says what it offers.
