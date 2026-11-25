@@ -62,6 +62,9 @@ const (
 	// UntrustedFile: a file that others can change, outside a trusted dir
 	// source, a symlink to one, or a symlink in a repo source.
 	UntrustedFile
+	// UnreadableFile: a file that can't be read, such as one over the size
+	// limits.
+	UnreadableFile
 	// NotApproved: a source's MCP server not approved on this machine.
 	NotApproved
 	// OverCapacity: more text than the agent takes or max-ctx-chars allows.
@@ -112,6 +115,7 @@ var leftOut = map[Mistake]Out{
 	EmptyRepoSet:        OutNothing,
 	CollectionCycle:     OutPart,
 	UntrustedFile:       OutItem,
+	UnreadableFile:      OutItem,
 	NotApproved:         OutItem,
 	OverCapacity:        OutNothing,
 	SelectionUnreadable: OutFile,

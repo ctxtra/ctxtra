@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
+	"github.com/ctxtra/ctxtra/internal/caserule"
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
@@ -18,12 +21,13 @@ import (
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // Hit is a file or a skill added to the session.
 type Hit struct {
 	Path    string // the file, or the skill's SKILL.md
-	Ref     string // a file of a pinned source: ctxtra://<source>/<path>
+	Ref     string // a file of a source: SOURCE:PATH, or ctxtra://<source>/<path> from Session
 	Content string // a file's text; a skill's SKILL.md text after the frontmatter
 	Origin  string // the binding that added it
 	// Source is the source the file or SKILL.md is in, and SourcePath its
@@ -61,6 +65,15 @@ type Trace struct {
 	Problems   []string
 	// Removed by the binding's entries that start with !.
 	ExcludedFiles, ExcludedSkills []string
+	// Conditions are the binding's conditions, each with whether it held.
+	Conditions []Condition
+	// Excluded are what the binding's ! content entries removed.
+	Excluded []Exclusion
+	// Unavailable are the sources the binding names whose content this
+	// machine can't use: what they would add is left out.
+	Unavailable []string
+	// Errors are the errors of the binding's entries in this session.
+	Errors []*catalog.Error
 }
 
 // Result is what a session in Dir gets.
@@ -85,6 +98,18 @@ type Result struct {
 	Trace    []Trace
 	MaxChars int
 	Summary  config.SummaryMessage
+	// Errors are every error the session reports: in the config, the lock,
+	// the sources and their manifests, and in what the bindings add.
+	Errors []*catalog.Error
+	// SameSkills are skills that have a name another skill of the session
+	// has. All of them are delivered, as the agent would get them by hand.
+	SameSkills []SameSkill
+	// CaseRule is how the session folder's volume compares names, when a
+	// binding compares folders.
+	CaseRule caserule.Rule
+	// RepoErr is why git couldn't tell the session's repository, when a
+	// binding needed it.
+	RepoErr error
 }
 
 // Session loads the config at configPath and resolves it for a session in
@@ -324,10 +349,16 @@ func (r *Result) Fit(fits func(*Result) bool, over string) {
 		return !fits(&c)
 	})
 	var dropped []Hit
+	var bindings []string
 	for _, h := range files[n:] {
 		h.Over = over
 		dropped = append(dropped, h)
+		if !slices.Contains(bindings, h.Origin) {
+			bindings = append(bindings, h.Origin)
+		}
 	}
 	r.Files = files[:n:n]
 	r.Dropped = append(dropped, r.Dropped...)
+	r.Errors = append(r.Errors, &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.OverCapacity,
+		Msg: fmt.Sprintf("the text is over %s; %d files of bindings %s are left out", over, len(dropped), strings.Join(bindings, ", "))}})
 }
