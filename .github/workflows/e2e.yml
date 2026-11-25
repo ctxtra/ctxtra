@@ -7,7 +7,9 @@ name: e2e
 on:
   push:
     branches: [main]
+  # Pull requests into other branches run it by hand: gh workflow run e2e --ref BRANCH
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
