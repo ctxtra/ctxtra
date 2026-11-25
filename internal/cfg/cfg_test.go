@@ -497,6 +497,9 @@ func TestConfigCollectionsAndRepoSets(t *testing.T) {
 		{"a map without repo in a set", "{subdirs: [x/**]}", "needs repo"},
 		{"an empty subdirs in a set", "{repo: github.com/acme/mono, subdirs: []}", "subdirs is empty"},
 		{"a broken subdirs entry in a set", "{repo: github.com/acme/mono, subdirs: [../x]}", "leaves the repository"},
+		{"a malformed repo value in a set", "{repo: [github.com/acme/mono]}", "repo must be one repository"},
+		{"a subdirs value that isn't a list in a set", "{repo: github.com/acme/mono, subdirs: src/**}", "subdirs must be a list of folders"},
+		{"a bad subdirs item in a set", "{repo: github.com/acme/mono, subdirs: [[]]}", "a subdirs entry must be one folder"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+", github.com/acme/web]\n")
@@ -512,6 +515,8 @@ func TestConfigCollectionsAndRepoSets(t *testing.T) {
 		{"a tag in a set", "!x y"},
 		{"a number in a set", "1.10"},
 		{"an unknown key in a set entry", "{repo: github.com/acme/mono, path: x}"},
+		{"a number as a set entry's repo", "{repo: 1.10}"},
+		{"true in a set entry's subdirs", "{repo: github.com/acme/mono, subdirs: [true]}"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+"]\n  ok: [github.com/acme/web]\n")

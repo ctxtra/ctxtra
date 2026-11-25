@@ -125,6 +125,16 @@ func TestRepoSets(t *testing.T) {
 			t.Fatalf("errors %v, set %+v", m.Errors, m.RepoSet("s"))
 		}
 	})
+	t.Run("malformed fields in a set entry", func(t *testing.T) {
+		for _, item := range []string{"{repo: [github.com/acme/web]}", "{repo: github.com/acme/web, subdirs: src/**}", "{repo: github.com/acme/web, subdirs: [[]]}"} {
+			m := parse("repo-sets:\n  services: [github.com/acme/api, " + item + "]\n")
+			s := m.RepoSet("services")
+			if len(m.Errors) != 1 || m.Errors[0].Out() != yamlx.OutEntry || s.Broken() || len(s.Entries) != 2 ||
+				s.Entries[0].Repo != "github.com/acme/api" || s.Entries[0].Err != nil || s.Entries[1].Err == nil {
+				t.Errorf("%s: errors %v, set %+v", item, m.Errors, s)
+			}
+		}
+	})
 	t.Run("an unknown key in a set entry", func(t *testing.T) {
 		m := parse("repo-sets:\n  s: [{repo: github.com/acme/mono, paths: [x/**]}]\n  ok: [github.com/acme/api]\n")
 		if len(m.Errors) != 1 || !m.RepoSet("s").Broken() || m.RepoSet("ok").Broken() {

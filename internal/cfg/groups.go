@@ -196,6 +196,10 @@ func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool
 			return e, true
 		}
 		repoNode = f["repo"]
+		if inSet && repoNode.Kind != yaml.ScalarNode {
+			e.Err = r.EntryError(repoNode, yamlx.BrokenEntry, "repo must be one repository")
+			return e, true
+		}
 		text, ok := r.Text(repoNode, "repo")
 		if !ok {
 			return e, false
@@ -230,8 +234,9 @@ func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool
 	return e, true
 }
 
-// decodeSubdirs reads the subdirs of e. In a set, a broken subdirs entry
-// breaks e. It returns false when an error leaves out the whole part.
+// decodeSubdirs reads the subdirs of e. In a set, a broken subdirs entry,
+// or subdirs of another shape, breaks only e. It returns false when an
+// error leaves out the whole part.
 func decodeSubdirs(r *yamlx.Reader, n *yaml.Node, e *RepoEntry, inSet bool) bool {
 	const empty = "subdirs is empty; remove it to use the whole repository"
 	if yamlx.IsEmpty(n) {
@@ -242,11 +247,23 @@ func decodeSubdirs(r *yamlx.Reader, n *yaml.Node, e *RepoEntry, inSet bool) bool
 		r.Add(n, yamlx.EmptyCondition, empty)
 		return false
 	}
+	if inSet && n.Kind != yaml.SequenceNode {
+		e.Err = r.EntryError(n, yamlx.BrokenEntry, "subdirs must be a list of folders")
+		return true
+	}
 	items, ok := r.List(n, "subdirs")
 	if !ok {
 		return false
 	}
 	for _, it := range items {
+		if inSet && it.Kind != yaml.ScalarNode {
+			s := Entry{Pos: yamlx.At(it), Err: r.EntryError(it, yamlx.BrokenEntry, "a subdirs entry must be one folder")}
+			if e.Err == nil {
+				e.Err = s.Err
+			}
+			e.Subdirs = append(e.Subdirs, s)
+			continue
+		}
 		text, ok := r.Text(it, "subdirs entry")
 		if !ok {
 			return false
