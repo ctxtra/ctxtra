@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // OpenCode is OpenCode 2, run with `opencode run --standalone`: its own
@@ -17,7 +18,7 @@ func (OpenCode) Executable() string { return "opencode" }
 func (OpenCode) Caps() []Cap        { return []Cap{Subagent, SkillTool} }
 
 func (OpenCode) Command(bin, home, dir, mockURL, prompt string, _ Options, env []string) (*exec.Cmd, error) {
-	if err := openCodeConfig(home, mockURL); err != nil {
+	if err := openCodeConfig(home, mockURL, env); err != nil {
 		return nil, err
 	}
 	// --auto: the scripted reads are outside the project folder, which
@@ -35,12 +36,23 @@ func (OpenCode) UserMessages(_, _ string) []string { return nil }
 
 // openCodeConfig writes the global config with the mock as a provider, and
 // its model as the default.
-func openCodeConfig(home, mockURL string) error {
+func openCodeConfig(home, mockURL string, env []string) error {
 	cfg, _ := json.Marshal(map[string]any{"update": "disable", "model": "mock/mock-model", "providers": map[string]any{"mock": map[string]any{
 		"name": "mock", "env": []string{"E2E_MOCK_KEY"}, "package": "@opencode/ai/providers/openai-compatible",
 		"settings": map[string]any{"baseURL": mockURL + "/v1"},
 		"models":   map[string]any{"mock-model": map[string]any{"name": "mock-model"}}}}})
 	cfgDir := filepath.Join(home, ".config", "opencode")
+	values := map[string]string{}
+	for _, kv := range env {
+		key, value, _ := strings.Cut(kv, "=")
+		values[key] = value
+	}
+	if base := values["XDG_CONFIG_HOME"]; filepath.IsAbs(base) {
+		cfgDir = filepath.Join(base, "opencode")
+	}
+	if dir := values["OPENCODE_CONFIG_DIR"]; dir != "" {
+		cfgDir = dir
+	}
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
 	}

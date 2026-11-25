@@ -1013,6 +1013,7 @@ keeps one that is there; `--remove` removes it.
 Muse clears the environment of hooks and MCP servers. Setup records the four `XDG_*` values in its hook
 commands and MCP entry. Both processes then find the same folders as the shell that ran setup. `doctor`
 reports a recorded value that differs from the current shell, with `ctxtra setup --agent muse` to refresh it.
+Setup refreshes an existing proxy entry even when missing source content leaves no server catalog to load.
 
 Muse's MCP entry also copies setup-time `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
 Setup expands `~` and makes the log path absolute. Setup owns these keys and the four XDG keys inside `env`,

@@ -1,0 +1,32 @@
+# Setup refreshes an existing proxy even when source catalogs are missing
+# from a newly selected data folder.
+env XDG_DATA_HOME=$HOME/a
+gitrepo pkg
+exec ctxtra source add local-git pkg --name work
+exec ctxtra mcp list
+stdout 'work/echo'
+exec ctxtra setup --agent muse
+grep '"XDG_DATA_HOME": ".*/a"' .config/muse/settings.json
+
+env XDG_DATA_HOME=$HOME/b
+! exec ctxtra doctor
+stdout 'the hooks use XDG_DATA_HOME=.*a'
+stdout 'the ctxtra MCP proxy entries use XDG_DATA_HOME=.*a'
+exec ctxtra setup --agent muse
+grep '"XDG_DATA_HOME": ".*/b"' .config/muse/settings.json
+! grep '"XDG_DATA_HOME": ".*/a"' .config/muse/settings.json
+
+# The missing source still needs restoring, but the folder repair is done.
+! exec ctxtra doctor
+! stdout 'the hooks use XDG_DATA_HOME='
+! stdout 'the ctxtra MCP proxy entries use XDG_DATA_HOME='
+exec ctxtra source restore
+exec ctxtra doctor
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/v1
+check-updates: false
+-- pkg/mcp-servers.yaml --
+schema: ctxtra/v1
+mcp-servers:
+  echo: {command: [mcptest]}

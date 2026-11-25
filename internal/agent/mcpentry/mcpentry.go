@@ -89,7 +89,9 @@ func toAny(s []string) []any {
 // is made again on the new content.
 func (c Config) SetupMCP(o agent.MCPOptions, r *agent.Report) error {
 	if !o.Remove && !o.Want {
-		return nil
+		if _, exists := c.MCPCommand(); !exists {
+			return nil
+		}
 	}
 	for range 3 {
 		err := c.setupOnce(o, r)
@@ -116,12 +118,15 @@ func (c Config) setupOnce(o agent.MCPOptions, r *agent.Report) error {
 			}
 		}
 	}
-	servers, err := c.servers(data, !o.Remove)
+	servers, err := c.servers(data, !o.Remove && o.Want)
 	if err != nil {
 		return err
 	}
 	cur, has := entry(servers, agent.MCPEntryName)
 	legacy := c.legacy(servers)
+	if !o.Remove && !o.Want && !has && legacy == nil {
+		return nil
+	}
 	switch {
 	case has && cur == nil, has && !c.ours(cur):
 		again := "ctxtra setup"

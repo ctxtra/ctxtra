@@ -8,6 +8,7 @@
 - The config is always `config.yaml` in the config folder. `CTXTRA_CONFIG` and `--config` are removed.
 - Run setup again for Codex and Muse: Codex passes all four XDG variables to its MCP proxy; Muse records
   them in hook and proxy entries. `doctor` reports changed Muse values with the setup command to refresh them.
+  Setup refreshes existing proxy entries even when the selected data folder has no source catalogs yet.
 
 ## v0.6.0
 

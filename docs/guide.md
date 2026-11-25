@@ -505,6 +505,7 @@ Logs are in `~/.local/state/ctxtra/log.jsonl`.
 - Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Setup records the four
   XDG folder values in both entries. After changing one, run `ctxtra setup --agent muse`; `doctor` reports
   stale values. Hooks use the log in the state folder. The MCP entry also copies `CTXTRA_LOG` at setup time.
+  Setup refreshes an existing proxy even if the new data folder has no downloaded sources yet.
   Muse cannot inherit shell proxy or certificate settings, a Linux keychain session, or local servers'
   `env-pass` values. Use explicit non-secret `env` values or stored `secret-env` values for local servers.
   Start a new Muse session after signing in to an MCP server. A resumed session runs the hook again and
