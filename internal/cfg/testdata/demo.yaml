@@ -1,0 +1,164 @@
+schema: ctxtra/config/v1             # the file's kind and version
+
+sources:
+  # A team repository that follows a branch. The accepted commit is in ctxtra.lock,
+  # not here. `ctxtra source update iam-team` reviews new commits on main.
+  iam-team:
+    repo: git@github.com:acme/iam-ctx.git
+    branch: main
+
+  # Another team, at a release tag. If someone moves the tag, the update check
+  # reports it and `source update` shows the change for review.
+  obs-team:
+    repo: https://github.com/acme/observability-ctx.git
+    tag: v1.4.0
+
+  # Frozen at one commit. Nothing to review until you edit rev.
+  security:
+    repo: git@github.com:acme/security-guidelines.git
+    rev: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432
+
+  # Any repository can be a source, even without a ctxtra-source.yaml manifest:
+  # bind its files by path (binding `go` below).
+  go-style:
+    repo: https://github.com/someone/go-agent-guides.git
+    branch: main
+    check-updates: false            # don't tell me about new commits; I run source update myself
+
+  # My clone of iam-ctx, to try changes before I push them. A local path in `repo`
+  # is still a repository: sessions read accepted commits of the clone, not its working files.
+  # On a machine without the clone, the source is "not on this machine": its entries
+  # are left out without an error.
+  iam-dev:
+    repo: ~/dev/iam-ctx
+    branch: my-change
+
+  # One team's folder in a shared repository of context, one folder per team.
+  # subdir is the source's top: its manifest and every billing-ctx:PATH are under it;
+  # the other teams' folders aren't part of the source.
+  billing-ctx:
+    repo: git@github.com:acme/agent-context.git
+    branch: main
+    subdir: teams/billing
+
+  # My own files, read live: an edit applies at the next session start.
+  # This repo has a remote, so it needed `ctxtra source trust dotfiles` once.
+  # If its remotes change, ctxtra stops reading it until I trust it again.
+  dotfiles:
+    dir: ~/dev/dotfiles
+
+mcp-servers:                        # my own servers; sources declare theirs in ctxtra-source.yaml
+  linear:                           # the same settings as a source's servers
+    url: https://mcp.linear.app/mcp
+    notes: Choose the work workspace          # shown at sign-in; ctxtra doesn't read it
+
+# My own collections: one set for several bindings. The same lists as
+# a binding. A bare name is mine; SOURCE:... comes from a source.
+collections:
+  go-kit:
+    instructions:
+      - go-notes.md                           # relative to this file's folder
+      - 'go-style:go/*.md'                    # a source without a manifest, used by path
+    skills: ['dotfiles:skills/go-*']
+
+# My own list of repositories, as a team's manifest has. A bare name is mine.
+repo-sets:
+  acme: [github.com/acme/**]
+
+# Named things are maps, except bindings: a list, because their order is the order of text.
+bindings:
+  # No location: every session.
+  - name: me
+    instructions:
+      - ~/agent-context/me.md                 # no SOURCE: prefix: a file on my disk
+      - 'dotfiles:agents/*.md'                # SOURCE:PATH: files in a source
+      - '!dotfiles:agents/draft-*.md'         # ! leaves these out of this list
+    skills: ['dotfiles:skills/*']
+
+  # Profile only: "I'm doing IAM work", wherever the session starts, also in a
+  # folder that isn't a repository.
+  - name: iam
+    profiles: [iam]
+    collections: ['iam-team:essentials']      # a collection from iam-team's manifest
+    instructions:
+      - '!iam-team:docs/testing.md'           # leaves this file out of the collection: mine conflicts with it
+    mcp-servers: ['iam-team:jira']            # a server that iam-team's manifest declares
+
+  # Place from the team: the repos iam-team lists and keeps current,
+  # plus one of mine, minus one of theirs: repos and repo-sets are one repository check.
+  - name: iam-repos
+    location:
+      repo-sets: ['iam-team:services']
+      repos: [github.com/me/iam-playground, '!github.com/acme/iam-legacy']
+    collections: ['iam-team:base']
+
+  # Profile AND place: observability context only in company repos.
+  # Inside a condition any entry is enough: observability OR oncall.
+  # ! leaves out what the other entries match, wherever it is in the list.
+  # Quote it: YAML reads an unquoted ! as a tag.
+  - name: obs
+    location: {repos: [github.com/acme/**, '!github.com/acme/legacy']}
+    profiles: [observability, oncall]
+    instructions:
+      - 'obs-team:docs/conventions/*.md'
+      - 'obs-team:runbooks/*.md'
+
+  # Place only, no profile: applies whatever profile is active, or none.
+  - name: billing
+    location:
+      repos:
+        - repo: github.com/acme/mono
+          subdirs: [services/billing/**]      # this repository AND these parts of it
+    instructions: ['iam-team:services/billing.md']
+    skills: ['billing-ctx:skills/*']            # teams/billing/skills/* in the repo
+
+  # dirs OR repos, each checked on its own: a folder under ~/work but not under
+  # ~/work/clients, or any company repo wherever it is cloned.
+  - name: security
+    location:
+      dirs: [~/work/**, '!~/work/clients/**']
+      repos: [github.com/acme/**]
+    instructions: ['security:guidelines/*.md']
+
+  # Agent only: skills for the two agents I review code with, everywhere.
+  # Names are the ones `ctxtra setup` uses; a subagent is its parent's agent.
+  - name: review
+    agents: [claude-code, codex]
+    skills: ['dotfiles:skills/review/*']
+
+  # All three conditions: Go guides in my dev folder, for Claude, only while
+  # the go-deep profile is on.
+  - name: go
+    location: {dirs: [~/dev/**]}
+    profiles: [go-deep]
+    agents: [claude-code]
+    collections: [go-kit]                     # a bare name: my own collection
+
+  # The same set in company repos, for every agent and profile.
+  - name: go-work
+    location: {repo-sets: [acme]}                # my own set, above
+    collections: [go-kit]
+
+  # Trying my clone instead of the team's version: CTXTRA_PROFILES=iam-preview claude
+  # In team repos, iam-repos above still adds iam-team:base: bindings only add.
+  - name: iam-preview
+    profiles: [iam-preview]
+    collections: ['iam-dev:essentials']
+
+  # One of my own servers, by its bare name, for every agent but Cursor,
+  # and not while the oncall profile is on.
+  - name: tracker
+    location: {dirs: [~/work/**]}
+    profiles: ['!oncall']
+    agents: ['!cursor']
+    mcp-servers: [linear]
+
+# No config-wide exclusion: a place that must get nothing is excluded in each
+# binding that could reach it.
+
+# No include: bindings are only in this file.
+
+max-ctx-chars: 40000                          # the most text added at session start; a guard against a mistake
+check-releases: true                          # new ctxtra releases
+session-message:
+  max-skills: 0                               # 0: don't list skills; max-instructions works the same
