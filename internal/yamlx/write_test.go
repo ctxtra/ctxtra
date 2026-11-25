@@ -140,6 +140,11 @@ func TestSame(t *testing.T) {
 		{"{a: 1}", "{a: 1, b: 2}", false},
 		{"{a: 1, a: 1}", "{a: 1, b: 1}", false},
 		{"[a, b] # one", "- a # two\n- b\n", true},
+		{"{check-updates: FALSE}", "{check-updates: false}", true},
+		{"{check-updates: True}", "{check-updates: false}", false},
+		{"{n: 0x10}", "{n: 16}", true},
+		{"{tag: 'FALSE'}", "{tag: 'false'}", false},
+		{"{a: null}", "{a: ~}", true},
 	}
 	for _, tt := range tests {
 		if got := Same(node(tt.a), node(tt.b)); got != tt.same {
@@ -148,5 +153,27 @@ func TestSame(t *testing.T) {
 	}
 	if Identical(node("{a: 1, b: 2}"), node("{b: 2, a: 1}")) {
 		t.Error("Identical ignores key order")
+	}
+}
+
+// A lone ! is a tag that a node doesn't keep: only the file's text shows
+// it, so a result that lost it would look the same as a node.
+func TestIdenticalInSeesALoneTag(t *testing.T) {
+	parse := func(s string) *Doc {
+		d, err := Parse([]byte("schema: ctxtra/config/v1\n"+s), ConfigKind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	tagged, plain := parse("instructions: [! ~/old.md]\n"), parse("instructions: [~/old.md]\n")
+	if !Identical(tagged.Root, plain.Root) {
+		t.Fatal("the nodes differ; this test needs them alike")
+	}
+	if IdenticalIn(tagged, tagged.Root, plain, plain.Root) {
+		t.Error("a lost tag isn't seen")
+	}
+	if !IdenticalIn(tagged, tagged.Root, tagged, tagged.Root) {
+		t.Error("a file differs from itself")
 	}
 }

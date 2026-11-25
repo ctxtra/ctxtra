@@ -167,7 +167,7 @@ func (e *Editor) Add(s Section, name string, entry *yaml.Node, at Place) (bool, 
 			c.Content = append(c.Content, yamlx.Text(name), n)
 		}
 	}, func(sp []span, indent int) (int, int, string, error) {
-		text, err := render(s, name, n, indent)
+		text, err := render(s, name, n, indent, "")
 		sep := gap(e.lines(), sp)
 		switch {
 		case ref >= 0 && at.Before != "":
@@ -207,7 +207,7 @@ func (e *Editor) Replace(s Section, name string, entry *yaml.Node) error {
 			c.Content[2*i+1] = n
 		}
 	}, func(sp []span, indent int) (int, int, string, error) {
-		text, err := render(s, name, n, indent)
+		text, err := render(s, name, n, indent, lineComment(e.lines()[sp[i].start]))
 		return sp[i].start, sp[i].end, text, err
 	})
 	if err != nil {
@@ -369,13 +369,18 @@ func entryName(c *yaml.Node, s Section, i int) string {
 	return ""
 }
 
+// editFunc makes a change on the text of a block section with entries,
+// whose spans are sp: it returns the lines [from, to) to replace and the
+// text to put there.
+type editFunc func(sp []span, indent int) (from, to int, text string, err error)
+
 // change applies a change to section s. apply makes it on the section's
 // node, which then has at least one entry; nil removes the section. edit
-// makes it on the text of a block section with entries: it returns the
-// lines [from, to) to replace and the text to put there. When edit can't,
-// or its result doesn't read back as intended, the section is written again
-// as a whole, and when that fails too, the whole file.
-func (e *Editor) change(s Section, apply func(c *yaml.Node), edit func(sp []span, indent int) (int, int, string, error)) error {
+// makes it on the text. The change is made on the text only: every line it
+// doesn't change stays as it is. A layout that can't be changed that way,
+// or a result that doesn't read back as intended, is an error, and the
+// text stays as it was.
+func (e *Editor) change(s Section, apply func(c *yaml.Node), edit editFunc) error {
 	want := clone(e.doc.Root)
 	at, c, err := e.section(want, s)
 	if err != nil {
@@ -385,7 +390,7 @@ func (e *Editor) change(s Section, apply func(c *yaml.Node), edit func(sp []span
 	case apply == nil && at >= 0:
 		want.Content = slices.Delete(want.Content, 2*at, 2*at+2)
 	case apply == nil:
-	case c == nil:
+	case c == nil || len(c.Content) == 0:
 		kind := yaml.MappingNode
 		if s.list() {
 			kind = yaml.SequenceNode
@@ -401,82 +406,41 @@ func (e *Editor) change(s Section, apply func(c *yaml.Node), edit func(sp []span
 	default:
 		apply(c)
 	}
-	var tries []func() ([]byte, error)
-	if edit != nil {
-		tries = append(tries, func() ([]byte, error) { return e.editEntries(s, edit) })
+	out, err := e.editText(s, want, edit)
+	if err != nil {
+		return fmt.Errorf("can't change %s in the config: %w; nothing changed", s, err)
 	}
-	tries = append(tries, func() ([]byte, error) { return e.writeSection(want, s) }, func() ([]byte, error) { return yamlx.Encode(want) })
-	var errs []error
-	for _, try := range tries {
-		out, err := try()
-		if err == nil {
-			err = e.keep(out, want)
-		}
-		if err == nil {
-			return nil
-		}
-		errs = append(errs, err)
-	}
-	return fmt.Errorf("could not write the change to the config: %w", errors.Join(errs...))
+	return e.keep(s, out, want)
 }
 
-// keep makes out the editor's text when it reads back as want.
-func (e *Editor) keep(out []byte, want *yaml.Node) error {
-	d, err := yamlx.Parse(out, yamlx.ConfigKind)
+// keep makes out the editor's text when it reads back as want, ! tags
+// included.
+func (e *Editor) keep(s Section, out []byte, want *yaml.Node) error {
+	d, perr := yamlx.Parse(out, yamlx.ConfigKind)
 	switch {
-	case err != nil:
-		return err
-	case !yamlx.Identical(d.Root, want):
-		return errors.New("the result doesn't read back as intended")
+	case perr != nil:
+		return fmt.Errorf("can't change %s in the config: the result doesn't read (%v); nothing changed; make the change by hand", s, perr)
+	case !yamlx.IdenticalIn(e.doc, want, d, d.Root):
+		return fmt.Errorf("can't change %s in the config: the result doesn't read back as intended; nothing changed; make the change by hand", s)
 	}
 	e.data, e.doc = out, d
 	return nil
 }
 
-// editEntries runs edit on the entries of section s, when the section is
-// in block style and has entries whose lines can be told apart.
-func (e *Editor) editEntries(s Section, edit func(sp []span, indent int) (int, int, string, error)) ([]byte, error) {
-	root := e.doc.Root
-	at, c, err := e.section(root, s)
-	switch {
-	case err != nil:
-		return nil, err
-	case c == nil || len(c.Content) == 0 || c.Style&yaml.FlowStyle != 0 || root.Style&yaml.FlowStyle != 0:
-		return nil, errors.New("not a block section with entries")
-	}
-	lines := e.lines()
-	top, ok := e.entrySpans(lines, root, false, 0, len(lines))
-	if !ok {
-		return nil, errors.New("the top-level keys can't be told apart")
-	}
-	end := len(lines)
-	if at+1 < len(top) {
-		end = top[at+1].head
-	}
-	sp, ok := e.entrySpans(lines, c, s.list(), top[at].start+1, end)
-	if !ok {
-		return nil, errors.New("the entries can't be told apart")
-	}
-	from, to, text, err := edit(sp, sp[0].indent)
-	if err != nil {
-		return nil, err
-	}
-	return splice(lines, from, to, text), nil
-}
-
-// writeSection writes the key of section s again from want, or removes it
-// when want has none; the rest of the file stays as it is.
-func (e *Editor) writeSection(want *yaml.Node, s Section) ([]byte, error) {
+// editText makes the change on the text: it removes or adds the key of
+// section s, writes the first entry of an empty section on its key's line,
+// or runs edit on the entries of a block section.
+func (e *Editor) editText(s Section, want *yaml.Node, edit editFunc) ([]byte, error) {
 	root := e.doc.Root
 	if root.Style&yaml.FlowStyle != 0 {
-		return nil, errors.New("the config is a flow map")
+		return nil, errors.New("the config is written as one flow map ({...}); write its top-level keys in block style, one per line")
 	}
 	lines := e.lines()
 	top, ok := e.entrySpans(lines, root, false, 0, len(lines))
 	if !ok {
-		return nil, errors.New("the top-level keys can't be told apart")
+		return nil, errors.New("its top-level keys can't be told apart; start each on a line of its own")
 	}
-	at, _, err := e.section(root, s)
+	at, c, err := e.section(root, s)
 	if err != nil {
 		return nil, err
 	}
@@ -486,28 +450,58 @@ func (e *Editor) writeSection(want *yaml.Node, s Section) ([]byte, error) {
 			wantAt = i
 		}
 	}
-	if wantAt < 0 {
+	block := fmt.Sprintf("write %s in block style, one entry per line, or make the change by hand", s)
+	switch {
+	case wantAt < 0:
 		from, to := cut(lines, top, at)
 		return splice(lines, from, to, ""), nil
+	case at < 0:
+		text, err := renderPair(yamlx.Text(string(s)), want.Content[wantAt+1], indentOf(top), "")
+		if err != nil {
+			return nil, err
+		}
+		sep := gap(lines, top)
+		if i := topIndex(root, string(s)); i < len(top) {
+			return splice(lines, top[i].head, top[i].head, text+sep), nil
+		}
+		end := len(lines)
+		if len(top) > 0 {
+			end = top[len(top)-1].end
+		}
+		return splice(lines, end, end, sep+text), nil
+	case c == nil || len(c.Content) == 0:
+		if top[at].end != top[at].start+1 {
+			return nil, fmt.Errorf("it is empty over several lines; %s", block)
+		}
+		text, err := renderPair(root.Content[2*at], want.Content[wantAt+1], top[at].indent, lineComment(lines[top[at].start]))
+		if err != nil {
+			return nil, err
+		}
+		return splice(lines, top[at].start, top[at].end, text), nil
+	case c.Style&yaml.FlowStyle != 0:
+		return nil, fmt.Errorf("it is written in flow style; %s", block)
 	}
-	key := clone(want.Content[wantAt])
-	key.HeadComment = ""
-	text, err := yamlx.Encode(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{key, want.Content[wantAt+1]}})
+	end := len(lines)
+	if at+1 < len(top) {
+		end = top[at+1].head
+	}
+	sp, ok := e.entrySpans(lines, c, s.list(), top[at].start+1, end)
+	if !ok {
+		return nil, fmt.Errorf("its entries can't be told apart; start each entry on a line of its own%s, or make the change by hand",
+			map[bool]string{true: " (- name: ...)"}[s.list()])
+	}
+	from, to, text, err := edit(sp, sp[0].indent)
 	if err != nil {
 		return nil, err
 	}
-	if at >= 0 {
-		return splice(lines, top[at].start, top[at].end, string(text)), nil
+	return splice(lines, from, to, text), nil
+}
+
+func indentOf(top []span) int {
+	if len(top) == 0 {
+		return 0
 	}
-	sep := gap(lines, top)
-	if i := topIndex(root, string(s)); i < len(top) {
-		return splice(lines, top[i].head, top[i].head, string(text)+sep), nil
-	}
-	end := len(lines)
-	if len(top) > 0 {
-		end = top[len(top)-1].end
-	}
-	return splice(lines, end, end, sep+string(text)), nil
+	return top[0].indent
 }
 
 // topIndex is the place among root's pairs where the top-level key k goes.
@@ -536,7 +530,8 @@ type span struct {
 	// start is the line of its key, or of its - in a list.
 	start int
 	// end is the line after its last one, without the blank lines and
-	// outer comments that follow it.
+	// comments that follow it: they belong to no entry, so the editor
+	// neither moves nor removes them.
 	end    int
 	indent int
 }
@@ -585,11 +580,7 @@ func (e *Editor) entrySpans(lines []string, c *yaml.Node, list bool, lo, hi int)
 		if i+1 < len(out) {
 			end = out[i+1].head
 		}
-		for end-1 > out[i].start {
-			l := lines[end-1]
-			if ci := commentIndent(l); strings.TrimSpace(l) != "" && (ci < 0 || ci >= out[i].indent) {
-				break
-			}
+		for end-1 > out[i].start && (strings.TrimSpace(lines[end-1]) == "" || commentIndent(lines[end-1]) >= 0) {
 			end--
 		}
 		out[i].end = end
@@ -649,13 +640,24 @@ func splice(lines []string, from, to int, text string) []byte {
 	return []byte(b.String())
 }
 
-// render is the entry name of section s as lines of YAML at indent.
-func render(s Section, name string, n *yaml.Node, indent int) (string, error) {
-	wrap := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{yamlx.Text(name), n}}
+// render is the entry name of section s as lines of YAML at indent, with
+// comment, when there is one, on its first line.
+func render(s Section, name string, n *yaml.Node, indent int, comment string) (string, error) {
 	if s.list() {
-		wrap = &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{n}}
+		return renderNode(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{n}}, indent, comment)
 	}
-	out, err := yamlx.Encode(wrap)
+	return renderPair(yamlx.Text(name), n, indent, comment)
+}
+
+// renderPair is the map entry of key k and value v as lines of YAML.
+func renderPair(k, v *yaml.Node, indent int, comment string) (string, error) {
+	k = clone(k)
+	k.HeadComment, k.LineComment, k.FootComment = "", "", ""
+	return renderNode(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{k, v}}, indent, comment)
+}
+
+func renderNode(n *yaml.Node, indent int, comment string) (string, error) {
+	out, err := yamlx.Encode(n)
 	if err != nil {
 		return "", err
 	}
@@ -665,9 +667,35 @@ func render(s Section, name string, n *yaml.Node, indent int) (string, error) {
 		if l != "\n" {
 			b.WriteString(pad)
 		}
+		if comment != "" {
+			l = strings.TrimSuffix(l, "\n") + " " + comment + "\n"
+			comment = ""
+		}
 		b.WriteString(l)
 	}
 	return b.String(), nil
+}
+
+// lineComment is the comment at the end of line l, "" when it has none.
+func lineComment(l string) string {
+	l = strings.TrimRight(l, "\r\n")
+	var quote byte
+	for i := 0; i < len(l); i++ {
+		c := l[i]
+		switch {
+		case quote == '"' && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case (c == '\'' || c == '"') && (i == 0 || strings.IndexByte(" \t[{,:-", l[i-1]) >= 0):
+			quote = c
+		case c == '#' && (i == 0 || l[i-1] == ' ' || l[i-1] == '\t'):
+			return l[i:]
+		}
+	}
+	return ""
 }
 
 func clone(n *yaml.Node) *yaml.Node {

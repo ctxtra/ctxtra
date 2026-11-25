@@ -133,6 +133,13 @@ func TestEditorBindings(t *testing.T) {
 			t.Error("the config changed")
 		}
 	})
+	t.Run("true or false written differently", func(t *testing.T) {
+		e := editor(t, NewFile+"sources:\n  a:\n    repo: https://x.example/a.git\n    branch: main\n    check-updates: FALSE\n")
+		added, err := e.Add(Sources, "a", node(t, "{repo: 'https://x.example/a.git', branch: main, check-updates: false}"), Place{})
+		if err != nil || added || e.Changed() {
+			t.Errorf("added %v, err %v", added, err)
+		}
+	})
 	t.Run("a place that isn't there", func(t *testing.T) {
 		e, _ := demoEditor(t)
 		_, err := e.Add(Bindings, "x", node(t, "{skills: [a]}"), Place{After: "nothing"})
@@ -279,46 +286,158 @@ func TestEditorMaps(t *testing.T) {
 	})
 }
 
-// Sections that the text edit can't handle are written again as a whole,
-// and the result is still what was intended.
-func TestEditorSectionStyles(t *testing.T) {
-	tests := []struct{ name, data string }{
-		{"empty flow map", NewFile + "sources: {} # none yet\nbindings: []\n"},
-		{"null", NewFile + "sources:\nbindings:\n"},
-		{"flow map with entries", NewFile + "sources: {a: {dir: ~/a}}\nbindings: [{name: me, skills: ['a:x']}]\n"},
-		{"flow map over lines", NewFile + "sources: {\n  a: {dir: ~/a},\n}\nbindings: [\n  {name: me, skills: ['a:x']},\n]\n"},
-		{"a flow config", "{schema: ctxtra/config/v1, sources: {a: {dir: ~/a}}}\n"},
-		{"items at the key's indentation", NewFile + "sources:\n  a:\n    dir: ~/a\nbindings:\n- name: me\n  skills: ['a:x']\n"},
-		{"a dash on its own line", NewFile + "bindings:\n  -\n    name: me\n    skills: ['a:x']\n"},
-		{"a block scalar", NewFile + "sources:\n  a:\n    dir: |-\n      ~/a\nbindings:\n  - name: me\n    skills:\n      - |+\n        a:x\n\n"},
+// Empty sections get their first entry on the key's line, with the line's
+// comment kept.
+func TestEditorEmptySections(t *testing.T) {
+	tests := []struct{ name, data, want string }{
+		{"empty flow map and list", NewFile + "sources: {} # none yet\nbindings: []\n",
+			NewFile + "sources: # none yet\n  b:\n    dir: ~/b\nbindings:\n  - name: me\n    skills: ['b:x']\n"},
+		{"null", NewFile + "sources:\nbindings: ~\nmax-ctx-chars: 1\n",
+			NewFile + "sources:\n  b:\n    dir: ~/b\nbindings:\n  - name: me\n    skills: ['b:x']\nmax-ctx-chars: 1\n"},
+		{"no section yet", "# mine\nschema: ctxtra/config/v1\nmax-ctx-chars: 1\n",
+			"# mine\nschema: ctxtra/config/v1\nsources:\n  b:\n    dir: ~/b\nbindings:\n  - name: me\n    skills: ['b:x']\nmax-ctx-chars: 1\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := editor(t, tt.data)
-			if _, err := e.Add(Sources, "b", node(t, "{repo: 'https://x.example/b.git', branch: main, check-updates: false}"), Place{}); err != nil {
+			if _, err := e.Add(Sources, "b", node(t, "{dir: ~/b}"), Place{}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := e.Add(Bindings, "first", node(t, "{skills: ['b:y']}"), Place{Before: "me"}); err != nil && !strings.Contains(tt.data, "name: me") {
-				// a config without the binding me
-			} else if err != nil {
+			if _, err := e.Add(Bindings, "me", node(t, "{skills: ['b:x']}"), Place{}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := e.Add(Bindings, "last", node(t, "{skills: ['b:z']}"), Place{}); err != nil {
-				t.Fatal(err)
-			}
-			c := check(t, e)
-			if s := c.Source("b"); s == nil || s.Repo != "https://x.example/b.git" || s.CheckUpdates == nil || *s.CheckUpdates {
-				t.Errorf("source b %+v\n%s", s, e.Bytes())
-			}
-			if err := e.Remove(Bindings, "last"); err != nil {
-				t.Fatal(err)
-			}
-			if err := e.Remove(Sources, "b"); err != nil {
-				t.Fatal(err)
+			if got := string(e.Bytes()); got != tt.want {
+				t.Errorf("got\n%s\nwant\n%s", got, tt.want)
 			}
 			check(t, e)
 		})
 	}
+}
+
+// Layouts that can't be changed line by line are refused: the text stays
+// as it is, and the error says what to write in block style.
+func TestEditorRefusesLayouts(t *testing.T) {
+	tests := []struct {
+		name, data string
+		s          Section
+		want       string
+	}{
+		{"a flow section", NewFile + "sources: {a: {dir: ~/a}}\n", Sources, "write sources in block style"},
+		{"a flow section over lines", NewFile + "bindings: [\n  {name: me, skills: ['a:x']},\n]\n", Bindings, "write bindings in block style"},
+		{"an empty section over lines", NewFile + "sources: {\n}\n", Sources, "write sources in block style"},
+		{"a flow config", "{schema: ctxtra/config/v1, sources: {a: {dir: ~/a}}}\n", Sources, "top-level keys in block style"},
+		{"a flow config over lines", "{\n  schema: ctxtra/config/v1,\n  bindings: []\n}\n", Bindings, "top-level keys in block style"},
+		{"a dash on its own line", NewFile + "bindings:\n  -\n    name: me\n    skills: ['a:x']\n", Bindings, "start each entry on a line of its own (- name: ...)"},
+		{"a block scalar that keeps its last line break", NewFile + "bindings:\n  - name: me\n    skills:\n      - |+\n        a:x\n\n", Bindings, "make the change by hand"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := editor(t, tt.data)
+			before := string(e.Bytes())
+			entry := "{dir: ~/b}"
+			if tt.s == Bindings {
+				entry = "{skills: ['b:y']}"
+			}
+			_, err := e.Add(tt.s, "b", node(t, entry), Place{})
+			if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "nothing changed") {
+				t.Errorf("err %v", err)
+			}
+			if string(e.Bytes()) != before || e.Changed() {
+				t.Errorf("the text changed:\n%s", e.Bytes())
+			}
+		})
+	}
+}
+
+// An entry that the user wrote with an unquoted ! keeps its tag, and so
+// stays left out, whatever the editor writes next to it.
+func TestEditorKeepsUntouchedTags(t *testing.T) {
+	old := NewFile + "bindings:\n  - name: old\n    instructions: [! ~/old.md]\n"
+	e := editor(t, old)
+	if _, err := e.Add(Bindings, "new", node(t, "{instructions: [~/new.md]}"), Place{}); err != nil {
+		t.Fatal(err)
+	}
+	onlyAdded(t, old, string(e.Bytes()), "  - name: new\n    instructions: [~/new.md]\n")
+	c := Parse(e.Bytes(), Options{Agents: agents})
+	if b := c.Binding("old"); b == nil || !b.Broken() {
+		t.Errorf("binding old: %+v\n%s", b, e.Bytes())
+	}
+	// In a flow section the editor can't add next to it without writing it
+	// again, so it refuses.
+	flow := NewFile + "bindings: [{name: old, instructions: [! ~/old.md]}]\n"
+	e = editor(t, flow)
+	if _, err := e.Add(Bindings, "new", node(t, "{instructions: [~/new.md]}"), Place{}); err == nil || string(e.Bytes()) != flow {
+		t.Errorf("err %v\n%s", err, e.Bytes())
+	}
+}
+
+// Every line the editor doesn't change stays byte for byte as it was:
+// comments of each kind, alignment, blank lines and odd spacing.
+func TestEditorKeepsBytes(t *testing.T) {
+	data := "# my config\nschema:   ctxtra/config/v1   # the kind\n\n" +
+		"sources:\n" +
+		"  # the team\n" +
+		"  a: # keep this explanation\n" +
+		"    repo:   'https://x.example/a.git'    # quoted on purpose\n" +
+		"    branch: \"main\"\n" +
+		"  b:\n    dir: ~/b\n" +
+		"  # c is gone for now\n" +
+		"\n" +
+		"bindings:\n" +
+		"- name: me          # mine\n" +
+		"  skills: [ 'b:x' ]\n" +
+		"\n" +
+		"- name: go\n" +
+		"  instructions:\n" +
+		"    - b:go.md       # aligned\n" +
+		"    - '!b:draft.md'\n" +
+		"# the end\n"
+	t.Run("replacing an entry keeps the comment on its key line", func(t *testing.T) {
+		e := editor(t, data)
+		if err := e.Replace(Sources, "a", node(t, "{repo: 'https://x.example/a.git', tag: v2}")); err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Replace(data, "  a: # keep this explanation\n    repo:   'https://x.example/a.git'    # quoted on purpose\n    branch: \"main\"\n",
+			"  a: # keep this explanation\n    repo: https://x.example/a.git\n    tag: v2\n", 1)
+		if got := string(e.Bytes()); got != want {
+			t.Errorf("got\n%s\nwant\n%s", got, want)
+		}
+		if err := e.Replace(Bindings, "me", node(t, "{skills: ['b:y']}")); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(e.Bytes()), "- name: me # mine\n  skills: ['b:y']\n") {
+			t.Errorf("got\n%s", e.Bytes())
+		}
+	})
+	t.Run("adding and removing leave the rest as it is", func(t *testing.T) {
+		e := editor(t, data)
+		if _, err := e.Add(Sources, "c", node(t, "{dir: ~/c}"), Place{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Add(Bindings, "mid", node(t, "{skills: ['c:x']}"), Place{After: "me"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Add(RepoSets, "acme", node(t, "['github.com/acme/**']"), Place{}); err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Replace(data, "    dir: ~/b\n", "    dir: ~/b\n  c:\n    dir: ~/c\n", 1)
+		want = strings.Replace(want, "  skills: [ 'b:x' ]\n\n", "  skills: [ 'b:x' ]\n\n- name: mid\n  skills: ['c:x']\n\n", 1)
+		want = strings.Replace(want, "\nbindings:", "\nrepo-sets:\n  acme:\n    - 'github.com/acme/**'\n\nbindings:", 1)
+		if got := string(e.Bytes()); got != want {
+			t.Errorf("got\n%s\nwant\n%s", got, want)
+		}
+		for _, r := range []struct {
+			s    Section
+			name string
+		}{{RepoSets, "acme"}, {Bindings, "mid"}, {Sources, "c"}} {
+			if err := e.Remove(r.s, r.name); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := string(e.Bytes()); got != data {
+			t.Errorf("removing what was added doesn't give back the file:\n%s", got)
+		}
+	})
 }
 
 func TestEditorRefuses(t *testing.T) {

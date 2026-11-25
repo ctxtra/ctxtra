@@ -398,6 +398,14 @@ func TestLockThatCantBeWritten(t *testing.T) {
 			t.Errorf("err %v", err)
 		}
 	})
+	t.Run("a layout the editor can't change", func(t *testing.T) {
+		flow := "{schema: ctxtra/config/v1, sources: {a: {dir: ~/a}}}\n"
+		f := files(t, flow, "")
+		_, err := f.Add(cfg.Sources, "b", node(t, "{dir: ~/b}"), cfg.Place{})
+		if err == nil || !strings.Contains(err.Error(), "block style") || read(t, f.Config) != flow {
+			t.Errorf("err %v", err)
+		}
+	})
 	t.Run("a config YAML can't read", func(t *testing.T) {
 		bad := cfg.NewFile + "sources: [\n"
 		f := files(t, bad, twoEntries)

@@ -3,6 +3,7 @@ package yamlx
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -110,13 +111,23 @@ func Encode(n *yaml.Node) ([]byte, error) {
 
 // Same reports whether a and b are the same after reading the YAML:
 // formatting, comments and the order of map keys don't count, the order of
-// list items does.
-func Same(a, b *yaml.Node) bool { return equal(a, b, false) }
+// list items does. Scalars compare by what they read as: text by its exact
+// text, other values by their type and value, so false and FALSE are the
+// same.
+func Same(a, b *yaml.Node) bool { return equal(a, b, false, nil, nil) }
 
 // Identical is Same where the order of map keys counts too.
-func Identical(a, b *yaml.Node) bool { return equal(a, b, true) }
+func Identical(a, b *yaml.Node) bool { return equal(a, b, true, nil, nil) }
 
-func equal(a, b *yaml.Node, ordered bool) bool {
+// IdenticalIn is Identical for node a of file da and node b of file db,
+// where a node with a YAML tag also differs from one without, also when
+// the tag is a lone !, which a node doesn't keep. A node without a position
+// has no tag.
+func IdenticalIn(da *Doc, a *yaml.Node, db *Doc, b *yaml.Node) bool {
+	return equal(a, b, true, da.tagged, db.tagged)
+}
+
+func equal(a, b *yaml.Node, ordered bool, ta, tb func(*yaml.Node) bool) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
@@ -129,16 +140,19 @@ func equal(a, b *yaml.Node, ordered bool) bool {
 	if a.Kind != b.Kind || a.ShortTag() != b.ShortTag() || len(a.Content) != len(b.Content) {
 		return false
 	}
+	if ta != nil && ta(a) != tb(b) {
+		return false
+	}
 	switch a.Kind {
 	case yaml.ScalarNode:
-		return a.Value == b.Value
+		return sameScalar(a, b)
 	case yaml.MappingNode:
 		if ordered {
 			break
 		}
 		for i := 0; i+1 < len(a.Content); i += 2 {
 			v := lookup(b, a.Content[i])
-			if v == nil || !equal(a.Content[i+1], v, false) || lookup(a, a.Content[i]) != a.Content[i+1] {
+			if v == nil || !equal(a.Content[i+1], v, false, ta, tb) || lookup(a, a.Content[i]) != a.Content[i+1] {
 				return false
 			}
 		}
@@ -147,18 +161,31 @@ func equal(a, b *yaml.Node, ordered bool) bool {
 		return false
 	}
 	for i := range a.Content {
-		if !equal(a.Content[i], b.Content[i], ordered) {
+		if !equal(a.Content[i], b.Content[i], ordered, ta, tb) {
 			return false
 		}
 	}
 	return true
 }
 
+// sameScalar compares two scalars of the same tag: text by its exact text,
+// other values as YAML decodes them.
+func sameScalar(a, b *yaml.Node) bool {
+	if a.Value == b.Value || a.ShortTag() == "!!str" {
+		return a.Value == b.Value
+	}
+	var va, vb any
+	if a.Decode(&va) != nil || b.Decode(&vb) != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
+}
+
 // lookup is the value of key k in map m, nil when there is none. With a key
 // that is there twice, it is the first.
 func lookup(m, k *yaml.Node) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if equal(m.Content[i], k, true) {
+		if equal(m.Content[i], k, true, nil, nil) {
 			return m.Content[i+1]
 		}
 	}
