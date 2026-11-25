@@ -1,0 +1,27 @@
+schema: ctxtra/lock/v1
+sources:
+  billing-ctx:
+    repo: git@github.com:acme/agent-context.git
+    branch: main
+    subdir: teams/billing
+    commit: 5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f
+  go-style:
+    repo: https://github.com/someone/go-agent-guides.git
+    branch: main
+    commit: 0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c
+  iam-dev:
+    repo: ~/dev/iam-ctx
+    branch: my-change
+    commit: 7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b
+  iam-team:
+    repo: git@github.com:acme/iam-ctx.git
+    branch: main
+    commit: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+  obs-team:
+    repo: https://github.com/acme/observability-ctx.git
+    tag: v1.4.0
+    commit: 4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e
+  security:
+    repo: git@github.com:acme/security-guidelines.git
+    rev: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432
+    commit: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432
