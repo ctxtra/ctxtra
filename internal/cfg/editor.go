@@ -96,9 +96,6 @@ func NewEditor(data []byte) (*Editor, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		data = []byte(NewFile)
 	}
-	if !bytes.HasSuffix(data, []byte("\n")) {
-		data = append(bytes.Clone(data), '\n')
-	}
 	d, err := yamlx.Parse(data, yamlx.ConfigKind)
 	if err != nil {
 		return nil, fmt.Errorf("the config can't be read: %v; fix it first", err)
@@ -275,6 +272,10 @@ func (e *Editor) newEntry(s Section, name string, entry *yaml.Node) (*yaml.Node,
 	if err := yamlx.Prepare(n, flow); err != nil {
 		return nil, fmt.Errorf("%s %s: %v", s.Kind(), name, err)
 	}
+	// Positions of n are in the text it was parsed from, not in the
+	// config's: they would make the check of the result read the wrong
+	// lines.
+	clearPositions(n)
 	if !s.list() {
 		return n, nil
 	}
@@ -515,10 +516,14 @@ func topIndex(root *yaml.Node, k string) int {
 	return len(root.Content) / 2
 }
 
-// lines are the text's lines, each with its line break.
+// lines are the text's lines, each with its line break; the last may have
+// none.
 func (e *Editor) lines() []string {
 	lines := strings.SplitAfter(string(e.data), "\n")
-	return lines[:len(lines)-1]
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 // span is where an entry of a block map or list is in the file, as line
@@ -633,6 +638,9 @@ func splice(lines []string, from, to int, text string) []byte {
 	for _, l := range lines[:from] {
 		b.WriteString(l)
 	}
+	if text != "" && from > 0 && !strings.HasSuffix(lines[from-1], "\n") {
+		b.WriteString("\n")
+	}
 	b.WriteString(text)
 	for _, l := range lines[to:] {
 		b.WriteString(l)
@@ -685,6 +693,8 @@ func lineComment(l string) string {
 		switch {
 		case quote == '"' && c == '\\':
 			i++
+		case quote == '\'' && c == '\'' && i+1 < len(l) && l[i+1] == '\'':
+			i++
 		case quote != 0:
 			if c == quote {
 				quote = 0
@@ -696,6 +706,13 @@ func lineComment(l string) string {
 		}
 	}
 	return ""
+}
+
+func clearPositions(n *yaml.Node) {
+	n.Line, n.Column = 0, 0
+	for _, c := range n.Content {
+		clearPositions(c)
+	}
 }
 
 func clone(n *yaml.Node) *yaml.Node {

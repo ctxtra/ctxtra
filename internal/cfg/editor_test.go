@@ -549,3 +549,69 @@ func TestEditorQuotes(t *testing.T) {
 		}
 	}
 }
+
+// An entry parsed from other text, as from --file, has positions in that
+// text: they never count against the config's own lines.
+func TestEditorEntryFromOtherText(t *testing.T) {
+	data := "# Note: ! entries need quotes\nschema: ctxtra/config/v1\n"
+	e := editor(t, data)
+	n := node(t, "skills: [x]")
+	if n.Line != 1 || n.Column != 1 {
+		t.Fatalf("the parsed entry is at %d:%d; this test needs line 1", n.Line, n.Column)
+	}
+	if _, err := e.Add(Bindings, "me", n, Place{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Replace(Bindings, "me", node(t, "skills: [z]")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(e.Bytes()), data+"bindings:\n  - name: me\n    skills: [z]\n"; got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A # inside a quoted value isn't a comment, also after a quote written
+// twice; the real comment after it is kept.
+func TestEditorReplaceKeepsCommentAfterQuotedHash(t *testing.T) {
+	e := editor(t, NewFile+"sources:\n  a: {dir: '~/it''s # files'} # keep\n  b: {dir: \"~/b \\\" # x\"} # also\n")
+	if err := e.Replace(Sources, "a", node(t, "{dir: ~/a}")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Replace(Sources, "b", node(t, "{dir: ~/b}")); err != nil {
+		t.Fatal(err)
+	}
+	want := NewFile + "sources:\n  a: # keep\n    dir: ~/a\n  b: # also\n    dir: ~/b\n"
+	if got := string(e.Bytes()); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A file whose last line has no line break keeps that line as it is; the
+// break is added only when an entry goes after it.
+func TestEditorLastLineWithoutBreak(t *testing.T) {
+	data := NewFile + "max-ctx-chars: 1"
+	e := editor(t, data)
+	if e.Changed() {
+		t.Error("reading the file changed it")
+	}
+	if _, err := e.Add(Sources, "a", node(t, "{dir: ~/a}"), Place{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(e.Bytes()), NewFile+"sources:\n  a:\n    dir: ~/a\nmax-ctx-chars: 1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	data = NewFile + "bindings:\n  - name: a\n    skills: [x]"
+	e = editor(t, data)
+	if _, err := e.Add(Bindings, "b", node(t, "{skills: [z]}"), Place{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(e.Bytes()), data+"\n  - name: b\n    skills: [z]\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if err := e.Remove(Bindings, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(e.Bytes()); got != data+"\n" {
+		t.Errorf("got %q", got)
+	}
+}
