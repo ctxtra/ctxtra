@@ -28,6 +28,8 @@ jobs:
             target: FuzzConfig
           - package: config
             target: FuzzSourceReference
+          - package: cfg
+            target: FuzzEditor
           - package: manifest
             target: FuzzManifest
           - package: source
