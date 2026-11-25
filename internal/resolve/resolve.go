@@ -107,6 +107,9 @@ type Result struct {
 	// CaseRule is how the session folder's volume compares names, when a
 	// binding compares folders.
 	CaseRule caserule.Rule
+	// RepoErr is why git couldn't tell the session's repository, when a
+	// binding needed it.
+	RepoErr error
 }
 
 // Session loads the config at configPath and resolves it for a session in

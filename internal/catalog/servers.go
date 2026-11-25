@@ -21,15 +21,17 @@ type Server struct {
 }
 
 // Servers are the servers that positive entry e of an mcp-servers list
-// adds, in the order of their declarations. A source's server is served
-// under the config's new name for it, if the config gives one. An entry
-// that names a source whose content can't be used returns *Unavailable.
-func (c *Catalog) Servers(e cfg.Entry) ([]Server, error) {
+// adds, in the order of their declarations, and the errors of what it
+// couldn't add: a config name whose source server can't be used leaves out
+// only that name. A source's server is served under the config's new name
+// for it, if the config gives one. A source whose content can't be used
+// gives *Unavailable.
+func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
 	if e.InSource {
 		return c.sourceServers(e.Source, e.Value, e.Text)
 	}
 	var out []Server
-	var unavailable error
+	var errs []error
 	matched := false
 	for _, s := range c.config.MCPServers {
 		if !nameMatch(e.Value, s.Name) {
@@ -45,38 +47,29 @@ func (c *Catalog) Servers(e cfg.Entry) ([]Server, error) {
 			out = append(out, Server{Server: d, Refs: []string{s.Name}})
 			continue
 		}
-		found, err := c.sourceServers(s.UseSource, s.UseServer, s.Name+" (use "+s.Use()+")")
-		if _, ok := err.(*Unavailable); ok {
-			unavailable = err
-			continue
-		}
-		if err != nil {
-			return out, err
-		}
+		found, ferrs := c.sourceServers(s.UseSource, s.UseServer, s.Name+" (use "+s.Use()+")")
 		out = append(out, found...)
+		errs = append(errs, ferrs...)
 	}
-	switch {
-	case !matched:
-		return nil, fmt.Errorf("the config has no MCP server %s", e.Value)
-	case len(out) == 0 && unavailable != nil:
-		return nil, unavailable
+	if !matched {
+		return nil, []error{fmt.Errorf("the config has no MCP server %s", e.Value)}
 	}
-	return out, nil
+	return out, errs
 }
 
 // sourceServers are the servers of source name that pattern matches; text
 // is the entry for messages.
-func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, error) {
+func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) {
 	s := c.sources[name]
 	switch {
 	case s == nil:
-		return nil, fmt.Errorf("%s: the config has no source %s", text, name)
+		return nil, []error{fmt.Errorf("%s: the config has no source %s", text, name)}
 	case s.State != Active:
-		return nil, &Unavailable{s}
+		return nil, []error{&Unavailable{s}}
 	}
 	m, _ := c.Manifest(s)
 	if m == nil {
-		return nil, fmt.Errorf("%s: source %s has no %s, which declares a source's MCP servers", text, name, manifest.FileName)
+		return nil, []error{fmt.Errorf("%s: source %s has no %s, which declares a source's MCP servers", text, name, manifest.FileName)}
 	}
 	var out []Server
 	matched := false
@@ -100,7 +93,7 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, error) {
 		out = append(out, Server{Server: u, Refs: refs})
 	}
 	if !matched {
-		return nil, fmt.Errorf("%s: source %s declares no MCP server %s", text, name, pattern)
+		return nil, []error{fmt.Errorf("%s: source %s declares no MCP server %s", text, name, pattern)}
 	}
 	return out, nil
 }

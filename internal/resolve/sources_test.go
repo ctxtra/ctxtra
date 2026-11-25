@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -284,4 +285,81 @@ func symlink(t *testing.T, target, link string) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Globs in a dir source: a folder the trust rules refuse leaves out only
+// what is in it, symlinks to trusted folders are followed, and a pattern is
+// read as its clean path.
+func TestDirSourceGlobs(t *testing.T) {
+	t.Run("an untrusted clone inside a dir source", func(t *testing.T) {
+		h := newHome(t)
+		h.write("dotfiles/agents/me.md", "ME")
+		h.repo("dotfiles/agents/team", "git@github.com:acme/team.git")
+		h.write("dotfiles/agents/team/x.md", "THEIRS")
+		h.write("dotfiles/agents/zz/last.md", "LAST")
+		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/**/*.md']}\n")
+		res := start(env, h.dir, "")
+		eq(t, "files", bases(res.Files), "me.md", "last.md")
+		if e := oneError(t, res, "agents/team"); e.Err.Mistake != yamlx.UntrustedFile || strings.Contains(e.Error(), ".ctxtra-glob") {
+			t.Errorf("error %v", e)
+		}
+	})
+
+	t.Run("a symlink to a trusted folder", func(t *testing.T) {
+		h := newHome(t)
+		h.write("dotfiles/agents/me.md", "ME")
+		h.write("notes/go.md", "GO")
+		symlink(t, h.path("notes"), h.path("dotfiles/agents/notes"))
+		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/**/*.md']}\n")
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), "me.md", "go.md")
+	})
+
+	t.Run("a symlink to an untrusted folder", func(t *testing.T) {
+		h := newHome(t)
+		h.write("dotfiles/agents/me.md", "ME")
+		h.repo("dev/clone", "git@github.com:acme/clone.git")
+		h.write("dev/clone/x.md", "THEIRS")
+		symlink(t, h.path("dev/clone"), h.path("dotfiles/agents/clone"))
+		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/**/*.md']}\n")
+		res := start(env, h.dir, "")
+		eq(t, "files", bases(res.Files), "me.md")
+		oneError(t, res, "agents/clone")
+	})
+
+	t.Run("a symlink cycle", func(t *testing.T) {
+		h := newHome(t)
+		h.write("dotfiles/agents/me.md", "ME")
+		symlink(t, h.path("dotfiles"), h.path("dotfiles/agents/loop"))
+		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:**/*.md']}\n")
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), "me.md")
+	})
+
+	t.Run("a folder symlink in a repo source isn't followed", func(t *testing.T) {
+		h := newHome(t)
+		h.write("notes/go.md", "GO")
+		entry := h.accept("team", "https://github.com/acme/team.git", "branch: main", "", commit("a"), map[string]string{"agents/me.md": "ME"})
+		symlink(t, h.path("notes"), filepath.Join(source.GenDir("https://github.com/acme/team.git", commit("a")), "agents", "notes"))
+		env := h.load("sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\nbindings:\n  - {name: b, instructions: ['team:agents/**/*.md']}\n", entry)
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), "me.md")
+	})
+
+	t.Run("a pattern with ./ or ..", func(t *testing.T) {
+		h := newHome(t)
+		h.write("dotfiles/agents/a.md", "A")
+		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n" +
+			"  - {name: dot, instructions: ['dotfiles:./agents/*.md']}\n  - {name: up, instructions: ['dotfiles:agents/../agents/*.md']}\n")
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), "a.md")
+		eq(t, "up's files", trace(t, res, "up").Files)
+		if len(trace(t, res, "dot").Files) != 1 {
+			t.Errorf("dot: %+v", trace(t, res, "dot"))
+		}
+	})
 }

@@ -76,9 +76,11 @@ func (it Item) Ref() string {
 }
 
 // Paths are the files or skill folders that positive entry e of an
-// instructions or skills list adds, sorted. An entry that names a source
-// whose content can't be used returns *Unavailable.
-func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, error) {
+// instructions or skills list adds, sorted, and the errors of what it
+// couldn't add: folders the trust rules refuse leave out only what is in
+// them. An entry that names a source whose content can't be used gives
+// *Unavailable.
+func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, []error) {
 	if !e.InSource {
 		base, rest := c.diskBase(e.Value)
 		root, pattern := path.Dir(rest), path.Base(rest)
@@ -86,26 +88,29 @@ func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, error) {
 			root, pattern = doublestar.SplitPattern(rest)
 		}
 		dir := filepath.Join(base, filepath.FromSlash(root))
-		found, err := c.glob(dir, pattern, kind, true)
+		found, errs := c.glob(dir, pattern, kind, true)
 		items := make([]Item, len(found))
 		for i, rel := range found {
 			items[i] = Item{Path: filepath.Join(dir, filepath.FromSlash(rel))}
 		}
-		return items, err
+		return items, errs
 	}
 	s := c.sources[e.Source]
+	pattern := path.Clean(e.Value)
 	switch {
 	case s == nil:
-		return nil, fmt.Errorf("%s: the config has no source %s", e.Text, e.Source)
+		return nil, []error{fmt.Errorf("%s: the config has no source %s", e.Text, e.Source)}
 	case s.State != Active:
-		return nil, &Unavailable{s}
+		return nil, []error{&Unavailable{s}}
+	case pattern == ".." || strings.HasPrefix(pattern, "../"):
+		return nil, []error{fmt.Errorf("%s: the path leaves its source", e.Text)}
 	}
-	found, err := c.glob(s.Top, e.Value, kind, s.Live())
+	found, errs := c.glob(s.Top, pattern, kind, s.Live())
 	items := make([]Item, len(found))
 	for i, rel := range found {
 		items[i] = Item{Path: filepath.Join(s.Top, filepath.FromSlash(rel)), Source: s.Name, Rel: rel, stored: !s.Live()}
 	}
-	return items, err
+	return items, errs
 }
 
 // diskBase splits a path on disk as the config writes it into the folder it
@@ -178,17 +183,24 @@ func IsUntrusted(err error) bool {
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 
 // glob is what pattern, slash-separated and relative to root, matches, as
-// sorted relative paths. live is a folder read from disk: symlinks are kept
-// for the trust check when the file is read, and folders that the trust
-// rules refuse aren't listed. In ctxtra's store there are no symlinks.
-func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, error) {
-	t := &tree{FS: os.DirFS(root), root: root, trust: c.trust, live: live, left: maxGlobEntries}
+// sorted relative paths. live is a folder read from disk: symlinks are
+// followed, to files for the trust check when the file is read and to
+// folders after it; a folder the trust rules refuse isn't listed, and its
+// error comes with what the rest of the pattern found. In ctxtra's store
+// there are no symlinks, and none is followed.
+func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, []error) {
+	t := &tree{FS: os.DirFS(root), root: root, trust: c.trust, live: live, left: maxGlobEntries,
+		ids: map[string]fileID{}, refusedDirs: map[string]bool{}}
 	what := map[Kind]string{Files: "file", Skills: "skill folder with a SKILL.md"}[kind]
 	if !hasMeta(pattern) {
 		if t.match(pattern, kind) {
-			return []string{path.Clean(pattern)}, nil
+			return []string{pattern}, nil
 		}
-		return nil, fmt.Errorf("%s is not a %s", paths.Tilde(filepath.Join(root, filepath.FromSlash(pattern))), what)
+		return nil, []error{fmt.Errorf("%s is not a %s", paths.Tilde(filepath.Join(root, filepath.FromSlash(pattern))), what)}
+	}
+	opts := []doublestar.GlobOption{doublestar.WithFailOnIOErrors()}
+	if !live {
+		opts = append(opts, doublestar.WithNoFollow())
 	}
 	var found []string
 	err := doublestar.GlobWalk(t, pattern, func(p string, d fs.DirEntry) error {
@@ -196,15 +208,15 @@ func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, er
 			found = append(found, p)
 		}
 		return nil
-	}, doublestar.WithNoFollow(), doublestar.WithFailOnIOErrors())
+	}, opts...)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, append(t.refused, err)
 	}
-	if len(found) == 0 {
-		return nil, fmt.Errorf("%s matches no %s", pattern, what)
+	if len(found) == 0 && len(t.refused) == 0 {
+		return nil, []error{fmt.Errorf("%s matches no %s", pattern, what)}
 	}
 	slices.Sort(found)
-	return found, nil
+	return slices.Compact(found), t.refused
 }
 
 // tree is a folder for glob, with a bound on the entries it visits.
@@ -214,6 +226,44 @@ type tree struct {
 	trust *trust.Policy
 	live  bool
 	left  int
+	// refused are the errors of folders the trust rules refuse, once each.
+	refused     []error
+	refusedDirs map[string]bool
+	// ids are the folders listed, by their path, for finding symlink
+	// cycles.
+	ids map[string]fileID
+}
+
+// fileID is what makes two paths the same folder.
+type fileID struct{ fi os.FileInfo }
+
+func (t *tree) id(name string) (os.FileInfo, bool) {
+	if id, ok := t.ids[name]; ok {
+		return id.fi, id.fi != nil
+	}
+	fi, err := os.Stat(filepath.Join(t.root, filepath.FromSlash(name)))
+	if err != nil {
+		fi = nil
+	}
+	t.ids[name] = fileID{fi}
+	return fi, fi != nil
+}
+
+// cycle reports whether folder name is one of the folders it is in, which
+// a symlink can make: listing it would go round without end.
+func (t *tree) cycle(name string) bool {
+	fi, ok := t.id(name)
+	if !ok || name == "." {
+		return false
+	}
+	for dir := path.Dir(name); ; dir = path.Dir(dir) {
+		if up, ok := t.id(dir); ok && os.SameFile(fi, up) {
+			return true
+		}
+		if dir == "." {
+			return false
+		}
+	}
 }
 
 // match reports whether p is an item of kind: a file, or a folder with a
@@ -261,10 +311,11 @@ func (t *tree) Stat(name string) (fs.FileInfo, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
 	}
-	if name == "." {
-		return os.Stat(t.root)
+	full := filepath.Join(t.root, filepath.FromSlash(name))
+	if name == "." || t.live {
+		return os.Stat(full)
 	}
-	return os.Lstat(filepath.Join(t.root, filepath.FromSlash(name)))
+	return os.Lstat(full)
 }
 
 func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
@@ -274,8 +325,24 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 	if t.live {
 		// A folder the trust rules refuse isn't listed: its file names
 		// could be someone else's too.
-		if err := t.trust.Check(filepath.Join(t.root, filepath.FromSlash(name), ".ctxtra-glob")); err != nil {
-			return nil, &Untrusted{err}
+		dir := filepath.Join(t.root, filepath.FromSlash(name))
+		probe := filepath.Join(dir, ".ctxtra-glob")
+		if err := t.trust.Check(probe); err != nil {
+			var te *trust.Error
+			if errors.As(err, &te) {
+				te.Path = dir
+				if te.Via == probe || filepath.Base(te.Via) == ".ctxtra-glob" {
+					te.Via = filepath.Dir(te.Via)
+				}
+			}
+			if !t.refusedDirs[dir] {
+				t.refusedDirs[dir] = true
+				t.refused = append(t.refused, &Untrusted{err})
+			}
+			return nil, nil
+		}
+		if t.cycle(name) {
+			return nil, nil
 		}
 	}
 	f, err := t.FS.Open(name)

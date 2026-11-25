@@ -79,7 +79,7 @@ func (env *Env) Resolve(in Input) *Result {
 	for _, s := range env.Catalog.Sources() {
 		r.res.Errors = append(r.res.Errors, s.ManifestErrors()...)
 	}
-	r.res.Repo = r.repo
+	r.res.Repo, r.res.RepoErr = r.repo, r.repoErr
 	if m := env.Config.MaxCtxChars; m != nil && *m > 0 {
 		r.res.MaxChars = *m
 		r.res.Fit(func(res *Result) bool { return Chars(res.Render()) <= res.MaxChars }, "max-ctx-chars")
@@ -106,6 +106,7 @@ type session struct {
 	in        Input
 	dir       string
 	repo      *gitrepo.Repo
+	repoErr   error
 	repoKnown bool
 	rule      *caserule.Rule
 	rd        *fsutil.Reader
@@ -115,13 +116,18 @@ type session struct {
 	files, skills, servers map[string]bool
 }
 
-// repository is the session's repository, found once when first needed.
-func (r *session) repository() *gitrepo.Repo {
+// repository is the session's repository, found once when first needed:
+// nil outside git, and an error when git can't tell.
+func (r *session) repository() (*gitrepo.Repo, error) {
 	if !r.repoKnown {
-		r.repo, r.repoKnown = gitrepo.Identify(r.dir), true
+		r.repo, r.repoErr = detectRepo(r.dir)
+		r.repoKnown = true
 	}
-	return r.repo
+	return r.repo, r.repoErr
 }
+
+// detectRepo is gitrepo.Detect; tests make git fail.
+var detectRepo = gitrepo.Detect
 
 // caseRuleOf is caserule.Of; tests set the rule of a volume.
 var caseRuleOf = caserule.Of
@@ -241,12 +247,15 @@ func (c check) holds() bool { return c.present && (!c.positive || c.matched) && 
 // the repository check (repos and repo-sets), joined with OR. A ! entry
 // never crosses checks.
 func (r *session) location(b *cfg.Binding, t *Trace) Condition {
-	l := b.Location
 	c := Condition{Key: "location"}
-	folders := r.dirs(l.Dirs)
+	folders, left := r.dirs(b, t)
+	if left {
+		c.Why = "a ! dirs entry can't be checked"
+		return c
+	}
 	repos, left := r.repos(b, t)
 	if left {
-		c.Why = "a ! repo-sets entry can't be checked"
+		c.Why = "a ! entry of the repository check can't be checked"
 		return c
 	}
 	var why []string
@@ -267,15 +276,23 @@ func (r *session) location(b *cfg.Binding, t *Trace) Condition {
 // dirs is the folder check: the session folder, or its repository's main
 // checkout, against the entries. Folders compare as the session folder's
 // volume does; when that is unknown, positive entries compare exactly and !
-// entries without regard to case, so the binding never applies wider.
-func (r *session) dirs(list []cfg.Entry) check {
-	var k check
+// entries without regard to case, so the binding never applies wider. left
+// is true when git can't tell the main checkout and a ! entry needs it,
+// which leaves out the binding.
+func (r *session) dirs(b *cfg.Binding, t *Trace) (k check, left bool) {
+	list := b.Location.Dirs
 	if len(list) == 0 {
-		return k
+		return k, false
 	}
 	k.present = true
 	folders := []string{filepath.ToSlash(r.dir)}
-	if repo := r.repository(); repo != nil && repo.Root != r.dir {
+	repo, err := r.repository()
+	if err != nil {
+		if e := firstNot(list); e != nil {
+			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "dirs %s can't be checked against the repository's main checkout: %v", e.Text, err)
+			return k, true
+		}
+	} else if repo != nil && repo.Root != r.dir {
 		folders = append(folders, filepath.ToSlash(repo.Root))
 	}
 	rule := r.caseRule()
@@ -303,7 +320,17 @@ func (r *session) dirs(list []cfg.Entry) check {
 	if rule == caserule.Unknown {
 		k.why += " (the folder's case rule is unknown)"
 	}
-	return k
+	return k, false
+}
+
+// firstNot is the first ! entry of list that can be checked, nil if none.
+func firstNot(list []cfg.Entry) *cfg.Entry {
+	for i, e := range list {
+		if e.Not && e.Err == nil {
+			return &list[i]
+		}
+	}
+	return nil
 }
 
 // dirMatch reports whether the folder pattern p matches one of folders.
@@ -340,7 +367,9 @@ func globMatch(pattern, name string) bool {
 }
 
 // repos is the repository check: repos and repo-sets together. left is
-// true when a ! entry can't be checked, which leaves out the binding.
+// true when a ! entry can't be checked, which leaves out the binding: a !
+// repo-sets entry, or any ! entry when git can't tell the repository. Then
+// positive entries match nothing.
 func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
 	l := b.Location
 	if len(l.Repos) == 0 && len(l.RepoSets) == 0 {
@@ -360,24 +389,45 @@ func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
 		k.positive = true
 		r.fail(t, b, e.Pos, yamlx.BrokenLocation, "repo-sets %s can't be read: %v; the entry matches nothing", e.Text, err)
 	}
-	repo := r.repository()
+	repo, err := r.repository()
+	if err != nil {
+		for _, e := range l.Repos {
+			if e.Not && e.Err == nil {
+				r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repos %s can't be checked: %v", e.Text, err)
+				return k, true
+			}
+			k.positive = k.positive || !e.Not
+		}
+		k.why = fmt.Sprintf("repos: the repository can't be told (%v), so no entry matches", err)
+		return k, false
+	}
+	// subNot is a subdirs ! entry that kept an entry from matching.
+	var subNot string
 	for _, e := range l.Repos {
 		if !e.Not {
 			k.positive = true
 		}
-		if e.Err != nil || !repoMatch(e, repo) {
+		if e.Err != nil {
 			continue
 		}
-		if e.Not {
+		hit, not := repoMatch(e, repo)
+		switch {
+		case not != "" && subNot == "":
+			subNot = e.Repo + " subdirs " + not
+		case !hit:
+		case e.Not:
 			k.not = e.Text
-		} else if !k.matched {
+		case !k.matched:
 			k.matched = true
 			k.why = "repos " + e.Text + " matches " + strings.Join(repo.Remotes, ", ")
 		}
 	}
+	if !k.matched && k.not == "" && subNot != "" {
+		k.not = subNot
+	}
 	switch {
 	case k.not != "":
-		k.why = "repos " + k.not + " leaves out " + strings.Join(repo.Remotes, ", ")
+		k.why = fmt.Sprintf("repos %s leaves out %s (folder %s)", k.not, strings.Join(repo.Remotes, ", "), repo.Subpath)
 	case k.matched:
 	case repo == nil && k.positive:
 		k.why = "repos: not in a git repository"
@@ -391,30 +441,30 @@ func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
 
 // repoMatch reports whether e matches the session's repository, through
 // any of its remotes: the repository, and with subdirs the part of it the
-// session starts in.
-func repoMatch(e cfg.RepoEntry, repo *gitrepo.Repo) bool {
+// session starts in. not is the subdirs ! entry that left out that part.
+func repoMatch(e cfg.RepoEntry, repo *gitrepo.Repo) (hit bool, not string) {
 	if repo == nil {
-		return false
+		return false, ""
 	}
 	pat := cfg.RepoID(e.Repo)
 	if !slices.ContainsFunc(repo.Remotes, func(remote string) bool { return globMatch(pat, remote) }) {
-		return false
+		return false, ""
 	}
 	if e.Subdirs == nil {
-		return true
+		return true, ""
 	}
 	positive, matched := false, false
 	for _, s := range e.Subdirs {
-		hit := s.Err == nil && globMatch(path.Clean(s.Value), repo.Subpath)
+		in := s.Err == nil && globMatch(path.Clean(s.Value), repo.Subpath)
 		switch {
-		case s.Not && hit:
-			return false
+		case s.Not && in:
+			return false, s.Text
 		case !s.Not:
 			positive = true
-			matched = matched || hit
+			matched = matched || in
 		}
 	}
-	return !positive || matched
+	return !positive || matched, ""
 }
 
 // add reads what binding b adds: its collections, then its instructions,
@@ -468,10 +518,8 @@ func (r *session) items(b *cfg.Binding, t *Trace, list []cfg.Entry, kind catalog
 		if e.Err != nil || e.Not {
 			continue
 		}
-		found, err := r.env.Catalog.Paths(e, kind)
-		if !r.entryError(b, t, e, err) {
-			continue
-		}
+		found, errs := r.env.Catalog.Paths(e, kind)
+		r.entryErrors(b, t, e, errs)
 		for _, it := range found {
 			if !slices.ContainsFunc(items, func(o catalog.Item) bool { return o.Path == it.Path }) {
 				items = append(items, it)
@@ -489,23 +537,21 @@ func (r *session) items(b *cfg.Binding, t *Trace, list []cfg.Entry, kind catalog
 	})
 }
 
-// entryError records what err says about entry e, and reports whether the
-// entry adds anything.
-func (r *session) entryError(b *cfg.Binding, t *Trace, e cfg.Entry, err error) bool {
-	var u *catalog.Unavailable
-	switch {
-	case err == nil:
-		return true
-	case errors.As(err, &u):
-		if !slices.Contains(t.Unavailable, u.Source.Name) {
-			t.Unavailable = append(t.Unavailable, u.Source.Name)
+// entryErrors records what errs say about entry e.
+func (r *session) entryErrors(b *cfg.Binding, t *Trace, e cfg.Entry, errs []error) {
+	for _, err := range errs {
+		var u *catalog.Unavailable
+		switch {
+		case errors.As(err, &u):
+			if !slices.Contains(t.Unavailable, u.Source.Name) {
+				t.Unavailable = append(t.Unavailable, u.Source.Name)
+			}
+		case catalog.IsUntrusted(err):
+			r.fail(t, b, e.Pos, yamlx.UntrustedFile, "%s: %v", e.Text, err)
+		default:
+			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%v", err)
 		}
-	case catalog.IsUntrusted(err):
-		r.fail(t, b, e.Pos, yamlx.UntrustedFile, "%s: %v", e.Text, err)
-	default:
-		r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%v", err)
 	}
-	return false
 }
 
 // excludes reports whether ! entry e matches it: a SOURCE:PATH pattern by
@@ -555,10 +601,9 @@ func (r *session) addServers(b *cfg.Binding, t *Trace) {
 		if e.Err != nil || e.Not {
 			continue
 		}
-		s, err := r.env.Catalog.Servers(e)
-		if r.entryError(b, t, e, err) {
-			found = append(found, s...)
-		}
+		s, errs := r.env.Catalog.Servers(e)
+		r.entryErrors(b, t, e, errs)
+		found = append(found, s...)
 	}
 	for _, s := range found {
 		if r.serverExcluded(b, t, s) {

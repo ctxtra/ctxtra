@@ -3,6 +3,8 @@ package gitrepo
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,18 +42,33 @@ type Repo struct {
 // Identify returns nil when dir is not inside a git repository, or when git
 // doesn't answer in time: then the session counts as outside git.
 func Identify(dir string) *Repo {
+	r, _ := Detect(dir)
+	return r
+}
+
+// Detect is the repository of dir: nil without an error when dir is not
+// inside a git repository, and nil with an error when git can't tell, such
+// as when it is missing, fails or doesn't answer in time.
+func Detect(dir string) (*Repo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	// One call for both values. --show-toplevel fails in a bare repository;
 	// then ask for the git directory alone.
-	out, ok := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
+	out, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
 	lines := strings.Split(out, "\n")
-	if !ok {
-		out, ok = git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		out, err = git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 		lines = []string{out}
 	}
-	if !ok || lines[0] == "" {
-		return nil
+	switch {
+	case ctx.Err() != nil:
+		return nil, fmt.Errorf("git didn't answer in %v", timeout)
+	case errors.Is(err, errNotRepo):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case lines[0] == "":
+		return nil, errors.New("git rev-parse gave no git directory")
 	}
 	common := paths.Real(lines[0])
 	r := &Repo{Root: common, Subpath: "."}
@@ -73,7 +90,14 @@ func Identify(dir string) *Repo {
 			r.Root = main
 		}
 	}
-	out, _ = git(ctx, dir, "remote", "-v")
+	out, err = git(ctx, dir, "remote", "-v")
+	switch {
+	case ctx.Err() != nil:
+		// A partial answer could match the wrong bindings.
+		return nil, fmt.Errorf("git didn't answer in %v", timeout)
+	case err != nil:
+		return nil, err
+	}
 	for line := range strings.SplitSeq(out, "\n") {
 		if f := strings.Fields(line); len(f) >= 2 {
 			r.Remotes = append(r.Remotes, NormalizeRemote(f[1]))
@@ -81,18 +105,15 @@ func Identify(dir string) *Repo {
 	}
 	slices.Sort(r.Remotes)
 	r.Remotes = slices.Compact(r.Remotes)
-	if ctx.Err() != nil {
-		return nil // a partial answer could match the wrong bindings
-	}
-	return r
+	return r, nil
 }
 
 // submoduleCheckout is the checkout of a submodule, which git records in
 // core.worktree relative to the git directory common. It is "" for other
 // layouts.
 func submoduleCheckout(ctx context.Context, dir, common string) string {
-	wt, ok := git(ctx, dir, "config", "--get", "core.worktree")
-	if !ok || wt == "" {
+	wt, err := git(ctx, dir, "config", "--get", "core.worktree")
+	if err != nil || wt == "" {
 		return ""
 	}
 	if !filepath.IsAbs(wt) {
@@ -130,15 +151,29 @@ func CleanEnv() []string {
 	})
 }
 
-func git(ctx context.Context, dir string, args ...string) (string, bool) {
+// errNotRepo is git's answer for a folder outside every repository.
+var errNotRepo = errors.New("not a git repository")
+
+func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = CleanEnv()
+	// Untranslated messages tell a folder outside git from a failure.
+	cmd.Env = append(CleanEnv(), "LC_ALL=C")
 	// Don't wait for a child process that keeps stdout open after git is
 	// killed.
 	cmd.WaitDelay = 500 * time.Millisecond
 	out, err := cmd.Output()
-	if err != nil {
-		return "", false
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return strings.TrimSpace(string(out)), nil
+	case errors.As(err, &exit) && strings.Contains(string(exit.Stderr), "not a git repository"):
+		return "", errNotRepo
+	case errors.As(err, &exit):
+		msg := strings.TrimSpace(string(exit.Stderr))
+		if i := strings.IndexByte(msg, '\n'); i >= 0 {
+			msg = msg[:i]
+		}
+		return "", fmt.Errorf("git %s: %v: %s", args[0], err, msg)
 	}
-	return strings.TrimSpace(string(out)), true
+	return "", fmt.Errorf("git %s: %w", args[0], err)
 }

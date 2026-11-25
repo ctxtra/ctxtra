@@ -244,6 +244,16 @@ func TestSameNames(t *testing.T) {
 		}
 	})
 
+	t.Run("a broken new name among servers a pattern matches", func(t *testing.T) {
+		h := newHome(t)
+		h.write("team/ctxtra-source.yaml", "schema: ctxtra/source/v1\nmcp-servers:\n  wiki: {url: https://w.example.com/mcp}\n")
+		env := h.load("sources: {team: {dir: ~/team}}\nmcp-servers:\n  asana: {url: https://a.example.com/mcp}\n" +
+			"  jira: {use: 'team:jira'}\n  linear: {url: https://mcp.linear.app/mcp}\nbindings:\n  - {name: x, mcp-servers: ['*']}\n")
+		res := start(env, h.dir, "")
+		eq(t, "served", served(res), "asana", "linear")
+		oneError(t, res, "jira (use team:jira)", "declares no MCP server jira")
+	})
+
 	t.Run("a server a source doesn't declare", func(t *testing.T) {
 		h := newHome(t)
 		h.write("iam/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "iam"))

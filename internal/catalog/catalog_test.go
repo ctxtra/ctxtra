@@ -83,7 +83,7 @@ func TestSourceStates(t *testing.T) {
 	if !slices.Equal(names, []string{"moved", "absent"}) {
 		t.Errorf("errors of %v", names)
 	}
-	_, err := c.Paths(entry("gone:*.md"), Files)
+	_, err := expand(c, "gone:*.md", Files)
 	var u *Unavailable
 	if !errors.As(err, &u) || u.Source.Name != "gone" {
 		t.Errorf("an entry of a source not on this machine: %v", err)
@@ -101,22 +101,22 @@ func TestPaths(t *testing.T) {
 		testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "notes.md"), "n")
 	})
 
-	items, err := c.Paths(entry("dotfiles:agents/**/*.md"), Files)
+	items, err := expand(c, "dotfiles:agents/**/*.md", Files)
 	if err != nil || !slices.Equal(refs(items), []string{"dotfiles:agents/a.md", "dotfiles:agents/deep/b.md"}) {
 		t.Errorf("files %v, %v", refs(items), err)
 	}
-	items, err = c.Paths(entry("dotfiles:skills/*"), Skills)
+	items, err = expand(c, "dotfiles:skills/*", Skills)
 	if err != nil || !slices.Equal(refs(items), []string{"dotfiles:skills/review"}) {
 		t.Errorf("skills %v, %v", refs(items), err)
 	}
-	items, err = c.Paths(entry("notes.md"), Files)
+	items, err = expand(c, "notes.md", Files)
 	if err != nil || len(items) != 1 || items[0].Path != filepath.Join(h, ".config", "ctxtra", "notes.md") {
 		t.Errorf("a path relative to the config: %v, %v", refs(items), err)
 	}
-	if _, err := c.Paths(entry("dotfiles:agents/*.txt"), Files); err == nil || !strings.Contains(err.Error(), "matches no file") {
+	if _, err := expand(c, "dotfiles:agents/*.txt", Files); err == nil || !strings.Contains(err.Error(), "matches no file") {
 		t.Errorf("no match: %v", err)
 	}
-	if _, err := c.Paths(entry("nope:*.md"), Files); err == nil || !strings.Contains(err.Error(), "no source nope") {
+	if _, err := expand(c, "nope:*.md", Files); err == nil || !strings.Contains(err.Error(), "no source nope") {
 		t.Errorf("unknown source: %v", err)
 	}
 	content, err := c.Read(items[0], nil)
@@ -134,7 +134,7 @@ func TestGlobLimit(t *testing.T) {
 			}
 		}
 	})
-	if _, err := c.Paths(entry("dotfiles:**/*.md"), Files); err == nil || !strings.Contains(err.Error(), "10,000") {
+	if _, err := expand(c, "dotfiles:**/*.md", Files); err == nil || !strings.Contains(err.Error(), "10,000") {
 		t.Errorf("a pattern over a large folder: %v", err)
 	}
 }
@@ -151,11 +151,11 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	}
 	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
 	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
-	items, err := c.Paths(entry("team:*.md"), Files)
+	items, err := expand(c, "team:*.md", Files)
 	if err != nil || !slices.Equal(refs(items), []string{"team:a.md"}) {
 		t.Errorf("files %v, %v", refs(items), err)
 	}
-	if _, err := c.Paths(entry("team:b.md"), Files); err == nil {
+	if _, err := expand(c, "team:b.md", Files); err == nil {
 		t.Error("a symlink in a repo source is read")
 	}
 }
@@ -168,7 +168,7 @@ func TestStoreReadOnlyBySourcePath(t *testing.T) {
 	testenv.Write(t, filepath.Join(gen, "a.md"), "a")
 	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
 	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
-	items, err := c.Paths(entry(filepath.Join(gen, "a.md")), Files)
+	items, err := expand(c, filepath.Join(gen, "a.md"), Files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,11 +184,17 @@ func TestGlobCharactersInTheHomeFolder(t *testing.T) {
 		t.Setenv("HOME", home)
 	})
 	home := filepath.Join(h, "a[b]{c}")
-	items, err := c.Paths(entry("~/notes/*.md"), Files)
+	items, err := expand(c, "~/notes/*.md", Files)
 	if err != nil || len(items) != 1 || items[0].Path != filepath.Join(home, "notes", "x.md") {
 		t.Fatalf("items %v, %v", refs(items), err)
 	}
 	if ok, _ := doublestar.Match(c.DiskPattern("~/notes/x*"), filepath.ToSlash(items[0].Path)); !ok {
 		t.Errorf("pattern %s doesn't match %s", c.DiskPattern("~/notes/x*"), items[0].Path)
 	}
+}
+
+// expand is Paths of the entry text, with its errors joined.
+func expand(c *Catalog, text string, kind Kind) ([]Item, error) {
+	items, errs := c.Paths(entry(text), kind)
+	return items, errors.Join(errs...)
 }

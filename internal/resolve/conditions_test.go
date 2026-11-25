@@ -1,10 +1,15 @@
 package resolve
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/caserule"
+	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -202,7 +207,11 @@ func TestConditions(t *testing.T) {
 		h.write("me.md", "me")
 		h.repo("mono", "git@github.com:acme/mono.git")
 		env := h.load("bindings:\n  - {name: b, location: {repos: [{repo: github.com/acme/mono, subdirs: ['!services/legacy/**']}]}, instructions: [~/me.md]}\n")
-		eq(t, "legacy", applied(start(env, h.mkdir("mono/services/legacy/api"), "")))
+		res := start(env, h.mkdir("mono/services/legacy/api"), "")
+		eq(t, "legacy", applied(res))
+		if c := trace(t, res, "b").Conditions[0]; !strings.Contains(c.Not, "!services/legacy/**") || !strings.Contains(c.Why, "!services/legacy/**") {
+			t.Errorf("the trace doesn't name the subdirs exclusion: %+v", c)
+		}
 		eq(t, "billing", applied(start(env, h.mkdir("mono/services/billing"), "")), "b")
 	})
 
@@ -324,5 +333,65 @@ func TestExplainConditions(t *testing.T) {
 		env := h.load("mcp-servers: {linear: {url: https://mcp.linear.app/mcp}}\nbindings:\n  - {name: b, agents: [claude-code], mcp-servers: [linear]}\n")
 		eq(t, "codex", served(start(env, h.dir, "codex")))
 		eq(t, "claude code", served(start(env, h.dir, "claude-code")), "linear")
+	})
+}
+
+// When git can't tell the session's repository, a ! entry that needs it
+// leaves out its binding, and a positive repos entry matches nothing: a
+// binding never reaches a repository it excludes.
+func TestRepositoryCantBeTold(t *testing.T) {
+	const config = "mcp-servers: {linear: {url: https://mcp.linear.app/mcp}}\nbindings:\n" +
+		"  - {name: not-clients, location: {repos: ['!github.com/acme/client-*']}, mcp-servers: [linear]}\n" +
+		"  - {name: acme, location: {repos: [github.com/acme/**]}, mcp-servers: [linear]}\n" +
+		"  - {name: not-client-dirs, location: {dirs: ['!~/clients/**']}, mcp-servers: [linear]}\n" +
+		"  - {name: work, location: {dirs: ['~/work/**']}, mcp-servers: [linear]}\n" +
+		"  - {name: everywhere, mcp-servers: [linear]}\n"
+	check := func(t *testing.T, h *home, dir string) {
+		t.Helper()
+		res := start(h.load(config), dir, "")
+		eq(t, "applied", applied(res), "work", "everywhere")
+		if res.RepoErr == nil {
+			t.Error("no RepoErr")
+		}
+		errs := errorsOf(res, yamlx.BrokenExclusion)
+		if len(res.Errors) != 2 || len(errs) != 2 || !strings.Contains(errs[0].Error(), "binding not-clients") ||
+			!strings.Contains(errs[1].Error(), "binding not-client-dirs") {
+			t.Errorf("errors %v", res.Errors)
+		}
+	}
+	t.Run("missing git", func(t *testing.T) {
+		h := newHome(t)
+		h.repo("work/client-x", "git@github.com:acme/client-x.git")
+		t.Setenv("PATH", t.TempDir())
+		check(t, h, h.path("work/client-x"))
+	})
+	t.Run("remote query failure", func(t *testing.T) {
+		h := newHome(t)
+		h.repo("work/client-x", "git@github.com:acme/client-x.git")
+		realGit, err := exec.LookPath("git")
+		if err != nil {
+			t.Fatal(err)
+		}
+		bin := t.TempDir()
+		testenv.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\ncase \"$*\" in *remote*) echo 'fatal: bad config' >&2; exit 128;; esac\nexec "+realGit+" \"$@\"\n")
+		if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+":/usr/bin:/bin")
+		check(t, h, h.path("work/client-x"))
+	})
+	t.Run("timeout", func(t *testing.T) {
+		h := newHome(t)
+		h.repo("work/client-x", "git@github.com:acme/client-x.git")
+		old := detectRepo
+		detectRepo = func(string) (*gitrepo.Repo, error) { return nil, errors.New("git didn't answer in 3s") }
+		t.Cleanup(func() { detectRepo = old })
+		check(t, h, h.path("work/client-x"))
+	})
+	t.Run("outside git, the same bindings apply", func(t *testing.T) {
+		h := newHome(t)
+		res := start(h.load(config), h.mkdir("work/notes"), "")
+		noErrors(t, res)
+		eq(t, "applied", applied(res), "not-clients", "not-client-dirs", "work", "everywhere")
 	})
 }
