@@ -4,7 +4,6 @@
 package lock
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -218,16 +217,7 @@ func Format(entries []*Entry, c *cfg.Config) ([]byte, error) {
 	if len(keep) > 0 {
 		addNode(root, "sources", sources)
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return nil, err
-	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return yamlx.Encode(root)
 }
 
 // check says what makes e incomplete.
@@ -249,10 +239,8 @@ func check(e *Entry) error {
 	return nil
 }
 
-func add(m *yaml.Node, key, value string) {
-	addNode(m, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
-}
+func add(m *yaml.Node, key, value string) { addNode(m, key, yamlx.Text(value)) }
 
 func addNode(m *yaml.Node, key string, value *yaml.Node) {
-	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+	m.Content = append(m.Content, yamlx.Text(key), value)
 }
