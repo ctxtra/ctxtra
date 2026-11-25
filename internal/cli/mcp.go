@@ -198,7 +198,7 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 	}
 	reuse := existing != nil
 	if reuse && (o.clientSecret || o.signIn.callbackPort != 0) {
-		return fail(fmt.Errorf("%s already has credentials shared by other configs and agents; add does not replace secrets or callback settings. Add without --client-secret and --callback-port, then use ctxtra mcp login %s to change them", name, name))
+		return fail(fmt.Errorf("%s already has credentials shared by agent sessions; add does not replace secrets or callback settings. Add without --client-secret and --callback-port, then use ctxtra mcp login %s to change them", name, name))
 	}
 	var secrets secretValues
 	filled := false

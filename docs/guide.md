@@ -105,7 +105,7 @@ ctxtra setup                      # every agent found on this machine, or --agen
 
 `setup` adds hooks that run the binary you started it from, by its full path: agents started from the Dock
 often don't have `~/go/bin` in their `PATH`. It changes only its own hook entries and backs up each file it
-changes to `~/.ctxtra/backups`. Setup and config edits keep the latest three backups per original file,
+changes to `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original file,
 pruning only after a successful change. The latest backup is reused when its content is unchanged.
 Cleanup is best effort: if an older backup cannot be removed, extra copies stay without failing the
 config change. Import backups are not pruned. Older config backups without a
@@ -147,7 +147,7 @@ risks of source repositories that other people push to. `ctxtra setup` prints th
 
 ```bash
 ctxtra skill show ctxtra      # the skill's files, exactly as the agents get them
-ctxtra skill install ctxtra   # writes it to ~/.ctxtra/skills/ctxtra, and adds a binding for it to your config
+ctxtra skill install ctxtra   # writes it to ~/.local/share/ctxtra/skills/ctxtra, and adds a binding for it to your config
 ```
 
 The binding is an ordinary one, named `ctxtra`, with `match: {global: true}`: `ctxtra binding remove ctxtra`
@@ -174,8 +174,8 @@ tests:
 
 Files that replace an agent's own system prompt or persona (Pi's `SYSTEM.md`, Hermes's `SOUL.md`) and files the
 agent writes itself (Hermes's `memories/`) stay where they are. `ctxtra import` copies the files to
-`~/.ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude` then starts that
-agent in `~/.ctxtra/import`, in your terminal, with a prompt that lists the files and the backup. Every agent
+`~/.local/state/ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude` then starts that
+agent in `~/.local/state/ctxtra/import`, in your terminal, with a prompt that lists the files and the backup. Every agent
 above except DSH, whose app is a web page, can be started, and so can Hermes. The agent follows the skill
 (install it first): it merges rules that repeat, asks about rules that fit only one agent, shows you the new
 file, and binds it. Then it recommends removing the moved rules from the old files, so that your agents don't
@@ -185,10 +185,19 @@ permissions and never with flags that skip them. When you ask an agent to import
 runs `ctxtra import` and does the rest itself.
 
 The skill is part of the binary: each version has a fixed text, which `ctxtra skill show ctxtra` shows. When you upgrade
-ctxtra, the hook of the next session writes the new version to `~/.ctxtra/skills/ctxtra`, and the same for
+ctxtra, the hook of the next session writes the new version to `~/.local/share/ctxtra/skills/ctxtra`, and the same for
 ctxtra's other skills that you installed. Antigravity asks before it reads the skill there (see [Limits](#limits)).
 
 ## Configure
+
+ctxtra reads one file: `~/.config/ctxtra/config.yaml`, or `$XDG_CONFIG_HOME/ctxtra/config.yaml` when
+`XDG_CONFIG_HOME` is absolute. There is no `--config` flag or `CTXTRA_CONFIG` override.
+
+On Linux and macOS, accepted source content and installed skills live in `~/.local/share/ctxtra`, local
+state and backups in `~/.local/state/ctxtra`, and git clones in `~/.cache/ctxtra`. Absolute `XDG_DATA_HOME`,
+`XDG_STATE_HOME` and `XDG_CACHE_HOME` values replace those parent folders. Empty or relative values use the
+defaults. `ctxtra doctor` shows all four folders. Clearing the cache does not change session content.
+Codex passes these variables to the MCP proxy; Muse records their values during setup.
 
 `~/.config/ctxtra/config.yaml`:
 
@@ -282,7 +291,7 @@ reads only DIR, not your config, and runs nothing, so it works in CI ([example](
 It exits with 1 on an error; a glob that matches nothing is a warning. It doesn't check what the files say,
 or whether they fit a user's agent.
 
-Every hook run is logged to `~/.ctxtra/log.jsonl`. Past 1 MiB, the log moves to `log.jsonl.1`, replacing the
+Every hook run is logged to `~/.local/state/ctxtra/log.jsonl`. Past 1 MiB, the log moves to `log.jsonl.1`, replacing the
 older one; `doctor` reads both. The hook never blocks a session: on any error it adds nothing and logs the
 error.
 
@@ -354,10 +363,10 @@ ctxtra setup
 ```
 
 Run add in your own terminal. It authorizes in your browser if needed; then start a new matching agent session.
-If another config already uses the same identity and target, add reuses its shared credentials without
+If credentials already exist for the same identity and target, add reuses them without
 authorizing again. It reports that reuse. If your definition declares secret names that have no stored value, add
 asks for those values only and adds them to the shared credentials. It keeps the stored values and the sign-in.
-Other configs send only the secrets they declare, so they don't change. Add rejects `--client-secret` and
+Servers receive only the secrets their definitions declare. Add rejects `--client-secret` and
 `--callback-port` in that case; add the definition without those flags, then use login to change the shared
 credentials.
 The definition, sign-in, binding and agent setup are separate. Adding another remote server needs its own sign-in
@@ -400,7 +409,7 @@ Setup keeps existing native entries for the same provider, so both tool sets can
 - Codex: add `default_tools_approval_mode = "approve"` to the `[mcp_servers.ctxtra-proxy]` table; setup keeps it.
 - Antigravity: an allow rule `mcp(ctxtra-proxy/*)`.
 
-ctxtra keeps the servers' secret values, such as an API token, encrypted in `~/.ctxtra/mcp`, with the key in
+ctxtra keeps the servers' secret values, such as an API token, encrypted in `~/.local/state/ctxtra/mcp`, with the key in
 your OS keychain. Without a keychain, for example on a Linux server, the key is a file there, and ctxtra warns
 that any process of yours can read the credentials.
 
@@ -427,15 +436,15 @@ ctxtra mcp logout linear_work               # deletes the sign-in on this machin
   when `--secrets` asks for new values. Start new sessions after switching accounts; login does not reset an agent's
   conversation or a provider's open session. Restart local servers after rotating environment secrets.
 - A shorter configured scope list does not revoke old permissions. Provider access and agent tool rules are separate.
-- Another config with the same identity, origin and target shares the sign-in. Add cannot silently replace its
-  credentials with another target; explicit login replacement asks first and affects all configs sharing that identity.
+- Agent sessions share the sign-in for an identity, origin and target. Add cannot silently replace its
+  credentials with another target; explicit login replacement asks first and affects new sessions using that identity.
   To replace after a refused add, declare the intended definition in your config, then run `login REF`.
   If the new endpoint needs neither sign-in nor secret values, login leaves the old credentials alone and reports
   how to delete the old sign-in with `logout REF`.
 - `logout` doesn't tell the provider or withdraw connection approval. Remove the grant in the provider's settings
   to end it there. `mcp remove` cannot edit package definitions. Source removal keeps credentials and prints explicit
-  cleanup commands; another config may still use them. Removing credentials also cancels pending logins for that
-  identity, including logins started from another config. A small, secret-free cancellation marker remains locally.
+  cleanup commands. Removing credentials also cancels pending logins for that
+  identity, including logins started by another process. A small, secret-free cancellation marker remains locally.
 - On another machine, restore source content, approve pinned servers there, sign in and run setup. Config and source
   copies do not transfer credentials or machine-local approval. Source aliases and origins are part of the binding;
   renaming a source or converting it to trusted requires a new sign-in, not copied refresh tokens.
@@ -449,7 +458,7 @@ What to keep in mind:
   reads it too.
 - ctxtra's MCP proxy sees every tool call and its result, and passes them on. Its log has neither, only
   which servers started and how calls failed.
-- Without a keychain, a backup of `~/.ctxtra/mcp` holds the key of your credentials too.
+- Without a keychain, a backup of `~/.local/state/ctxtra/mcp` holds the key of your credentials too.
 - A server under a certificate you trust yourself can use keys smaller than NIST's minimums. To refuse
   them, run ctxtra with `GODEBUG=fips140=on`: see [Key lengths](spec.md#key-lengths).
 - ctxtra will later sign in as an app described by a file on its own domain, which authorization servers
@@ -464,7 +473,7 @@ waits for it: 1.5 seconds in Claude Code (later tools follow in its interactive 
 in the others. One slow server holds back the first tool list of all of them until then. A server that starts
 slower, such as one run with `npx`, can be missing from that session. In Codex, the
 `ctxtra` server is required: if the ctxtra binary moves, Codex doesn't start until you run `ctxtra setup` again.
-Logs are in `~/.ctxtra/log.jsonl`.
+Logs are in `~/.local/state/ctxtra/log.jsonl`.
 
 ## Limits
 
@@ -493,15 +502,13 @@ Logs are in `~/.ctxtra/log.jsonl`.
 - A subagent gets the files when it starts, so it can see a newer version than its parent.
 - Codex asks you to trust a hook again after every change to it, for example after the binary moved.
   `doctor` shows whether a trust record exists, but can't tell whether it is for the current hook.
-- Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Run setup with your chosen
-  `CTXTRA_CONFIG`: both use that recorded path when the variable is absent. Without a record, they use the
-  default config. Hooks use the default log path. The MCP entry copies `CTXTRA_LOG` at setup time. Muse cannot
-  inherit shell proxy or certificate settings, a Linux keychain session, or local servers' `env-pass` values.
-  Use explicit non-secret `env` values or stored `secret-env` values for local servers. Start a new Muse session
-  after signing in to an MCP server. To inspect Muse's recorded config with `context`, `doctor` or `mcp status`,
-  pass `--config FILE` or set `CTXTRA_CONFIG`; CLI diagnostics do not select it automatically.
-  A resumed Muse session runs the hook again, and
-  Muse replaces the earlier text with the current version of the files.
+- Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Setup records the four
+  XDG folder values in both entries. After changing one, run `ctxtra setup --agent muse`; `doctor` reports
+  stale values. Hooks use the log in the state folder. The MCP entry also copies `CTXTRA_LOG` at setup time.
+  Muse cannot inherit shell proxy or certificate settings, a Linux keychain session, or local servers'
+  `env-pass` values. Use explicit non-secret `env` values or stored `secret-env` values for local servers.
+  Start a new Muse session after signing in to an MCP server. A resumed session runs the hook again and
+  replaces the earlier text with the current files.
 - Devin: the hook goes into `~/.config/devin/config.json`, which Devin CLI and Devin Desktop's agent both
   read. Devin has no subagent hook. It allows comments in that file; `setup` leaves such a file alone. Devin
   also runs the hooks in `~/.claude/settings.json`: with both set up, Claude's hook adds nothing in Devin

@@ -19,8 +19,8 @@ stdout '^executable files: skills/deploy/run.sh$'
 grep '^    commit: ''[0-9a-f]{40}''$' .config/ctxtra/config.yaml
 runhook claude SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
-stdout 'Contents of .*/.ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/services-overview.md'
-stdout '<location>.*/.ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/skills/deploy/SKILL.md</location>'
+stdout 'Contents of .*/.local/share/ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/services-overview.md'
+stdout '<location>.*/.local/share/ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/skills/deploy/SKILL.md</location>'
 
 # A binding file in the source can't reach your files.
 exec ctxtra binding-file add ctxtra://team-ctx/bindings/evil.yaml
@@ -88,7 +88,7 @@ grep '^  - bindings.yaml  # mine$' .config/ctxtra/config.yaml
 
 # A new laptop: the config is there, the store isn't. Restore fetches the
 # accepted commit, not the branch.
-rm .ctxtra
+rm .local/share/ctxtra .cache/ctxtra .local/state/ctxtra
 runhook claude SessionStart notes
 ! stdout 'CTXMARK'
 ! exec ctxtra doctor notes

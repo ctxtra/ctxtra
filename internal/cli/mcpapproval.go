@@ -37,7 +37,7 @@ func (a *app) removeMCPLeftover(ref string, dryRun bool) error {
 		if err := creds.Open().Delete(upstream.Server{ID: ref, Name: ref}); err != nil {
 			return err
 		}
-		fmt.Fprintf(a.Out, "deleted leftover credentials of %s; other configs sharing this identity are affected too\n", ref)
+		fmt.Fprintf(a.Out, "deleted leftover credentials of %s\n", ref)
 		return nil
 	})
 }

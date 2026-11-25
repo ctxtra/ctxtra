@@ -19,9 +19,27 @@ For how this is meant to be used, step by step, see [scenarios.md](scenarios.md)
 Instruction files are plain Markdown. Skills are folders with a `SKILL.md`, the same format other agent
 tools use. Neither has anything specific to ctxtra.
 
+## File locations
+
+These defaults apply on Linux and macOS. An XDG variable applies only when its value is an absolute path.
+The hook, MCP proxy and background checks use the same folders. `ctxtra doctor` shows all four and the config file.
+
+| Folder | Default | Variable | Holds |
+|---|---|---|---|
+| Config | `~/.config/ctxtra` | `XDG_CONFIG_HOME` | `config.yaml` |
+| Data | `~/.local/share/ctxtra` | `XDG_DATA_HOME` | accepted source content and installed skills |
+| State | `~/.local/state/ctxtra` | `XDG_STATE_HOME` | write locks, setup records, backups, MCP approvals and credentials, update results, hook slots and logs |
+| Cache | `~/.cache/ctxtra` | `XDG_CACHE_HOME` | git clones for fetching and review |
+
+Each variable supplies the parent folder; ctxtra appends `ctxtra`. Relative and empty values use the default.
+Sessions never read the cache. Deleting it changes no session content; the next fetch downloads again.
+Deleting data removes downloaded content and installed skills. Deleting state removes approvals,
+credentials, setup records and update results. `CTXTRA_LOG` still overrides the log file.
+
 ## Config
 
-`~/.config/ctxtra/config.yaml`, or the file in `$CTXTRA_CONFIG`.
+`config.yaml` in the config folder: `~/.config/ctxtra/config.yaml` by default.
+There is one config path. `$CTXTRA_CONFIG` and `--config` are not supported.
 
 ```yaml
 schema: ctxtra/v1
@@ -181,7 +199,7 @@ included ctxtra://team-ctx/bindings/billing.yaml
   upstream, needs `--remote` or `--branch`.
 - Paths under the clone in your own bindings keep working, and are served from the source:
   `~/dev/team-ctx/jira-ticket.md` is `ctxtra://team-ctx/jira-ticket.md`, also after the clone moves or is
-  deleted. `doctor` suggests the `ctxtra://` form. This mapping is kept in `~/.ctxtra/mappings.json`, by
+  deleted. `doctor` suggests the `ctxtra://` form. This mapping is kept in `~/.local/state/ctxtra/mappings.json`, by
   the source's name and URL; it is never guessed from a matching remote. A `trusted-path` source that covers
   the folder comes first.
 - A missing file under the clone is skipped, not read from disk. When the source is removed, renamed or its
@@ -367,7 +385,7 @@ Accepting it is still your choice.
 The commands that change the config change it as text: they replace the `commit` value or add lines, and keep your
 comments and layout. In a flow-style map (`{...}`) they write the file again from its YAML, which keeps
 comments but not the layout. A changed config is checked before it is written, written atomically, and the
-old one is kept in `~/.ctxtra/backups`. Setup and config edits keep the latest three backups per original
+old one is kept in `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original
 file, pruning only after the config is successfully replaced or removed. Cleanup is best effort: a
 cleanup error can leave extra copies, but does not turn a completed config change into a failed one.
 If the latest backup has the same content, it is reused. New backup names contain a SHA-256 hash of the
@@ -381,8 +399,8 @@ waited for your answer, nothing is accepted.
 
 ### Store
 
-- `~/.ctxtra/git/<id>.git`: a bare repository per source.
-- `~/.ctxtra/store/<id>/<commit>/`: the files of each accepted commit, and of each commit `source update` showed you,
+- `~/.cache/ctxtra/git/<id>.git`: a bare repository per source.
+- `~/.local/share/ctxtra/store/<id>/<commit>/`: the files of each accepted commit, and of each commit `source update` showed you,
   private and read-only. Sessions
   read only these, and only through `ctxtra://`: a plain path into the store is an error, because a
   pinned source's binding file read that way could reference any file. A missing commit is reported
@@ -390,15 +408,13 @@ waited for your answer, nothing is accepted.
   applies.
 - `<id>` comes from the URL: a source whose URL changes doesn't use the old data.
 - A commit is deleted from the store 30 days after the last session that used it started (`source update`
-  cleans up). The accepted commits are never deleted: of this config, and of every config that a ctxtra
-  command changed (with `$CTXTRA_CONFIG`, for example), listed in `~/.ctxtra/configs.json`. If one of those, or that
-  list, can't be read, nothing is deleted. A session marks a commit as used before it reads from it; while
+  cleans up). The accepted commits in the config are never deleted. If the config
+  cannot be read, nothing is deleted. A session marks a commit as used before it reads from it; while
   cleaning decides about that commit, the session waits up to a second, and else skips the source's files
   for this session. A session that runs longer than 30 days on an old commit can lose its skill files.
-- `~/.ctxtra/state.json`: per source, the last fetch, the dismissed commit and what the update checks found;
+- `~/.local/state/ctxtra/state.json`: per source, the last fetch, the dismissed commit and what the update checks found;
   what the release check found. Losing it loses the notices.
-- `~/.ctxtra/mappings.json`: the folders of clones added as git sources (above). `~/.ctxtra/configs.json`:
-  the config files that ctxtra commands changed.
+- `~/.local/state/ctxtra/mappings.json`: the folders of clones added as git sources (above).
 
 ### How ctxtra runs git
 
@@ -623,7 +639,7 @@ before starts with `Contents of PATH, continued (part 2 of 4):`. A part ends bef
 is left, else at a line end; a line longer than a part is split between characters.
 
 Claude Code and Muse run the hooks of an event at once. The first one resolves the session and writes the
-parts to `~/.ctxtra/slots/`, readable by you only; the others read them there, so the session is resolved
+parts to `~/.local/state/ctxtra/slots/`, readable by you only; the others read them there, so the session is resolved
 and logged once. The hook input doesn't tell two session starts of the same session, event and source
 apart, for example two `/clear` in a row, or a retry after a start that didn't finish. So the parts are
 pinned: a hook that starts within 3 seconds after they were written, or after a hook last read them, uses
@@ -730,7 +746,7 @@ approval. Trusted sources read their manifests live without either pinned-source
 ### The session's servers
 
 - The proxy's working directory when the agent starts it is the session folder. The proxy resolves bindings for
-  it with the same rules and the same config as the hook (`$CTXTRA_CONFIG` or the default file), so `dirs`,
+  it with the same rules and the same config as the hook (the config folder's `config.yaml`), so `dirs`,
   `repos` with `subpath`, and worktrees work the same. It never asks the agent for roots.
 - The servers are fixed when the proxy starts, like the agents' own MCP servers. Changing directory, adding
   folders during the session (for example `/add-dir`), ctxtra-follow and config changes add or remove none.
@@ -775,7 +791,7 @@ that exits then stops.
 ### Network and logs
 
 The hook never uses the network. The proxy connects only to the bound remote servers and their authorization
-servers. It logs to ctxtra's log (`$CTXTRA_LOG` or `~/.ctxtra/log.jsonl`) with the agent's name: its start,
+servers. It logs to ctxtra's log (`$CTXTRA_LOG` or `~/.local/state/ctxtra/log.jsonl`) with the agent's name: its start,
 the session folder, the bound servers, the number of config problems (`ctxtra doctor` lists them), each
 server's connection, late servers, servers that end during the session and how each local server's process
 ended, and its own end. It never logs tool arguments, results, secrets or config
@@ -884,7 +900,7 @@ the last session here (codex, 2026-11-10 14:08:19):
 "waits up to" is the agent's deadline. A record of an older version has only that. Credential times under 10 ms
 aren't shown.
 
-The records are in `~/.ctxtra/mcp/status`, one per folder, so a session in one folder never changes another's.
+The records are in `~/.local/state/ctxtra/mcp/status`, one per folder, so a session in one folder never changes another's.
 
 The agent learns it too: the proxy's instructions (the MCP `instructions` field, which it sends after waiting
 at most half a second for the folder's servers) name the bound servers and say to run `ctxtra mcp status` when
@@ -896,7 +912,7 @@ warning for a key file.
 
 ### Credentials
 
-A server's secret values, its OAuth client registration and its tokens are stored in `~/.ctxtra/mcp`, never in
+A server's secret values, its OAuth client registration and its tokens are stored in `~/.local/state/ctxtra/mcp`, never in
 the config or in an agent's config. ctxtra asks for secret values in the terminal without showing them, or
 reads them from stdin, one per line.
 
@@ -935,7 +951,7 @@ need no migration. Git origin uses the remote spelling, local-git its clone iden
 commit is excluded. Renaming a source, replacing its origin or converting it to trusted does not migrate credentials.
 No command copies rotating refresh grants between identities.
 
-Two configs (`$CTXTRA_CONFIG`) with the same identity, origin and target share credentials. Use different names or
+Server declarations with the same identity, origin and target share credentials. Use different names or
 source aliases for separate accounts. Add rejects a conflicting stored binding before changing config, secrets or
 callback settings. For a matching stored binding, add reuses the shared record without starting authorization, and
 reports that reuse. It asks only for declared secret names the record has no value for, and merges them into the
@@ -957,8 +973,8 @@ metadata escape terminal control characters. JSON catalog output preserves the m
 
 Removing a config server deletes its credentials and reports dangling bindings. Package definitions are read-only
 to mcp remove. Removing a source removes its includes, reports remaining references and cleanup commands, but keeps
-credentials because another config may use them. `mcp remove SOURCE/NAME` can delete leftover credentials once that
-identity is undeclared in the selected config. That deletion can still affect another config sharing the identity.
+credentials for explicit cleanup. `mcp remove SOURCE/NAME` can delete leftover credentials once that
+identity is undeclared in the config. Existing sessions can still use those credentials until restarted.
 It is not provider-side grant revocation. Logout without a stored credential record only advances cancellation
 history and clears local sign-in state. It does not create a placeholder binding.
 
@@ -994,24 +1010,16 @@ keeps one that is there; `--remove` removes it.
 | Muse | `~/.config/muse/settings.json` (`$XDG_CONFIG_HOME/muse/settings.json`) | `mcpServers.ctxtra-proxy: {type: stdio, command, args, mode: optional, env}`; top-level `schema_version: 1` when absent |
 | Antigravity | `~/.gemini/config/mcp_config.json` | `mcpServers.ctxtra-proxy: {command, args}` |
 
-Muse clears the environment of hooks and MCP servers. Setup records the absolute ctxtra config path per agent
-in `~/.ctxtra/setup.json`. Muse hooks and its proxy use the last successful setup's config when `CTXTRA_CONFIG`
-is absent, otherwise that explicit override wins. Older setups without a record use the default config.
-A missing recorded config adds nothing; it does not fall back to a different config. Dry runs and failed agent
-setups do not change the record. Removing the matching setup clears it.
+Muse clears the environment of hooks and MCP servers. Setup records the four `XDG_*` values in its hook
+commands and MCP entry. Both processes then find the same folders as the shell that ran setup. `doctor`
+reports a recorded value that differs from the current shell, with `ctxtra setup --agent muse` to refresh it.
 
-Muse's entry has `env`, with setup-time values of `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
-Setup expands `~` and makes the log path absolute, so logs do not go into session folders. Setup owns only
-those two keys inside `env` and keeps user-added keys. The proxy starts no update checks, so its copied
-`CTXTRA_NO_UPDATE_CHECK` has no effect on Muse's hooks. It does not copy secret `env-pass` values,
-proxy or certificate variables, or Linux Secret Service variables. Muse therefore cannot inherit a shell proxy,
-custom certificate paths, a Linux keychain session, or local servers' `env-pass` values. Use explicit non-secret
-`env` settings or encrypted `secret-env` declarations for local servers. Its first tool list is fixed; start a
-new session after signing in. Muse hooks still use the default log path.
-
-CLI diagnostics (`context`, `doctor`, `mcp status`) and setup notices do not select Muse's recorded config
-automatically. Pass `--config FILE` or set `CTXTRA_CONFIG` to inspect the same config as Muse.
-Background update checks use the config selected by the hook, including Muse's recorded path.
+Muse's MCP entry also copies setup-time `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
+Setup expands `~` and makes the log path absolute. Setup owns these keys and the four XDG keys inside `env`,
+and keeps user-added keys. It does not copy secret `env-pass` values, proxy or certificate variables,
+or Linux Secret Service variables. Use explicit non-secret `env` settings or encrypted `secret-env`
+declarations for local servers. Start a new session after signing in. Hooks use the log in the state folder.
+Background checks inherit the hook's XDG values.
 
 Agents write these files themselves too (Claude Code often writes `~/.claude.json`): when a file changes
 between setup's read and its write, setup makes its edit again on the new content, so the agent's change stays.
@@ -1034,8 +1042,8 @@ rewrites only its own keys' lines in the block, and keeps the rest of the file b
 the block, keys you added to ctxtra's table after it, and `[mcp_servers.ctxtra-proxy.*]` tables. Before it writes,
 it checks that the new file is valid TOML and says the same as the old one but for those keys; otherwise it
 changes nothing, because Codex refuses an invalid config. Codex starts MCP servers with an allow-listed
-environment, so `env_vars` lists ctxtra's variables (`CTXTRA_CONFIG`, `CTXTRA_LOG`, plus the unused legacy
-`CTXTRA_EXPERIMENTAL_MCP` name for setup compatibility),
+environment, so `env_vars` lists the four XDG folder variables, `CTXTRA_LOG`, plus the unused legacy
+`CTXTRA_EXPERIMENTAL_MCP` name for setup compatibility,
 the Secret Service's (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`), the proxy and certificate variables, and
 every local server's `env-pass` names. `startup_timeout_sec` is 30, and `required = true`: Codex waits about 1
 second for an optional server's tools, and for a required one up to `startup_timeout_sec`. A required server that
@@ -1069,7 +1077,7 @@ doesn't:
   `ctxtra mcp proxy` in another folder, or run `ctxtra mcp` commands, and use every server of the config.
 - **Any process of the user can read the credentials,** through the keychain's command-line tool or the key
   file. With the key in the keychain, encryption protects them from backups, sync tools and casual reads, as
-  the agents' own sign-ins are. With a key file, a backup or sync of `~/.ctxtra/mcp` holds the key too, and
+  the agents' own sign-ins are. With a key file, a backup or sync of `~/.local/state/ctxtra/mcp` holds the key too, and
   whoever gets it can read every credential.
 - **The proxy sees every call and its result,** and forwards them. It logs neither: only which servers
   started, how they ended, and failed calls by their kind or code, with URLs cut to their origin.
@@ -1170,7 +1178,7 @@ shows the same lines under each agent instead:
 | A setup is gone from its file | `claude: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice` |
 | An agent was found since the last setup | `cursor: found since the last ctxtra setup; to add ctxtra to it, run ctxtra setup --agent cursor` |
 
-A new agent is told about once: ctxtra then adds it to `detected` in `~/.ctxtra/setup.json`, unless a setup
+A new agent is told about once: ctxtra then adds it to `detected` in `~/.local/state/ctxtra/setup.json`, unless a setup
 is running or the file can't be written, and then tells again next time. `doctor` still lists it as not set
 up. Each command names its agent, so a repair doesn't set up agents you left out, and a command that changes
 Codex's hooks says that Codex will ask to trust them. The binary isn't compared when this ctxtra runs from a
@@ -1178,13 +1186,12 @@ temporary folder (`go run`). Apart from that record, the notices only read files
 16 MiB, so a FIFO or a huge file in place of a config is one line that it can't be checked, never a command
 that hangs.
 
-`setup` records in `~/.ctxtra/setup.json` where it set up each agent (`installed`, by config path, until
-`setup --remove` removes it), the last successful setup's ctxtra config (`configs`, by agent, with absolute
-`agent_path` and `path` fields), and every agent it found (`detected`, also those left out with `--agent`). The
+`setup` records in `~/.local/state/ctxtra/setup.json` where it set up each agent (`installed`, by config path, until
+`setup --remove` removes it), and every agent it found (`detected`, also those left out with `--agent`). The
 notices use it to tell a setup that is gone from one that never was, and to find new agents (and add the ones
-they told about to `detected`): without the file there are no such notices, and a broken one is one notice, `~/.ctxtra/setup.json is unreadable: notices
+they told about to `detected`): without the file there are no such notices, and a broken one is one notice, `~/.local/state/ctxtra/setup.json is unreadable: notices
 about new or removed setups are off until the next ctxtra setup`. The file never decides a change of an
-agent config. One setup runs at a time (`~/.ctxtra/setup.lock`); `--dry-run` doesn't write the file. When
+agent config. One setup runs at a time (`~/.local/state/ctxtra/setup.lock`); `--dry-run` doesn't write the file. When
 setup can't write it, setup fails with exit code 1, and the config changes it made stay.
 
 ## Validation
@@ -1228,8 +1235,6 @@ with its flags and examples. The commands that change the config are grouped by 
   a step that needs an answer then fails. No option answers a question for you.
 - `--dry-run` on the commands that change the config, the agents' setup or the installed skills checks the
   change and shows it, and writes nothing.
-- `--config FILE` uses another config for one command, like `$CTXTRA_CONFIG`. `setup` and `onboard` don't take
-  it: the hooks carry no config path, so sessions read `$CTXTRA_CONFIG` or the default file.
 - Paths in arguments are relative to the current folder; in the config they are relative to the config's
   folder.
 
@@ -1320,11 +1325,13 @@ SHA-1 with collision detection, which catches the known collision attacks.
 
 | Variable | Default |
 |---|---|
-| `CTXTRA_CONFIG` | `~/.config/ctxtra/config.yaml` |
-| `CTXTRA_LOG` | `~/.ctxtra/log.jsonl` |
+| `XDG_CONFIG_HOME` | `~/.config` |
+| `XDG_DATA_HOME` | `~/.local/share` |
+| `XDG_STATE_HOME` | `~/.local/state` |
+| `XDG_CACHE_HOME` | `~/.cache` |
+| `CTXTRA_LOG` | `~/.local/state/ctxtra/log.jsonl` |
 
-Muse Code clears the environment of hooks and MCP servers. When `CTXTRA_CONFIG` is absent, both use the config
-path from its last successful setup, or the default when no setup record exists. Hooks use the default log path.
+Muse Code records the four XDG values in hook and proxy entries at setup time.
 
 The session folder is the `cwd` the agent sends to the hook. If it is empty: the first `workspace_roots`
 entry (Cursor), else the first `workspacePaths` entry (Antigravity, which runs hooks in the hook file's

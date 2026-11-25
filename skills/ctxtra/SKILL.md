@@ -6,7 +6,7 @@ description: Set up and change ctxtra, which adds the user's instruction files a
 # ctxtra
 
 ctxtra adds the user's instruction files and skills to agent sessions. A session-start hook reads
-`~/.config/ctxtra/config.yaml` (or `$CTXTRA_CONFIG`), finds the bindings whose `match` block matches the
+`~/.config/ctxtra/config.yaml` (or `$XDG_CONFIG_HOME/ctxtra/config.yaml`), finds the bindings whose `match` block matches the
 session folder, and gives the agent their files and skills. Nothing is written into repositories.
 
 Its files can be from the user's disk, from the user's own repository (a `trusted-path` source), or from a
@@ -43,7 +43,7 @@ Read stderr too: notices and warnings don't change the exit code.
 1. **Show before you change.** Show the command or diff and wait for the user's OK.
 2. **Prefer commands to hand edits.** The `add` and `remove` commands of `ctxtra source`,
    `ctxtra binding-file` and `ctxtra binding` check the result, keep comments, and back up the config to
-   `~/.ctxtra/backups`. Edit YAML by hand only for what no command does: changing a binding that exists,
+   `~/.local/state/ctxtra/backups`. Edit YAML by hand only for what no command does: changing a binding that exists,
    bindings in a binding file, `budget`. After any change, run `ctxtra doctor`, and
    `ctxtra context explain` in a folder the change is for.
 3. **The user decides about trust. You never do.** These need the user's explicit decision, after you
@@ -73,10 +73,10 @@ Read stderr too: notices and warnings don't change the exit code.
 
 ## When the sandbox blocks a change
 
-ctxtra's files are outside the project folder: the config in `~/.config/ctxtra`, the store, backups and
-this skill in `~/.ctxtra`, and the agent configs that `ctxtra setup` changes. An agent's sandbox often
-lets you read them but not write them. Commands that only read work: `doctor`, `context`, the `list`
-commands, `help`, and `--dry-run` of the commands that change something.
+ctxtra keeps config in `~/.config/ctxtra`, data and installed skills in `~/.local/share/ctxtra`,
+state and backups in `~/.local/state/ctxtra`, and clones in `~/.cache/ctxtra`, plus agent configs.
+A sandbox may allow reads but block writes. `doctor`, `context`, `list`, `help`, and `--dry-run`
+only read. Absolute XDG variables can move these folders.
 
 When a change is blocked:
 
@@ -86,7 +86,7 @@ When a change is blocked:
    binding, check it first with `ctxtra binding add ... --dry-run`, then give the same command without
    `--dry-run`. Don't give a script that writes the YAML (`cat >>`, `sed`, a heredoc): it skips the
    checks and the backup. For a change no command does, show the edit as a diff for the user to make.
-3. Don't suggest that the user lets the sandbox write `~/.config/ctxtra` or `~/.ctxtra` without asking.
+3. Don't suggest that the user lets the sandbox write ctxtra's config, data or state folders without asking.
    An agent that can change the config without asking can change what every later session gets.
 
 ## Remote repositories

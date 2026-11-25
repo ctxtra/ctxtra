@@ -15,6 +15,7 @@ import (
 
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 // mcp add and mcp show stop a server with every process it started.
@@ -53,7 +54,8 @@ func TestProxyBrokenStdout(t *testing.T) {
 	}
 	h := t.TempDir()
 	pidfile := filepath.Join(h, "a.pid")
-	cfg := filepath.Join(h, "config.yaml")
+	cfg := filepath.Join(h, "ctxtra", "config.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
 	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"', -pidfile, '"+pidfile+"', -ignore-term], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
 		"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -61,7 +63,7 @@ func TestProxyBrokenStdout(t *testing.T) {
 	cmd := exec.Command(exe, "mcp", "proxy", "test")
 	cmd.Dir = h
 	cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
-		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
+		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -118,8 +120,7 @@ func TestProxyStartBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := t.TempDir()
-	t.Setenv("HOME", h)
+	h := testenv.Home(t)
 	dir := filepath.Join(h, "dev", "app")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -127,7 +128,8 @@ func TestProxyStartBudget(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
 		t.Skipf("git: %v %s", err, out)
 	}
-	cfg := filepath.Join(h, "config.yaml")
+	cfg := filepath.Join(h, "ctxtra", "config.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
 	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
 		"bindings:\n  - {name: app, match: {dirs: ['~/dev/**']}, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -164,7 +166,7 @@ func proxyStart(exe, dir, cfg string) (initialize, list time.Duration, err error
 	cmd := exec.Command(exe, "mcp", "proxy", "codex")
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
-		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}
+		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	began := time.Now()

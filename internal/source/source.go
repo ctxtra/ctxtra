@@ -1,8 +1,8 @@
 // Package source fetches git sources and keeps the accepted commits of each
 // one in ctxtra's store.
 //
-// Each source has a bare repository in ~/.ctxtra/git and, for each accepted
-// commit, a generation in ~/.ctxtra/store: the commit's regular files, written
+// Each source has a bare repository in ~/.cache/ctxtra/git and, for each accepted
+// commit, a generation in ~/.local/share/ctxtra/store: the commit's regular files, written
 // once and never changed. Sessions read only generations; only the commands
 // that fetch (add, sync) run git with network access.
 //
@@ -115,8 +115,8 @@ func ID(remote string) string {
 }
 
 // StoreDir holds the generations; GitDir the bare repositories.
-func StoreDir() string { return filepath.Join(paths.StateDir(), "store") }
-func GitDir() string   { return filepath.Join(paths.StateDir(), "git") }
+func StoreDir() string { return filepath.Join(paths.DataDir(), "store") }
+func GitDir() string   { return filepath.Join(paths.CacheDir(), "git") }
 
 // GenDir is the generation of commit: a folder with the commit's files.
 func GenDir(url, commit string) string { return filepath.Join(StoreDir(), ID(url), commit) }

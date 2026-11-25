@@ -12,8 +12,8 @@ stdin yes.txt
 exec ctxtra-tty mcp login work/linear
 stdout '^signed in to work/linear with https://127.0.0.1:[0-9]+$'
 stderr 'Opening your browser to sign in to work/linear'
-exists .ctxtra/mcp/credentials/work%2Flinear.v1.age
-! exists .ctxtra/mcp/credentials/linear.v1.age
+exists .local/state/ctxtra/mcp/credentials/work%2Flinear.v1.age
+! exists .local/state/ctxtra/mcp/credentials/linear.v1.age
 exec ctxtra mcp list
 stdout '^linear  remote, not signed in$'
 stdout '^work/linear  remote, signed in with https://127.0.0.1:[0-9]+, approved$'

@@ -24,7 +24,7 @@ func mcpOrphans(cfg *config.Config) []string {
 	var notices []string
 	for _, id := range ids {
 		if strings.Contains(id, "/") && config.CheckMCPRef(id) == nil && !cfg.MCPDeclared(id) {
-			notices = append(notices, fmt.Sprintf("MCP credentials for %s are not declared in this config; another config may use them. Explicit cleanup: ctxtra mcp remove %s", id, id))
+			notices = append(notices, fmt.Sprintf("MCP credentials for %s are not declared in this config. Explicit cleanup: ctxtra mcp remove %s", id, id))
 		}
 	}
 	return notices

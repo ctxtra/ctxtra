@@ -20,17 +20,17 @@ Source definitions live in root `mcp-servers.yaml`. Every source binding, includ
 own bare server names. Your config can bind a full source reference without including its package bindings.
 There are no package settings or rename overrides. Do not edit pinned store files or copy tokens between identities.
 
-Configs with the same identity and target share credentials. Add reuses a matching stored record without
+Declarations with the same identity and target share credentials. Add reuses a matching stored record without
 authorization. It asks only for declared secret names that have no stored value, and adds them to the record. It
 never replaces stored values or tokens. It refuses client-secret or callback-port changes to that record; use login
 after adding the definition to change shared credentials. Use different names for separate accounts.
 
-Muse clears the hook and MCP environment. Run setup with the intended `CTXTRA_CONFIG`; both use the recorded
-path when the variable is absent. Muse cannot inherit shell proxy/certificate settings, Linux keychain variables,
-or local servers' `env-pass` values. Do not copy secrets into its agent config. Use encrypted secret declarations.
-Start a new Muse session after sign-in, as with Codex. CLI diagnostics do not select Muse's recorded config:
-pass `--config FILE` or set `CTXTRA_CONFIG` when inspecting it.
+Muse clears the hook and MCP environment. Setup records the four XDG folder values in both entries.
+After changing one, run `ctxtra setup --agent muse`; `doctor` reports stale values. Muse cannot inherit
+shell proxy/certificate settings, Linux keychain variables, or local servers' `env-pass` values.
+Do not copy secrets into its agent config. Use encrypted secret declarations. Start a new Muse session
+after sign-in, as with Codex. CLI diagnostics use the current shell's folders.
 
 Logout deletes local credentials, not provider grants or connection approval. Revoke withdraws approval for new
 connections, not an immediate live-session kill. Recommend new sessions after account changes or local-secret
-rotation. Removing a source leaves credentials and prints cleanup commands; another config may share them.
+rotation. Removing a source leaves credentials and prints cleanup commands; another declaration may share them.

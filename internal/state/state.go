@@ -5,10 +5,8 @@
 // accept. None of it changes what a session gets: losing it loses the
 // notices.
 //
-// mappings.json holds the folders of imported clones (see Mapping), and
-// configs.json the config files add and sync used. They change what a
-// session gets, so they are kept apart, and a broken file is reported,
-// never rewritten.
+// mappings.json holds the folders of imported clones (see Mapping). It
+// changes what a session gets, so a broken file is reported, never rewritten.
 package state
 
 import (
@@ -55,7 +53,7 @@ type State struct {
 	Ctxtra  Release           `json:"ctxtra,omitzero"`
 }
 
-// Path is ~/.ctxtra/state.json.
+// Path is ~/.local/state/ctxtra/state.json.
 func Path() string { return filepath.Join(paths.StateDir(), "state.json") }
 
 // Load reads the state. A missing or broken file is an empty state.

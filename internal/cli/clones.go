@@ -184,7 +184,7 @@ func (s *sources) removeSource(name string, dryRun bool) error {
 	}
 	for _, id := range ids {
 		if strings.HasPrefix(id, src.Name+"/") {
-			fmt.Fprintf(s.Out, "MCP credentials for %s remain; another config may use them. For explicit cleanup: ctxtra mcp remove %s\n", source.Sanitize(id), source.Sanitize(id))
+			fmt.Fprintf(s.Out, "MCP credentials for %s remain. For explicit cleanup: ctxtra mcp remove %s\n", source.Sanitize(id), source.Sanitize(id))
 		}
 	}
 	if dryRun {

@@ -19,7 +19,7 @@ func TestCtxtraSkill(t *testing.T) {
 		repo := s.Repo("dev/svc", "https://github.com/acme/svc", nil)
 		s.Setup()
 		s.Ctxtra("skill", "install", "ctxtra")
-		path := filepath.Join(s.Home, ".ctxtra", "skills", "ctxtra", "SKILL.md")
+		path := filepath.Join(s.Home, ".local/share/ctxtra", "skills", "ctxtra", "SKILL.md")
 		r := s.Run(repo, driver.Options{}, mock.LoadSkill("ctxtra", path))
 		first := r.First(mock.Main).Contains("Set up and change ctxtra")
 		if strings.Contains(first.text, "## Remote repositories") {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,80 +11,114 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/BurntSushi/toml"
+	"github.com/ctxtra/ctxtra/internal/agent"
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
+	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/setup"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestMuseProxyConfig(t *testing.T) {
+func TestMuseHooksWithoutTheEnvironment(t *testing.T) {
+	testAgentFolders(t, "muse")
+}
+
+func TestAMovedConfigFolderInCodex(t *testing.T) {
+	testAgentFolders(t, "codex")
+}
+
+func testAgentFolders(t *testing.T, name string) {
+	t.Helper()
+	h := testenv.Home(t)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		name, override, want string
-		record, missing      bool
-	}{
-		{name: "recorded", record: true, want: "saved__echo"},
-		{name: "explicit", record: true, override: "override.yaml", want: "override__echo"},
-		{name: "missing_saved", record: true, missing: true},
-		{name: "old_setup", want: "default__echo"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := testenv.Home(t)
-			write := func(path, name string) {
-				t.Helper()
-				testenv.Write(t, path, "schema: ctxtra/v1\nmcp-servers:\n  "+name+": {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\nbindings:\n  - {name: all, match: {global: true}, mcp-servers: ["+name+"]}\n")
+	for _, key := range paths.XDGVars {
+		t.Setenv(key, filepath.Join(h, "custom", key))
+	}
+	testenv.Write(t, paths.ConfigPath(), "schema: ctxtra/v1\ncheck-updates: false\nmcp-servers:\n  saved: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\nbindings:\n  - {name: all, match: {global: true}, instructions: ['~/a.md'], mcp-servers: [saved]}\n")
+	testenv.Write(t, filepath.Join(h, "a.md"), "CUSTOM_CONFIG_MARKER\n")
+	a, _ := registry.Get(name)
+	r, err := setup.Run(setup.Options{Agents: []string{name}, Options: agent.Options{Binary: exe}, MCP: setup.MCPConfig{Want: true}})
+	if err != nil || len(r.Errors) > 0 {
+		t.Fatalf("setup: %+v %v", r, err)
+	}
+	b, err := os.ReadFile(a.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Hooks map[string][]struct {
+			Hooks []struct{ Command string }
+		}
+		Servers map[string]struct {
+			Command string
+			Args    []string
+			Env     map[string]string
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		t.Fatal(err)
+	}
+	baseEnv := []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1"}
+	cmd := exec.Command("/bin/sh", "-c", data.Hooks["SessionStart"][0].Hooks[0].Command)
+	cmd.Dir, cmd.Env = h, baseEnv
+	if name == "codex" {
+		for _, key := range paths.XDGVars {
+			cmd.Env = append(cmd.Env, key+"="+os.Getenv(key))
+		}
+	}
+	cmd.Stdin = strings.NewReader(`{"session_id":"cleared-environment"}`)
+	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "CUSTOM_CONFIG_MARKER") {
+		t.Fatalf("hook: %v %s", err, out)
+	}
+	entry := data.Servers[agent.MCPEntryName]
+	if name == "codex" {
+		var cfg struct {
+			Servers map[string]struct {
+				Command string
+				Args    []string
+				Vars    []string `toml:"env_vars"`
+			} `toml:"mcp_servers"`
+		}
+		if _, err := toml.DecodeFile(a.(agent.MCPAgent).MCP().MCPPath(), &cfg); err != nil {
+			t.Fatal(err)
+		}
+		proxy := cfg.Servers[agent.MCPEntryName]
+		entry.Command, entry.Args, entry.Env = proxy.Command, proxy.Args, map[string]string{}
+		for _, key := range paths.XDGVars {
+			if !slices.Contains(proxy.Vars, key) {
+				t.Fatalf("proxy does not pass %s", key)
 			}
-			write(filepath.Join(h, ".config/ctxtra/config.yaml"), "default")
-			saved := filepath.Join(h, "saved.yaml")
-			if !tc.missing {
-				write(saved, "saved")
-			}
-			override := filepath.Join(h, "override.yaml")
-			write(override, "override")
-			if tc.record {
-				var s state.Setups
-				ap := filepath.Join(h, ".config/muse/settings.json")
-				s.Install("muse", ap)
-				s.SetConfig("muse", ap, saved)
-				if err := state.WriteSetups(s); err != nil {
-					t.Fatal(err)
-				}
-			}
-			cmd := exec.Command(exe, "mcp", "proxy", "muse")
-			cmd.Dir = h
-			cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1", "CTXTRA_LOG=" + filepath.Join(h, "proxy.log")}
-			if tc.override != "" {
-				cmd.Env = append(cmd.Env, "CTXTRA_CONFIG="+override)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer cs.Close()
-			res, err := cs.ListTools(ctx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.want == "" {
-				if len(res.Tools) != 0 {
-					t.Fatalf("missing saved config borrowed tools: %+v", res.Tools)
-				}
-			} else {
-				var names []string
-				for _, tool := range res.Tools {
-					names = append(names, tool.Name)
-					if !strings.HasPrefix(tool.Name, strings.TrimSuffix(tc.want, "echo")) {
-						t.Errorf("tool from another config: %s", tool.Name)
-					}
-				}
-				if !slices.Contains(names, tc.want) {
-					t.Fatalf("tools %v, want %s", names, tc.want)
-				}
-			}
-		})
+			entry.Env[key] = os.Getenv(key)
+		}
+	}
+	cmd = exec.Command(entry.Command, entry.Args...)
+	cmd.Dir, cmd.Env = h, append([]string{}, baseEnv...)
+	for k, v := range entry.Env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("proxy: %+v %v", res, err)
+	}
+	var names []string
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+		if !strings.HasPrefix(tool.Name, "saved__") {
+			t.Errorf("tool from another config: %s", tool.Name)
+		}
+	}
+	if !slices.Contains(names, "saved__echo") {
+		t.Fatalf("proxy tools: %v", names)
 	}
 }

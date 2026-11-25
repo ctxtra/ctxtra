@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxtra/ctxtra/internal/hook"
-	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/term"
 )
@@ -31,8 +29,7 @@ type IO struct {
 type app struct {
 	IO
 	version string
-	config  string // --config
-	noInput bool   // --no-input
+	noInput bool // --no-input
 	ran     *cobra.Command
 }
 
@@ -62,13 +59,6 @@ func Run(args []string, stdio IO, version string) int {
 	// control characters reach the terminal. The hook's stdout is JSON
 	// for the agent and stays as it is.
 	stdio.Out, stdio.Err = term.Writer{W: stdio.Out}, term.Writer{W: stdio.Err}
-	// --config sets $CTXTRA_CONFIG for this run, and for the agent that
-	// import starts.
-	if old, ok := os.LookupEnv("CTXTRA_CONFIG"); ok {
-		defer os.Setenv("CTXTRA_CONFIG", old)
-	} else {
-		defer os.Unsetenv("CTXTRA_CONFIG")
-	}
 	a := &app{IO: stdio, version: version}
 	root := a.root()
 	root.SetArgs(args)
@@ -106,19 +96,9 @@ func (a *app) run(f func(cmd *cobra.Command, args []string) error) func(*cobra.C
 }
 
 // global applies the global flags before a command runs.
-func (a *app) global(cmd *cobra.Command, _ []string) error {
+func (a *app) global(_ *cobra.Command, _ []string) error {
 	source.NoPrompt = !a.prompts()
-	if a.config == "" {
-		return nil
-	}
-	if cmd.Name() == "setup" || cmd.Name() == "onboard" {
-		return errors.New("--config doesn't apply: the hooks don't carry a config path, sessions read $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml")
-	}
-	abs, err := filepath.Abs(paths.Expand(a.config))
-	if err != nil {
-		return err
-	}
-	return os.Setenv("CTXTRA_CONFIG", abs)
+	return nil
 }
 
 // Interactive reports whether answers can be asked: stdin and stdout are

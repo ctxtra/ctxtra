@@ -14,7 +14,7 @@ import (
 
 // Home gives the test its own HOME and clears every variable that could
 // point at the real user's files. It returns the home folder.
-func Home(t *testing.T) string {
+func Home(t testing.TB) string {
 	t.Helper()
 	h, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -44,8 +44,8 @@ func Home(t *testing.T) string {
 // config folder reads (a test in internal/agent/registry checks the code
 // against this list).
 var AgentVars = []string{
-	"CTXTRA_CONFIG", "CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR",
-	"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR",
+	"CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR",
+	"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR",
 }
 
 // GitLocationVars are cleared by Home. gitrepo clears the same list for

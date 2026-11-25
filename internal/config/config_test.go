@@ -454,7 +454,7 @@ func TestBadReferences(t *testing.T) {
 // symlink, a pinned source's binding file would escape its limits.
 func TestStoreByPlainPath(t *testing.T) {
 	h := testenv.Home(t)
-	gen := filepath.Join(h, ".ctxtra", "store", "0123456789abcdef", strings.Repeat("a", 40))
+	gen := filepath.Join(h, ".local/share/ctxtra", "store", "0123456789abcdef", strings.Repeat("a", 40))
 	testenv.Write(t, filepath.Join(gen, "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/.ssh/id]}\n")
 	symlink := filepath.Join(h, "link.yaml")
 	if err := os.Symlink(filepath.Join(gen, "b.yaml"), symlink); err != nil {
@@ -586,7 +586,7 @@ func TestStoreBusyWaitsOnce(t *testing.T) {
 	}
 	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/me.md, ctxtra://a/x.md, ctxtra://a/y.md, ctxtra://b/z.md]}\n")
 	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  a: {git: 'https://h/a', branch: main, commit: '"+c1+"'}\n  b: {git: 'https://h/b', branch: main, commit: '"+c2+"'}\ninclude: [b.yaml]\n")
-	unlock, err := fsutil.Lock(filepath.Join(h, ".ctxtra", "store.lock"))
+	unlock, err := fsutil.Lock(filepath.Join(h, ".local/state/ctxtra", "store.lock"))
 	if err != nil {
 		t.Fatal(err)
 	}

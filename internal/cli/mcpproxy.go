@@ -19,7 +19,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
-	"github.com/ctxtra/ctxtra/internal/state"
 )
 
 // started is when this process started: the proxy's deadline for the
@@ -55,9 +54,6 @@ func runProxy(args []string, stdio IO, version string) int {
 			}
 		}}
 	configPath := paths.ConfigPath()
-	if agent == "muse" {
-		configPath = state.SessionConfig(agent)
-	}
 	var notices []string
 	o.Servers = func(dir string) ([]upstream.Server, []string) {
 		res, _ := resolve.Session(dir, configPath)

@@ -1,5 +1,5 @@
 // Package skill writes ctxtra's skills of this binary to
-// ~/.ctxtra/skills/<name>, where a binding in the user's config adds them to
+// ~/.local/share/ctxtra/skills/<name>, where a binding in the user's config adds them to
 // sessions like any other skill.
 package skill
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Files now follow XDG folders on Linux and macOS: config in `~/.config/ctxtra`, accepted source content
+  and installed skills in `~/.local/share/ctxtra`, local state in `~/.local/state/ctxtra`, and git clones
+  in `~/.cache/ctxtra`. Only absolute `XDG_*` values override these defaults. `doctor` shows the folders.
+- The config is always `config.yaml` in the config folder. `CTXTRA_CONFIG` and `--config` are removed.
+- Run setup again for Codex and Muse: Codex passes all four XDG variables to its MCP proxy; Muse records
+  them in hook and proxy entries. `doctor` reports changed Muse values with the setup command to refresh them.
+
 ## v0.6.0
 
 - MCP servers are available without `CTXTRA_EXPERIMENTAL_MCP=1`. Commands, setup and sessions accept MCP

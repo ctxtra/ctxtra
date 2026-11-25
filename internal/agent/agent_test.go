@@ -74,8 +74,8 @@ func TestSummaryGroups(t *testing.T) {
 	res := &resolve.Result{
 		// A file in ctxtra's skills folder is not one of ctxtra's skills.
 		Files: []resolve.Hit{src("aictx", "global/style.md"), local("work/AGENTS.md"), src("team", "style.md"),
-			src("aictx", "personal/style.md"), {Path: "/etc/ctx/style.md"}, local(".ctxtra/skills/ctxtra/SKILL.md")},
-		Skills: []resolve.Hit{skill(local(".ctxtra/skills/ctxtra/SKILL.md"), "ctxtra"), skill(src("openspec", "skills/explore/SKILL.md"), "explore"),
+			src("aictx", "personal/style.md"), {Path: "/etc/ctx/style.md"}, local(".local/share/ctxtra/skills/ctxtra/SKILL.md")},
+		Skills: []resolve.Hit{skill(local(".local/share/ctxtra/skills/ctxtra/SKILL.md"), "ctxtra"), skill(src("openspec", "skills/explore/SKILL.md"), "explore"),
 			skill(local("skills/deploy/SKILL.md"), "deploy"), skill(src("openspec", "skills/propose/SKILL.md"), "propose"),
 			// A source named like a group of its own is not that group.
 			skill(src("local", "skills/x/SKILL.md"), "x")},
@@ -89,7 +89,7 @@ Instructions:
   local
   - ~/work/AGENTS.md
   - /etc/ctx/style.md
-  - ~/.ctxtra/skills/ctxtra/SKILL.md
+  - ~/.local/share/ctxtra/skills/ctxtra/SKILL.md
   team
   - style.md
 Skills:

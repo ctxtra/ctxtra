@@ -57,7 +57,7 @@ func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.
 	// Keep the legacy opt-in name in the serialized setup contract.
-	vars := []string{"CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"}
+	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
 	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"} {
 		vars = append(vars, v, strings.ToLower(v))
 	}

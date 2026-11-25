@@ -13,7 +13,7 @@ cmp .claude.json original.json
 exec ctxtra setup --agent claude
 stdout '~/.claude.json'
 cmpenv .claude.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 
 exec ctxtra setup --agent claude
 stdout 'is already set up for'

@@ -99,7 +99,8 @@ func TestFetchAndMaterialize(t *testing.T) {
 	}
 
 	// A fresh store, as on a new laptop: restore fetches exact commits.
-	os.RemoveAll(filepath.Join(os.Getenv("HOME"), ".ctxtra"))
+	os.RemoveAll(StoreDir())
+	os.RemoveAll(GitDir())
 	r = Open(url)
 	if err := r.FetchCommit(ctx, first); err != nil {
 		t.Fatal(err)
@@ -321,7 +322,8 @@ func TestFetchHead(t *testing.T) {
 		t.Errorf("detached: %s %v", got, err)
 	}
 	// Restore from the clone by commit ID.
-	os.RemoveAll(filepath.Join(h, ".ctxtra"))
+	os.RemoveAll(StoreDir())
+	os.RemoveAll(GitDir())
 	if err := Open(clone).FetchCommit(ctx, first); err != nil {
 		t.Errorf("restore from the clone: %v", err)
 	}

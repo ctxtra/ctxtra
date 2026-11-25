@@ -187,7 +187,7 @@ func TestHookArgs(t *testing.T) {
 			t.Errorf("%v: %d %q", args, code, out)
 		}
 	}
-	if b, _ := os.ReadFile(filepath.Join(h, ".ctxtra", "log.jsonl")); strings.Count(string(b), "bad hook arguments") != 2 {
+	if b, _ := os.ReadFile(filepath.Join(h, ".local/state/ctxtra", "log.jsonl")); strings.Count(string(b), "bad hook arguments") != 2 {
 		t.Errorf("log:\n%s", b)
 	}
 }

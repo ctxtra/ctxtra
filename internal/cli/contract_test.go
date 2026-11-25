@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 }
 
 // shellHook is the argv after the binary in a hook command of any version.
-var shellHook = regexp.MustCompile(`^/bin/sh -c 'f="\$HOME/bin/ctxtra"; if \[ -x "\$f" \]; then exec "\$f" ([^;'"]+); else `)
+var shellHook = regexp.MustCompile(`/bin/sh -c 'f="\$HOME/bin/ctxtra"; if \[ -x "\$f" \]; then exec "\$f" ([^;'"]+); else `)
 
 // TestClientContract: every hook command of every client fixture
 // (testdata/clients, docs/spec.md, Setup compatibility) gets what its

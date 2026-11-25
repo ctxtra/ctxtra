@@ -74,28 +74,39 @@ func TildeReal(p string) string {
 	return Tilde(p)
 }
 
-// StateDir is ~/.ctxtra: backups of changed agent configs and the hook log.
-func StateDir() string { return filepath.Join(Home(), ".ctxtra") }
+// XDGVars are the folder variables shared by every ctxtra process.
+var XDGVars = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"}
+
+func xdg(key, fallback string) string {
+	base := os.Getenv(key)
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(Home(), fallback)
+	}
+	return filepath.Join(base, "ctxtra")
+}
+
+// ConfigDir holds the user's config.
+func ConfigDir() string { return xdg("XDG_CONFIG_HOME", ".config") }
+
+// DataDir holds accepted source content and installed skills.
+func DataDir() string { return xdg("XDG_DATA_HOME", ".local/share") }
+
+// StateDir holds local state, backups and the hook log.
+func StateDir() string { return xdg("XDG_STATE_HOME", ".local/state") }
+
+// CacheDir holds git clones that can be fetched again.
+func CacheDir() string { return xdg("XDG_CACHE_HOME", ".cache") }
 
 // SkillDir is where ctxtra skill install NAME writes ctxtra's skill name.
-func SkillDir(name string) string { return filepath.Join(StateDir(), "skills", name) }
+func SkillDir(name string) string { return filepath.Join(DataDir(), "skills", name) }
 
 // BackupDir is where setup keeps a copy of every agent config it changes.
 func BackupDir() string { return filepath.Join(StateDir(), "backups") }
 
-// ConfigPath is $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml.
-func ConfigPath() string {
-	if p := os.Getenv("CTXTRA_CONFIG"); p != "" {
-		// Absolute, so that paths relative to its folder can be compared.
-		if abs, err := filepath.Abs(Expand(p)); err == nil {
-			return abs
-		}
-		return Expand(p)
-	}
-	return filepath.Join(Home(), ".config", "ctxtra", "config.yaml")
-}
+// ConfigPath is config.yaml in the config folder.
+func ConfigPath() string { return filepath.Join(ConfigDir(), "config.yaml") }
 
-// LogPath is $CTXTRA_LOG or ~/.ctxtra/log.jsonl.
+// LogPath is $CTXTRA_LOG or log.jsonl in the state folder.
 func LogPath() string {
 	if p := os.Getenv("CTXTRA_LOG"); p != "" {
 		return Expand(p)

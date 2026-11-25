@@ -11,7 +11,7 @@ stdout '^ctxtra is set up for Claude Code:$'
 cp .claude/settings.json got.json
 slots got.json
 cmpenv got.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 
 exec ctxtra setup --agent claude
 stdout 'is already set up for'

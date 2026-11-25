@@ -36,7 +36,7 @@ bindings:
     match: {dirs: [~/dev/svc]}
     mcp-servers: [linear_work, probe]
 `)
-		s.Write(".ctxtra/mcp/state/linear_work.json",
+		s.Write(".local/state/ctxtra/mcp/state/linear_work.json",
 			`{"version":1,"name":"linear_work","needs_login":true,"reason":"the sign-in expired or was revoked"}`)
 		s.Setup()
 		r := s.Run(s.Path("dev/svc"), driver.Options{})

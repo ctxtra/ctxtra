@@ -109,8 +109,8 @@ func tree(t *testing.T, dir string) map[string]string {
 	return out
 }
 
-// homeFiles is every file in the home folder h but ~/.ctxtra, by path from
-// h, with h in the content replaced by @@HOME@@.
+// homeFiles is every file in the home folder h except local state, by path
+// from h, with h in the content replaced by @@HOME@@.
 func homeFiles(t *testing.T, h string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -120,7 +120,7 @@ func homeFiles(t *testing.T, h string) map[string]string {
 		}
 		rel, _ := filepath.Rel(h, path)
 		switch {
-		case rel == ".ctxtra":
+		case rel == ".local/state/ctxtra":
 			return filepath.SkipDir
 		case d.IsDir():
 			return nil

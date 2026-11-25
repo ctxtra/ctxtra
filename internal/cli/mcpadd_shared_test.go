@@ -102,7 +102,7 @@ func TestMCPAddRefusesExplicitSharedSettingsChanges(t *testing.T) {
 			input := strings.NewReader("config-B-secret\n")
 			var output bytes.Buffer
 			args := append([]string{"mcp", "add", "shared", srv.URL, "--no-login"}, flags...)
-			if n := Run(args, IO{In: input, Out: &output, Err: &output}, "test"); n != 1 || !strings.Contains(output.String(), "shared by other configs and agents") {
+			if n := Run(args, IO{In: input, Out: &output, Err: &output}, "test"); n != 1 || !strings.Contains(output.String(), "shared by agent sessions") {
 				t.Fatalf("shared settings change not refused: %d, %s", n, &output)
 			}
 			afterCredentials, _ := os.ReadFile(files[0])

@@ -35,8 +35,7 @@ type MCPConfig struct {
 	EnvPass []string // every local server's env-pass names
 }
 
-// LoadMCP reads the config the way sessions do ($CTXTRA_CONFIG or the
-// default file).
+// LoadMCP reads the config the way sessions do.
 func LoadMCP() MCPConfig {
 	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
 	cfg.LoadMCPCatalog()
@@ -129,7 +128,6 @@ func record(remove, mcp bool, done []agent.Agent) error {
 			s.Uninstall(a.Name(), a.ConfigPath())
 		} else {
 			s.Install(a.Name(), a.ConfigPath())
-			s.SetConfig(a.Name(), a.ConfigPath(), paths.ConfigPath())
 		}
 		if m, ok := a.(agent.MCPAgent); ok {
 			switch {

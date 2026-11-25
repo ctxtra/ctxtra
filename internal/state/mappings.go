@@ -25,7 +25,7 @@ type Mapping struct {
 // Mappings are the mappings of this machine.
 type Mappings []Mapping
 
-// MappingsPath is ~/.ctxtra/mappings.json.
+// MappingsPath is ~/.local/state/ctxtra/mappings.json.
 func MappingsPath() string { return filepath.Join(paths.StateDir(), "mappings.json") }
 
 // LoadMappings reads the mappings. A missing file is none; a broken one is
@@ -83,41 +83,6 @@ func Unmap(dir string) error {
 	return updateMappings(func(ms Mappings) (Mappings, error) {
 		return slices.DeleteFunc(ms, func(m Mapping) bool { return m.Path == dir }), nil
 	})
-}
-
-// ConfigsPath is ~/.ctxtra/configs.json: the config files that add and
-// sync used. Cleaning the store keeps the accepted commits of each.
-func ConfigsPath() string { return filepath.Join(paths.StateDir(), "configs.json") }
-
-// LoadConfigs reads the config files. A missing file is none; a broken one
-// is an error, and the store isn't cleaned.
-func LoadConfigs() ([]string, error) {
-	b, err := fsutil.ReadBounded(ConfigsPath(), maxBytes)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	var cs []string
-	if err == nil {
-		err = json.Unmarshal(b, &cs)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s can't be read (%v); fix or delete it", paths.Tilde(ConfigsPath()), err)
-	}
-	return cs, nil
-}
-
-// RecordConfig adds the config file path to configs.json.
-func RecordConfig(path string) error {
-	unlock, err := fsutil.Lock(filepath.Join(paths.StateDir(), "configs.lock"))
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	cs, err := LoadConfigs()
-	if err != nil || slices.Contains(cs, path) {
-		return err
-	}
-	return writeJSON(ConfigsPath(), append(cs, path))
 }
 
 func updateMappings(change func(Mappings) (Mappings, error)) error {

@@ -76,6 +76,49 @@ type Hook struct {
 	Binary, Agent, Event string
 	Slot                 int // --slot, or -1 without one
 	Slots                int // --of, or 0 without one
+	Env                  map[string]string
+}
+
+// WithXDG records folder variables for agents that clear the hook environment.
+func WithXDG(cmd string) string {
+	var prefix strings.Builder
+	for _, key := range paths.XDGVars {
+		fmt.Fprintf(&prefix, "%s=\"%s\" ", key, shellEscape(os.Getenv(key)))
+	}
+	return prefix.String() + cmd
+}
+
+func shellEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(s)
+}
+
+var envWord = regexp.MustCompile("^([A-Z_]+)=\"((?:[^\"\\\\$`]|\\\\[\\\\\"$`])*)\" ")
+
+func hookEnv(cmd string) (string, map[string]string) {
+	var env map[string]string
+	for _, key := range paths.XDGVars {
+		g := envWord.FindStringSubmatch(cmd)
+		if g == nil || g[1] != key {
+			return cmd, env
+		}
+		if env == nil {
+			env = map[string]string{}
+		}
+		env[key] = strings.NewReplacer(`\\`, `\`, `\"`, `"`, `\$`, `$`, "\\`", "`").Replace(g[2])
+		cmd = cmd[len(g[0]):]
+	}
+	return cmd, env
+}
+
+// XDGNotices reports setup-time folder values that differ from this process.
+func XDGNotices(what, name string, env map[string]string) []string {
+	var out []string
+	for _, key := range paths.XDGVars {
+		if saved, current := env[key], os.Getenv(key); saved != current {
+			out = append(out, fmt.Sprintf("%s use %s=%q, current value is %q; %s", what, key, saved, current, Repair(name)))
+		}
+	}
+	return out
 }
 
 // ParseCommand returns what cmd runs, and whether it is one of our hook
@@ -83,11 +126,15 @@ type Hook struct {
 // writes for m when the binary is gone. Setup replaces and removes the
 // entries that are ours, so a command edited by hand isn't one.
 func ParseCommand(cmd string, m Missing) (Hook, bool) {
+	cmd, env := hookEnv(cmd)
 	g := commandRe.FindStringSubmatch(cmd)
 	if g == nil {
 		return Hook{}, false
 	}
-	h := Hook{Binary: ExpandShellPath(g[1]), Agent: g[2], Event: g[3], Slot: -1}
+	h := Hook{Binary: ExpandShellPath(g[1]), Agent: g[2], Event: g[3], Slot: -1, Env: env}
+	if env != nil && (h.Agent != "muse" || len(env) != len(paths.XDGVars)) {
+		return Hook{}, false
+	}
 	if g[4] != "" {
 		slot, err1 := strconv.Atoi(g[4])
 		slots, err2 := strconv.Atoi(g[5])

@@ -99,12 +99,12 @@ stdout 'the glob folder is a symlink'
 rm team-ctx/bindings/git-path.yaml team-ctx/linked
 
 # It reads nothing of your setup and writes nothing: no setup notices.
-mkdir .cursor .ctxtra
-cp setup.json .ctxtra/setup.json
+mkdir .cursor .local/state/ctxtra
+cp setup.json .local/state/ctxtra/setup.json
 exec ctxtra source check team-ctx
 ! stderr .
-cmp .ctxtra/setup.json setup.json
-! exists .ctxtra/setup.lock
+cmp .local/state/ctxtra/setup.json setup.json
+! exists .local/state/ctxtra/setup.lock
 
 # JSON, for CI.
 exec ctxtra source check team-ctx --json

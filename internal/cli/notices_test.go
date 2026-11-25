@@ -158,7 +158,7 @@ func TestSetupsFile(t *testing.T) {
 	if len(notices()) != 2 {
 		t.Fatalf("notices %q", notices())
 	}
-	unreadable := "~/.ctxtra/setup.json is unreadable: notices about new or removed setups are off until the next ctxtra setup"
+	unreadable := "~/.local/state/ctxtra/setup.json is unreadable: notices about new or removed setups are off until the next ctxtra setup"
 	for name, content := range map[string]string{
 		"broken":     `{"installed": [`,
 		"wrong type": `{"installed": {"claude": "x"}}`,
@@ -215,7 +215,7 @@ func TestSetupRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, errOut := run("setup", "--agent", "claude")
-	if code != 1 || !strings.Contains(out, "ctxtra is set up for Claude Code:") || !strings.Contains(errOut, "ctxtra setup: can't write ~/.ctxtra/setup.json: ") {
+	if code != 1 || !strings.Contains(out, "ctxtra is set up for Claude Code:") || !strings.Contains(errOut, "ctxtra setup: can't write ~/.local/state/ctxtra/setup.json: ") {
 		t.Errorf("unwritable setup.json: %d %q %q", code, out, errOut)
 	}
 	if b, _ := os.ReadFile(claude.ConfigPath()); !strings.Contains(string(b), "hook claude SessionStart") {

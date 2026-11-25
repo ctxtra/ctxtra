@@ -236,7 +236,7 @@ func (s *Session) saveEvidence(run int, cmd *exec.Cmd, r *Result) {
 	write("stderr.txt", []byte(r.Stderr))
 	reqs, _ := json.MarshalIndent(r.Requests, "", " ")
 	write("requests.json", reqs)
-	for _, name := range []string{".ctxtra/log.jsonl", "claude-debug.log"} {
+	for _, name := range []string{".local/state/ctxtra/log.jsonl", "claude-debug.log"} {
 		if b, err := os.ReadFile(s.Path(name)); err == nil {
 			write(filepath.Base(name), b)
 		}
