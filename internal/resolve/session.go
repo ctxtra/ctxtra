@@ -54,7 +54,8 @@ func (env *Env) Resolve(in Input) *Result {
 	dir := paths.Real(in.Dir)
 	r := &session{env: env, in: in, dir: dir, repo: in.Repo, repoKnown: in.Repo != nil,
 		rd:    fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes),
-		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{}}
+		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
+		manifests: map[string]bool{}}
 	r.res = &Result{Dir: dir, Summary: summary(env.Config.SessionMessage)}
 	r.res.Errors = append(r.res.Errors, env.Errors...)
 	for _, b := range env.Config.Bindings {
@@ -77,7 +78,9 @@ func (env *Env) Resolve(in Input) *Result {
 		r.res.Trace = append(r.res.Trace, t)
 	}
 	for _, s := range env.Catalog.Sources() {
-		r.res.Errors = append(r.res.Errors, s.ManifestErrors()...)
+		if r.manifests[s.Name] {
+			r.res.Errors = append(r.res.Errors, s.ManifestErrors()...)
+		}
 	}
 	r.res.Repo, r.res.RepoErr = r.repo, r.repoErr
 	if m := env.Config.MaxCtxChars; m != nil && *m > 0 {
@@ -114,6 +117,8 @@ type session struct {
 	// files and skills are the real paths of the files and SKILL.md files
 	// added; servers the IDs of the servers.
 	files, skills, servers map[string]bool
+	// manifests are the sources whose manifests this session read.
+	manifests map[string]bool
 }
 
 // repository is the session's repository, found once when first needed:
@@ -612,6 +617,9 @@ func (r *session) addServers(b *cfg.Binding, t *Trace) {
 	for _, e := range b.MCPServers {
 		if e.Err != nil || e.Not {
 			continue
+		}
+		for _, name := range r.env.Catalog.ManifestSources(e) {
+			r.manifests[name] = true
 		}
 		s, errs := r.env.Catalog.Servers(e)
 		r.entryErrors(b, t, e, errs)

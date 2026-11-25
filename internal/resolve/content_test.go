@@ -287,3 +287,16 @@ func TestManifestReadOnlyWhenUsed(t *testing.T) {
 	}
 	oneError(t, start(env, h.dir, "", "iam"), "Bad")
 }
+
+// An Env resolves several sessions: each reports only the manifests it read.
+func TestManifestErrorsOfEachSession(t *testing.T) {
+	h := newHome(t)
+	h.write("me.md", "me")
+	h.write("iam/ctxtra-source.yaml", "schema: ctxtra/source/v1\nmcp-servers:\n  Bad: {url: https://a.example.com/mcp}\n")
+	env := h.load("sources: {iam-team: {dir: ~/iam}}\nmcp-servers: {jira: {use: 'iam-team:jira'}}\nbindings:\n" +
+		"  - {name: a, instructions: [~/me.md]}\n  - {name: b, profiles: [iam], mcp-servers: [jira]}\n")
+	if res := start(env, h.dir, "", "iam"); len(res.Errors) != 2 || !strings.Contains(res.Errors[1].Error(), "Bad") {
+		t.Errorf("with iam: %v", res.Errors)
+	}
+	noErrors(t, start(env, h.dir, ""))
+}

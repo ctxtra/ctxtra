@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -55,6 +56,22 @@ func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
 		return nil, []error{fmt.Errorf("the config has no MCP server %s", e.Value)}
 	}
 	return out, errs
+}
+
+// ManifestSources are the sources whose manifests positive entry e of an
+// mcp-servers list reads: its own source, or the sources of the config's
+// new names it matches.
+func (c *Catalog) ManifestSources(e cfg.Entry) []string {
+	if e.InSource {
+		return []string{e.Source}
+	}
+	var out []string
+	for _, s := range c.config.MCPServers {
+		if s.Use() != "" && !s.Broken() && nameMatch(e.Value, s.Name) && !slices.Contains(out, s.UseSource) {
+			out = append(out, s.UseSource)
+		}
+	}
+	return out
 }
 
 // sourceServers are the servers of source name that pattern matches; text

@@ -388,3 +388,16 @@ func TestDirSourceGlobLoops(t *testing.T) {
 		})
 	}
 }
+
+func TestDirSourceSkillLoop(t *testing.T) {
+	h := newHome(t)
+	h.skill("dotfiles/skills/good", "good")
+	h.mkdir("dotfiles/skills/bad")
+	symlink(t, "SKILL.md", h.path("dotfiles/skills/bad/SKILL.md"))
+	env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, skills: ['dotfiles:skills/*']}\n")
+	res := start(env, h.dir, "")
+	eq(t, "skills", skillNames(res), "good")
+	if e := oneError(t, res, "skills/bad/SKILL.md"); e.Err.Mistake != yamlx.UnreadableFile {
+		t.Errorf("mistake %v", e.Err.Mistake)
+	}
+}

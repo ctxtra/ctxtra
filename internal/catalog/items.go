@@ -293,8 +293,13 @@ func (t *tree) match(p string, kind Kind) bool {
 	if !fi.IsDir() {
 		return false
 	}
-	skill, err := stat(filepath.Join(full, "SKILL.md"))
-	return err == nil && skill.Mode().IsRegular()
+	md := filepath.Join(full, "SKILL.md")
+	skill, err := stat(md)
+	if err != nil {
+		t.skip(md, err)
+		return false
+	}
+	return skill.Mode().IsRegular()
 }
 
 func (t *tree) spend(n int) error {
