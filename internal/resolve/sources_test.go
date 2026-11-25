@@ -363,3 +363,28 @@ func TestDirSourceGlobs(t *testing.T) {
 		}
 	})
 }
+
+func TestDirSourceGlobLoops(t *testing.T) {
+	for _, c := range []struct{ name, link string }{{"a symlink to itself", "loop"}, {"two symlinks to each other", "other"}} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHome(t)
+			h.write("dotfiles/agents/me.md", "ME")
+			h.write("dotfiles/agents/zz/last.md", "LAST")
+			symlink(t, c.link, h.path("dotfiles/agents/loop"))
+			if c.link == "other" {
+				symlink(t, "loop", h.path("dotfiles/agents/other"))
+			}
+			env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/**/*.md']}\n")
+			res := start(env, h.dir, "")
+			eq(t, "files", bases(res.Files), "me.md", "last.md")
+			if len(res.Errors) == 0 {
+				t.Fatal("no error for the loop")
+			}
+			for _, e := range res.Errors {
+				if e.Err.Mistake != yamlx.UnreadableFile || !strings.Contains(e.Error(), "agents/") {
+					t.Errorf("error %v", e)
+				}
+			}
+		})
+	}
+}

@@ -154,6 +154,12 @@ func CleanEnv() []string {
 // errNotRepo is git's answer for a folder outside every repository.
 var errNotRepo = errors.New("not a git repository")
 
+// noRepo starts git's message when discovery finds no repository above a
+// folder. A .git file that points to missing or broken metadata gives
+// "not a git repository: PATH" instead, which is a failure, not a folder
+// outside git.
+const noRepo = "not a git repository (or any"
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	// Untranslated messages tell a folder outside git from a failure.
@@ -166,7 +172,7 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	switch {
 	case err == nil:
 		return strings.TrimSpace(string(out)), nil
-	case errors.As(err, &exit) && strings.Contains(string(exit.Stderr), "not a git repository"):
+	case errors.As(err, &exit) && strings.Contains(string(exit.Stderr), noRepo):
 		return "", errNotRepo
 	case errors.As(err, &exit):
 		msg := strings.TrimSpace(string(exit.Stderr))

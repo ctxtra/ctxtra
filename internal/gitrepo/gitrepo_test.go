@@ -157,6 +157,25 @@ func TestDetect(t *testing.T) {
 			t.Errorf("got %+v, %v", r, err)
 		}
 	})
+	t.Run("a worktree whose metadata is gone", func(t *testing.T) {
+		h := testenv.Home(t)
+		r := testenv.Repo(t, filepath.Join(h, "main"), "git@github.com:acme/svc.git")
+		wt := filepath.Join(h, "wt")
+		testenv.Run(t, r, "git", "worktree", "add", "-q", wt)
+		if err := os.RemoveAll(filepath.Join(r, ".git", "worktrees")); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := Detect(wt); got != nil || err == nil {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("a .git file that isn't one", func(t *testing.T) {
+		h := testenv.Home(t)
+		testenv.Write(t, filepath.Join(h, "bad", ".git"), "garbage\n")
+		if got, err := Detect(filepath.Join(h, "bad")); got != nil || err == nil {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
 	t.Run("missing git", func(t *testing.T) {
 		h := testenv.Home(t)
 		r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")

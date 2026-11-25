@@ -392,11 +392,21 @@ func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
 	repo, err := r.repository()
 	if err != nil {
 		for _, e := range l.Repos {
-			if e.Not && e.Err == nil {
+			if e.Err != nil {
+				k.positive = k.positive || !e.Not
+				continue
+			}
+			if e.Not {
 				r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repos %s can't be checked: %v", e.Text, err)
 				return k, true
 			}
-			k.positive = k.positive || !e.Not
+			for _, sub := range e.Subdirs {
+				if sub.Not && sub.Err == nil {
+					r.fail(t, b, sub.Pos, yamlx.BrokenExclusion, "repos %s subdirs %s can't be checked: %v", e.Repo, sub.Text, err)
+					return k, true
+				}
+			}
+			k.positive = true
 		}
 		k.why = fmt.Sprintf("repos: the repository can't be told (%v), so no entry matches", err)
 		return k, false
@@ -548,6 +558,8 @@ func (r *session) entryErrors(b *cfg.Binding, t *Trace, e cfg.Entry, errs []erro
 			}
 		case catalog.IsUntrusted(err):
 			r.fail(t, b, e.Pos, yamlx.UntrustedFile, "%s: %v", e.Text, err)
+		case errors.As(err, new(*catalog.Unreadable)):
+			r.fail(t, b, e.Pos, yamlx.UnreadableFile, "%s: %v", e.Text, err)
 		default:
 			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%v", err)
 		}

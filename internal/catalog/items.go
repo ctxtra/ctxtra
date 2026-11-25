@@ -185,16 +185,21 @@ func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 // glob is what pattern, slash-separated and relative to root, matches, as
 // sorted relative paths. live is a folder read from disk: symlinks are
 // followed, to files for the trust check when the file is read and to
-// folders after it; a folder the trust rules refuse isn't listed, and its
-// error comes with what the rest of the pattern found. In ctxtra's store
+// folders after it. A folder the trust rules refuse isn't listed, and an
+// entry that can't be read, such as a symlink to itself, is left out: their
+// errors come with what the rest of the pattern found. Going over the
+// traversal limits fails the whole pattern. In ctxtra's store
 // there are no symlinks, and none is followed.
 func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, []error) {
 	t := &tree{FS: os.DirFS(root), root: root, trust: c.trust, live: live, left: maxGlobEntries,
-		ids: map[string]fileID{}, refusedDirs: map[string]bool{}}
+		ids: map[string]fileID{}, skippedPaths: map[string]bool{}}
 	what := map[Kind]string{Files: "file", Skills: "skill folder with a SKILL.md"}[kind]
 	if !hasMeta(pattern) {
 		if t.match(pattern, kind) {
 			return []string{pattern}, nil
+		}
+		if len(t.skipped) > 0 {
+			return nil, t.skipped
 		}
 		return nil, []error{fmt.Errorf("%s is not a %s", paths.Tilde(filepath.Join(root, filepath.FromSlash(pattern))), what)}
 	}
@@ -210,13 +215,13 @@ func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, []
 		return nil
 	}, opts...)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, append(t.refused, err)
+		return nil, append(t.skipped, err)
 	}
-	if len(found) == 0 && len(t.refused) == 0 {
+	if len(found) == 0 && len(t.skipped) == 0 {
 		return nil, []error{fmt.Errorf("%s matches no %s", pattern, what)}
 	}
 	slices.Sort(found)
-	return slices.Compact(found), t.refused
+	return slices.Compact(found), t.skipped
 }
 
 // tree is a folder for glob, with a bound on the entries it visits.
@@ -226,9 +231,11 @@ type tree struct {
 	trust *trust.Policy
 	live  bool
 	left  int
-	// refused are the errors of folders the trust rules refuse, once each.
-	refused     []error
-	refusedDirs map[string]bool
+	// skipped are the errors of entries left out, once each: folders the
+	// trust rules refuse, and entries that can't be read, such as a symlink
+	// to itself.
+	skipped      []error
+	skippedPaths map[string]bool
 	// ids are the folders listed, by their path, for finding symlink
 	// cycles.
 	ids map[string]fileID
@@ -277,6 +284,7 @@ func (t *tree) match(p string, kind Kind) bool {
 	}
 	fi, err := stat(full)
 	if err != nil {
+		t.skip(full, err)
 		return false
 	}
 	if kind == Files {
@@ -312,11 +320,41 @@ func (t *tree) Stat(name string) (fs.FileInfo, error) {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
+	stat := os.Lstat
 	if name == "." || t.live {
-		return os.Stat(full)
+		stat = os.Stat
 	}
-	return os.Lstat(full)
+	fi, err := stat(full)
+	if err != nil {
+		t.skip(full, err)
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+	}
+	return fi, nil
 }
+
+// skip records why entry full of the tree is left out; one that doesn't
+// exist needs no error.
+func (t *tree) skip(full string, err error) {
+	if errors.Is(err, fs.ErrNotExist) || t.skippedPaths[full] {
+		return
+	}
+	t.skippedPaths[full] = true
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		err = pe.Err
+	}
+	t.skipped = append(t.skipped, &Unreadable{Path: full, Err: err})
+}
+
+// Unreadable is the error of a file or folder that a pattern found and
+// couldn't read, such as a symlink to itself: only it is left out.
+type Unreadable struct {
+	Path string
+	Err  error
+}
+
+func (u *Unreadable) Error() string { return paths.Tilde(u.Path) + " can't be read: " + u.Err.Error() }
+func (u *Unreadable) Unwrap() error { return u.Err }
 
 func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 	if strings.Count(name, "/") > 64 {
@@ -335,9 +373,9 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 					te.Via = filepath.Dir(te.Via)
 				}
 			}
-			if !t.refusedDirs[dir] {
-				t.refusedDirs[dir] = true
-				t.refused = append(t.refused, &Untrusted{err})
+			if !t.skippedPaths[dir] {
+				t.skippedPaths[dir] = true
+				t.skipped = append(t.skipped, &Untrusted{err})
 			}
 			return nil, nil
 		}
@@ -345,18 +383,21 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 			return nil, nil
 		}
 	}
+	full := filepath.Join(t.root, filepath.FromSlash(name))
 	f, err := t.FS.Open(name)
 	if err != nil {
-		return nil, err
+		t.skip(full, err)
+		return nil, nil
 	}
 	defer f.Close()
 	d, ok := f.(fs.ReadDirFile)
 	if !ok {
-		return nil, fmt.Errorf("%s is not a folder", name)
+		return nil, nil
 	}
 	entries, err := d.ReadDir(max(t.left, 0) + 1)
 	if err != nil && err != io.EOF {
-		return nil, err
+		t.skip(full, err)
+		return nil, nil
 	}
 	if err := t.spend(len(entries) + 1); err != nil {
 		return nil, err

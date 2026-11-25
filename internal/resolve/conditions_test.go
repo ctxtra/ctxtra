@@ -388,6 +388,34 @@ func TestRepositoryCantBeTold(t *testing.T) {
 		t.Cleanup(func() { detectRepo = old })
 		check(t, h, h.path("work/client-x"))
 	})
+	t.Run("a subdirs exclusion", func(t *testing.T) {
+		h := newHome(t)
+		h.repo("work/mono", "git@github.com:acme/mono.git")
+		dir := h.mkdir("work/mono/services/clients/acme")
+		t.Setenv("PATH", t.TempDir())
+		env := h.load("mcp-servers: {linear: {url: https://mcp.linear.app/mcp}}\nbindings:\n" +
+			"  - {name: b, location: {dirs: ['~/work/**'], repos: [{repo: github.com/acme/mono, subdirs: ['!services/clients/**']}]}, mcp-servers: [linear]}\n")
+		res := start(env, dir, "")
+		eq(t, "applied", applied(res))
+		eq(t, "served", served(res))
+		if e := oneError(t, res, "!services/clients/**", "binding b is left out"); e.Err.Mistake != yamlx.BrokenExclusion || e.Err.Pos.Line != 4 {
+			t.Errorf("error %v at %+v", e, e.Err.Pos)
+		}
+	})
+	t.Run("a worktree whose metadata is gone", func(t *testing.T) {
+		h := newHome(t)
+		main := h.repo("dev/main", "git@github.com:acme/client-x.git")
+		wt := h.path("work/client-x")
+		testenv.Run(t, main, "git", "worktree", "add", "-q", wt)
+		if err := os.RemoveAll(filepath.Join(main, ".git", "worktrees")); err != nil {
+			t.Fatal(err)
+		}
+		env := h.load("mcp-servers: {linear: {url: https://mcp.linear.app/mcp}}\nbindings:\n" +
+			"  - {name: not-clients, location: {repos: ['!github.com/acme/client-*']}, mcp-servers: [linear]}\n")
+		res := start(env, wt, "")
+		eq(t, "applied", applied(res))
+		oneError(t, res, "binding not-clients", "can't be checked")
+	})
 	t.Run("outside git, the same bindings apply", func(t *testing.T) {
 		h := newHome(t)
 		res := start(h.load(config), h.mkdir("work/notes"), "")
