@@ -15,6 +15,18 @@ import (
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
+func TestAgentIDs(t *testing.T) {
+	want := []string{"claude-code", "codex", "pi", "opencode", "muse", "hermes-agent", "dsh", "cursor", "github-copilot", "antigravity", "devin"}
+	if !slices.Equal(Names(), want) {
+		t.Fatalf("agent IDs: %v, want %v", Names(), want)
+	}
+	for _, name := range []string{"claude", "copilot", "hermes"} {
+		if _, ok := Get(name); ok {
+			t.Errorf("earlier ID %s is still accepted", name)
+		}
+	}
+}
+
 // Every agent has what the commands need, and answers with a JSON object
 // also when there is nothing to add.
 func TestAgentsAreComplete(t *testing.T) {

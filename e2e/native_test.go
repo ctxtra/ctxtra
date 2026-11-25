@@ -14,15 +14,15 @@ import (
 // nativeCandidates are user-level files, relative to the home folder, that
 // an agent might read: the ones it reads and some it doesn't.
 var nativeCandidates = map[string][]string{
-	"claude":      {".claude/CLAUDE.md", ".claude/rules/r.md", ".claude/rules/sub/s.md", ".claude/AGENTS.md"},
-	"codex":       {".codex/AGENTS.md", ".codex/AGENTS.override.md", ".codex/instructions.md"},
-	"pi":          {".pi/agent/AGENTS.override.md", ".pi/agent/AGENTS.md", ".pi/agent/CLAUDE.md", ".pi/agent/SYSTEM.md", ".pi/agent/APPEND_SYSTEM.md", ".pi/AGENTS.md"},
-	"opencode":    {".config/opencode/AGENTS.md", ".config/opencode/CLAUDE.md", ".claude/CLAUDE.md", ".opencode/AGENTS.md"},
-	"copilot":     {".copilot/copilot-instructions.md", ".copilot/instructions/x.instructions.md", ".copilot/instructions/sub/y.instructions.md", ".copilot/AGENTS.md"},
-	"antigravity": {".gemini/GEMINI.md", ".gemini/AGENTS.md", ".gemini/config/GEMINI.md", ".gemini/antigravity/GEMINI.md"},
-	"hermes":      {".hermes/SOUL.md", ".hermes/AGENTS.md", ".hermes/HERMES.md", ".hermes/memories/USER.md", ".hermes/memories/MEMORY.md"},
-	"dsh":         {".dsh/AGENTS.md", ".dsh/DSH.md", ".dsh/instructions.md"},
-	"muse":        {".config/muse/AGENTS.md", ".config/muse/MUSE.md", ".muse/AGENTS.md"},
+	"claude-code":    {".claude/CLAUDE.md", ".claude/rules/r.md", ".claude/rules/sub/s.md", ".claude/AGENTS.md"},
+	"codex":          {".codex/AGENTS.md", ".codex/AGENTS.override.md", ".codex/instructions.md"},
+	"pi":             {".pi/agent/AGENTS.override.md", ".pi/agent/AGENTS.md", ".pi/agent/CLAUDE.md", ".pi/agent/SYSTEM.md", ".pi/agent/APPEND_SYSTEM.md", ".pi/AGENTS.md"},
+	"opencode":       {".config/opencode/AGENTS.md", ".config/opencode/CLAUDE.md", ".claude/CLAUDE.md", ".opencode/AGENTS.md"},
+	"github-copilot": {".copilot/copilot-instructions.md", ".copilot/instructions/x.instructions.md", ".copilot/instructions/sub/y.instructions.md", ".copilot/AGENTS.md"},
+	"antigravity":    {".gemini/GEMINI.md", ".gemini/AGENTS.md", ".gemini/config/GEMINI.md", ".gemini/antigravity/GEMINI.md"},
+	"hermes-agent":   {".hermes/SOUL.md", ".hermes/AGENTS.md", ".hermes/HERMES.md", ".hermes/memories/USER.md", ".hermes/memories/MEMORY.md"},
+	"dsh":            {".dsh/AGENTS.md", ".dsh/DSH.md", ".dsh/instructions.md"},
+	"muse":           {".config/muse/AGENTS.md", ".config/muse/MUSE.md", ".muse/AGENTS.md"},
 }
 
 // nativeExcluded are files that an agent reads but ctxtra doesn't import:

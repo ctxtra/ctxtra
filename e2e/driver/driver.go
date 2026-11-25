@@ -102,7 +102,7 @@ func Has(d Driver, c Cap) bool {
 // pinned version installed by agents/install.sh, then PATH.
 func Binary(d Driver) (string, error) {
 	exe := d.Executable()
-	env := "CTXTRA_E2E_" + strings.ToUpper(d.Name())
+	env := "CTXTRA_E2E_" + strings.ToUpper(exe)
 	if p := os.Getenv(env); p != "" {
 		return p, nil
 	}

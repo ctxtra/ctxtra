@@ -1,0 +1,1 @@
+{"agent": "github-copilot", "reads": "additionalContext", "events": ["sessionStart", "subagentStart"]}

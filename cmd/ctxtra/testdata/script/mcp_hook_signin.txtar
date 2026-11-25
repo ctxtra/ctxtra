@@ -1,24 +1,24 @@
 # The session summary names the bound MCP servers that need sign-in, from
 # their state files only: no key, no keychain, no network.
 
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 mkdir dev/app other
 
 # No session has tried the server yet: no state, no line.
-runhook claude SessionStart dev/app
+runhook claude-code SessionStart dev/app
 stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\nMCP servers:\\n  - linear_work"'
 ! stdout 'needs sign-in'
 
 # A session found that it needs sign-in.
 mkdir .local/state/ctxtra/mcp/state
 cp state.json .local/state/ctxtra/mcp/state/linear_work.json
-runhook claude SessionStart dev/app
+runhook claude-code SessionStart dev/app
 stdout '"systemMessage":"✓ ctxtra added 1 instruction and 1 MCP server\\nInstructions:\\n  local\\n  - ~/.config/ctxtra/work.md\\nMCP servers:\\n  - linear_work\\n\\n⚠ linear_work needs sign-in: run ctxtra mcp login linear_work"'
 ! stdout 'CTXMARK-SECRET'
 ! exists .local/state/ctxtra/mcp/key.json
 
 # A folder that doesn't bind it gets no line.
-runhook claude SessionStart other
+runhook claude-code SessionStart other
 ! stdout 'needs sign-in'
 
 -- .config/ctxtra/config.yaml --

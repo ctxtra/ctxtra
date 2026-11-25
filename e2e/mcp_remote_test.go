@@ -164,7 +164,7 @@ func readFile(t *testing.T, path string) string {
 // session's own command runs ctxtra mcp login, then waits.
 func TestMCPSignInDuringSession(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
-		if a.Name() != "claude" {
+		if a.Name() != "claude-code" {
 			t.Skip("checked in Claude Code, which takes tool list changes")
 		}
 		const key = "e2e-api-key"

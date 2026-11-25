@@ -130,7 +130,7 @@ type Answer = { text?: string; skills?: Skill[] };
 function run(ev: string, cwd: string): Promise<Answer> {
 	return new Promise((resolve) => {
 		try {
-			const child = execFile(bin, ["hook", "opencode", ev], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
+			const child = execFile(bin, ["hook", "opencode", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
 				(err, stdout) => {
 					if (err) return resolve({});
 					try {

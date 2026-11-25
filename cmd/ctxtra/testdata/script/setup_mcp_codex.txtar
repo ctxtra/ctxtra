@@ -15,8 +15,8 @@ exec ctxtra setup --agent codex
 stdout '~/.codex/config.toml'
 grep '^# >>> ctxtra MCP proxy: written by ctxtra setup; keys you add are kept$' .codex/config.toml
 grep '^\[mcp_servers.ctxtra-proxy\]$' .codex/config.toml
-grep '^args = \["mcp", "proxy", "codex"\]$' .codex/config.toml
-grep '^env_vars = \["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", .*"HTTPS_PROXY", "https_proxy", .*"SSL_CERT_FILE", "SSL_CERT_DIR", "PGHOST"\]$' .codex/config.toml
+grep '^args = \["mcp", "proxy", "codex", "--setup-version=1"\]$' .codex/config.toml
+grep '^env_vars = \["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CTXTRA_LOG", .*"HTTPS_PROXY", "https_proxy", .*"SSL_CERT_FILE", "SSL_CERT_DIR", "PGHOST"\]$' .codex/config.toml
 grep '^startup_timeout_sec = 30$' .codex/config.toml
 grep '^required = true$' .codex/config.toml
 grep '^# <<< ctxtra MCP proxy$' .codex/config.toml
@@ -94,7 +94,7 @@ trust_level = "trusted"
 # >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept
 [mcp_servers.ctxtra]
 command = "/old/ctxtra"
-args = ["mcp", "proxy", "codex"]
+args = ["mcp", "proxy", "codex", "--setup-version=1"]
 env_vars = ["XDG_CONFIG_HOME"]
 startup_timeout_sec = 30
 default_tools_approval_mode = "approve"

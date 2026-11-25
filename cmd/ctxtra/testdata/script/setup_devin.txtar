@@ -20,24 +20,24 @@ stdout '"systemMessage":"✓ ctxtra added 1 instruction\\nInstructions:\\n  loca
 
 # Devin runs Claude's hook too, with DEVIN_PROJECT_DIR set: it adds nothing,
 # and doctor says why.
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 env DEVIN_PROJECT_DIR=$WORK/repo
-runhook claude SessionStart repo
+runhook claude-code SessionStart repo
 stdout '^\{\}$'
 runhook devin SessionStart repo
 stdout CTXMARK-ME
 exec ctxtra doctor repo
-stdout 'claude SessionStart: .* skipped: run by Devin'
+stdout 'claude-code SessionStart: .* skipped: run by Devin'
 
 # Without ctxtra's Devin hook, Claude's hook serves Devin.
 exec ctxtra setup --remove --agent devin
-runhook claude SessionStart repo
+runhook claude-code SessionStart repo
 stdout CTXMARK-ME
 
 # Claude Code itself doesn't set DEVIN_PROJECT_DIR.
 exec ctxtra setup --agent devin
 env DEVIN_PROJECT_DIR=
-runhook claude SessionStart repo
+runhook claude-code SessionStart repo
 stdout CTXMARK-ME
 
 exec ctxtra setup --remove --agent devin
@@ -114,7 +114,7 @@ cmp .config/devin/config.json commented.json
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook devin SessionStart; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\":\\\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent devin with the new binary\\\"}\"; fi'",
+            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook devin SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\":\\\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent devin with the new binary\\\"}\"; fi'",
             "timeout": 10
           }
         ]

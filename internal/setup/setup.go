@@ -24,14 +24,12 @@ import (
 type Options struct {
 	Agents []string // empty: every agent found on this machine
 	agent.Options
-	// MCP is what the config says about MCP servers: whether agents get
-	// ctxtra's MCP entry. Remove removes the entry either way.
+	// MCP supplies the environment names local servers need.
 	MCP MCPConfig
 }
 
 // MCPConfig is what setup needs from the config about MCP servers.
 type MCPConfig struct {
-	Want    bool     // the config declares a server
 	EnvPass []string // every local server's env-pass names
 }
 
@@ -39,7 +37,7 @@ type MCPConfig struct {
 func LoadMCP() MCPConfig {
 	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
 	cfg.LoadMCPCatalog()
-	m := MCPConfig{Want: len(cfg.MCPServers) > 0}
+	m := MCPConfig{}
 	for _, s := range cfg.MCPServers {
 		m.EnvPass = append(m.EnvPass, s.EnvPass...)
 	}
@@ -100,7 +98,7 @@ func Run(o Options) (Report, error) {
 		n := len(r.Changes)
 		err := a.Setup(o.Options, &r.Report)
 		if m, ok := a.(agent.MCPAgent); ok && err == nil {
-			err = m.MCP().SetupMCP(agent.MCPOptions{Options: o.Options, Want: o.MCP.Want, EnvPass: o.MCP.EnvPass}, &r.Report)
+			err = m.MCP().SetupMCP(agent.MCPOptions{Options: o.Options, Want: true, EnvPass: o.MCP.EnvPass}, &r.Report)
 		}
 		r.Agents = append(r.Agents, Agent{a, slices.Clone(r.Changes[n:]), err})
 		if err != nil {
@@ -110,7 +108,7 @@ func Run(o Options) (Report, error) {
 		done = append(done, a)
 	}
 	if !o.DryRun {
-		r.Record = record(o.Remove, o.MCP.Want, done)
+		r.Record = record(o.Remove, done)
 	}
 	return r, nil
 }
@@ -118,7 +116,7 @@ func Run(o Options) (Report, error) {
 // record adds to setup.json the agents that this run set up, or removes
 // those it removed, and every agent found on this machine. A broken
 // setup.json is replaced.
-func record(remove, mcp bool, done []agent.Agent) error {
+func record(remove bool, done []agent.Agent) error {
 	s, _, err := state.LoadSetups()
 	if err != nil {
 		s = state.Setups{}
@@ -133,7 +131,7 @@ func record(remove, mcp bool, done []agent.Agent) error {
 			switch {
 			case remove:
 				s.Uninstall(MCPKey(a.Name()), m.MCP().MCPPath())
-			case mcp:
+			default:
 				s.Install(MCPKey(a.Name()), m.MCP().MCPPath())
 			}
 		}

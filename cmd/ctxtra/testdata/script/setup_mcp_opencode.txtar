@@ -40,7 +40,8 @@ mcp-servers:
           "$BIN",
           "mcp",
           "proxy",
-          "opencode"
+          "opencode",
+          "--setup-version=1"
         ],
         "pool": false
       }

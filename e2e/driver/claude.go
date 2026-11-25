@@ -11,7 +11,7 @@ import (
 // ANTHROPIC_BASE_URL with a dummy API key.
 type Claude struct{}
 
-func (Claude) Name() string       { return "claude" }
+func (Claude) Name() string       { return "claude-code" }
 func (Claude) Executable() string { return "claude" }
 func (Claude) Caps() []Cap        { return []Cap{Subagent, UserMessage, SkillCommand} }
 

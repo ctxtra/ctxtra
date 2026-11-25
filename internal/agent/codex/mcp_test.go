@@ -77,7 +77,7 @@ func TestCodexAddKeepsTheRest(t *testing.T) {
 		t.Errorf("the rest changed:\n%s", b)
 	}
 	tail := strings.TrimPrefix(string(b), realConfig)
-	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\nenv_vars = [\"XDG_CONFIG_HOME\", \"XDG_DATA_HOME\", \"XDG_STATE_HOME\", \"XDG_CACHE_HOME\", \"CTXTRA_LOG\", \"CTXTRA_EXPERIMENTAL_MCP\"") ||
+	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\nenv_vars = [\"XDG_CONFIG_HOME\", \"XDG_DATA_HOME\", \"XDG_STATE_HOME\", \"XDG_CACHE_HOME\", \"CTXTRA_LOG\"") ||
 		!strings.HasSuffix(tail, "\"SSL_CERT_DIR\", \"PGHOST\"]\nstartup_timeout_sec = 30\nrequired = true\n"+endMarker+"\n") {
 		t.Errorf("block:\n%s", tail)
 	}
@@ -189,12 +189,12 @@ func TestCodexNewFileAndDryRun(t *testing.T) {
 func TestCodexHandEdited(t *testing.T) {
 	h := testenv.Home(t)
 	path := filepath.Join(h, ".codex", "config.toml")
-	block := beginMarker + "\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" + endMarker + "\n"
+	block := beginMarker + "\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n" + endMarker + "\n"
 	for name, body := range map[string]string{
 		"quoted table":     realConfig + "[mcp_servers.\"ctxtra-proxy\"]\ncommand = \"x\"\n",
 		"dotted keys":      "mcp_servers.ctxtra-proxy.command = \"x\"\n" + realConfig,
 		"inline map":       "mcp_servers = { ctxtra-proxy = { command = \"x\" } }\n",
-		"no markers":       realConfig + "[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n",
+		"no markers":       realConfig + "[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n",
 		"begin only":       realConfig + beginMarker + "\n[mcp_servers.x]\ncommand = \"x\"\n",
 		"end first":        endMarker + "\n" + realConfig + beginMarker + "\n",
 		"two blocks":       realConfig + block + block,
@@ -332,7 +332,7 @@ func read(t *testing.T, p string) string {
 }
 
 // legacyBlock is the entry as setup wrote it before the rename.
-const legacyBlock = legacyBeginMarker + "\n" + legacyTableHeader + "\ncommand = \"/old/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" +
+const legacyBlock = legacyBeginMarker + "\n" + legacyTableHeader + "\ncommand = \"/old/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n" +
 	"startup_timeout_sec = 30\ndefault_tools_approval_mode = \"approve\"\nrequired = true\n" + legacyEndMarker + "\nenabled = true\n"
 
 // Setup renames the old block, with the keys and subtables the user added,

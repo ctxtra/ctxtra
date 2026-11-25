@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -443,6 +444,9 @@ func (r report) doctor(dir string, asJSON bool) int {
 	loadedProblems := len(cfg.Problems)
 	cfg.LoadMCPCatalog()
 	cfg.Notes = append(cfg.Notes, mcpOrphans(cfg)...)
+	if st, err := os.Stat(filepath.Join(paths.Home(), ".ctxtra")); err == nil && st.IsDir() {
+		cfg.Notes = append(cfg.Notes, "~/.ctxtra can be deleted once every agent is set up again with ctxtra setup")
+	}
 	res.Problems = append(res.Problems, cfg.Problems[loadedProblems:]...)
 	_, statErr := os.Stat(cfg.File)
 	setups, _, _ := state.LoadSetups()
@@ -455,7 +459,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 		details := append([]string{}, st.Details...)
 		if m, isMCP := a.(agent.MCPAgent); isMCP {
 			host := m.MCP()
-			ms := host.MCPStatus(bin, agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: mcp.Want && known, EnvPass: mcp.EnvPass})
+			ms := host.MCPStatus(bin, agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: known, EnvPass: mcp.EnvPass})
 			details = append(details, "MCP: "+ms.State+" ("+paths.Tilde(host.MCPPath())+")")
 			details = append(details, ms.Details...)
 			st.OK = st.OK && ms.OK

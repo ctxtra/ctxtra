@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -43,16 +42,16 @@ func TestOutputPerAgent(t *testing.T) {
 		return m
 	}
 	input := `{"cwd": "` + r + `"}`
-	c := run("claude", "SubagentStart", input)["hookSpecificOutput"].(map[string]any)
+	c := run("claude-code", "SubagentStart", input)["hookSpecificOutput"].(map[string]any)
 	if c["hookEventName"] != "SubagentStart" || !strings.Contains(c["additionalContext"].(string), "Rule A <&>") ||
 		!strings.Contains(c["additionalContext"].(string), "<name>deploy</name>") {
-		t.Errorf("claude: %v", c)
+		t.Errorf("claude-code: %v", c)
 	}
 	if cu := run("cursor", "sessionStart", `{"workspace_roots": ["`+r+`"]}`); !strings.Contains(cu["additional_context"].(string), "Rule A") {
 		t.Errorf("cursor: %v", cu)
 	}
-	if co := run("copilot", "sessionStart", input); !strings.Contains(co["additionalContext"].(string), "Rule A") {
-		t.Errorf("copilot: %v", co)
+	if co := run("github-copilot", "sessionStart", input); !strings.Contains(co["additionalContext"].(string), "Rule A") {
+		t.Errorf("github-copilot: %v", co)
 	}
 	if d := run("devin", "SessionStart", input)["hookSpecificOutput"].(map[string]any); d["hookEventName"] != "SessionStart" ||
 		!strings.Contains(d["additionalContext"].(string), "Rule A") {
@@ -75,10 +74,10 @@ func TestOutputPerAgent(t *testing.T) {
 		t.Errorf("antigravity: %v", ag)
 	}
 	// The user sees a summary at session start, not for subagents.
-	if m := run("claude", "SessionStart", input); m["systemMessage"] != "✓ ctxtra added 1 instruction and 1 skill\nInstructions:\n  local\n  - ~/a.md\nSkills:\n  local\n  - deploy" {
+	if m := run("claude-code", "SessionStart", input); m["systemMessage"] != "✓ ctxtra added 1 instruction and 1 skill\nInstructions:\n  local\n  - ~/a.md\nSkills:\n  local\n  - deploy" {
 		t.Errorf("summary: %v", m["systemMessage"])
 	}
-	if m := run("claude", "SubagentStart", input); m["systemMessage"] != nil || m["hookSpecificOutput"] == nil {
+	if m := run("claude-code", "SubagentStart", input); m["systemMessage"] != nil || m["hookSpecificOutput"] == nil {
 		t.Errorf("subagent: %v", m)
 	}
 	// A broken config adds nothing, tells the user, and still answers with
@@ -89,7 +88,7 @@ func TestOutputPerAgent(t *testing.T) {
 	}
 	// Malformed input adds nothing, even with a working config.
 	testenv.Config(t, h, good)
-	if m := run("claude", "SessionStart", `{"cwd": true}`); len(m) != 0 {
+	if m := run("claude-code", "SessionStart", `{"cwd": true}`); len(m) != 0 {
 		t.Errorf("malformed input: %v", m)
 	}
 	// An unknown agent gets an empty answer.
@@ -123,11 +122,11 @@ func TestClaudeHookUnderDevin(t *testing.T) {
 		`{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": `+string(cmd)+`}]}]}}`)
 	run := func() string {
 		var out bytes.Buffer
-		RunSlot("claude", "SessionStart", 0, strings.NewReader(`{"cwd": "`+r+`"}`), &out, io.Discard)
+		RunSlot("claude-code", "SessionStart", 0, strings.NewReader(`{"cwd": "`+r+`"}`), &out, io.Discard)
 		return out.String()
 	}
 	if out := run(); !strings.Contains(out, "Rule A") {
-		t.Errorf("claude: %s", out)
+		t.Errorf("claude-code: %s", out)
 	}
 	t.Setenv("DEVIN_PROJECT_DIR", r)
 	if out := run(); strings.TrimSpace(out) != "{}" {
@@ -158,7 +157,7 @@ func TestClaudeHookUnderCursor(t *testing.T) {
 		`{"version": 1, "hooks": {"sessionStart": [{"command": `+string(cmd)+`}]}}`)
 	run := func(slot int, input string) string {
 		var out bytes.Buffer
-		RunSlot("claude", "SessionStart", slot, strings.NewReader(input), &out, io.Discard)
+		RunSlot("claude-code", "SessionStart", slot, strings.NewReader(input), &out, io.Discard)
 		return out.String()
 	}
 	fromCursor := `{"cwd": "` + r + `", "session_id": "s1", "hook_event_name": "sessionStart", "cursor_version": "3.25.9"}`
@@ -175,7 +174,7 @@ func TestClaudeHookUnderCursor(t *testing.T) {
 	}
 	// Claude Code itself sends no cursor_version.
 	if out := run(0, `{"cwd": "`+r+`", "session_id": "s2"}`); !strings.Contains(out, "Rule A") {
-		t.Errorf("claude: %s", out)
+		t.Errorf("claude-code: %s", out)
 	}
 	// Without ctxtra's Cursor hook, Claude's hook is the one that serves Cursor.
 	testenv.Write(t, filepath.Join(h, ".cursor", "hooks.json"), `{"version": 1, "hooks": {}}`)
@@ -184,44 +183,11 @@ func TestClaudeHookUnderCursor(t *testing.T) {
 	}
 }
 
-// old is Claude Code with a Legacy case, as after a capacity change: a
-// setup with one slot gets one part.
-type old struct{ agent.Agent }
-
-func (o old) Legacy(_ string, in agent.Input) (agent.Delivery, bool) {
-	d := o.Delivery()
-	return agent.Delivery{Title: d.Title, Capacity: d.Chunk, Unit: d.Unit, Chunk: d.Chunk, Slots: 1}, in.Slots == 1
-}
-
-// A hook that Legacy recognizes gets what its setup got, whole files
-// dropped from the end, and the user and the log are told to run setup.
-// Other hooks get this version's delivery.
-func TestLegacy(t *testing.T) {
-	h := testenv.Home(t)
-	r := testenv.Repo(t, filepath.Join(h, "svc"), "")
-	testenv.Write(t, filepath.Join(h, "small.md"), "SMALL FILE")
-	testenv.Write(t, filepath.Join(h, "big.md"), strings.Repeat("big line\n", 1200))
-	testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/small.md, ~/big.md]}\n")
-	a, _ := registry.Get("claude")
-	d, upgrade, err := delivery(old{a}, "SessionStart", agent.Input{Slot: 0, Slots: 1})
-	if err != nil || d.Capacity != 9000 || !strings.Contains(upgrade, "Claude Code's limit of 9,000 characters\nrun `ctxtra setup` to update it.") {
-		t.Fatalf("%+v, %q, %v", d, upgrade, err)
-	}
-	res, e := session(old{a}, d, upgrade, "", "", "SessionStart", payload{Cwd: r}, r)
-	if len(res.Files) != 1 || len(res.Dropped) != 1 || !strings.Contains(agent.Summary(res), "\n  run `ctxtra setup` to update it.") ||
-		!slices.Contains(e.Problems, strings.ReplaceAll(upgrade, "\n", "; ")) {
-		t.Errorf("files %v, dropped %v, summary %q, log %+v", res.Files, res.Dropped, agent.Summary(res), e)
-	}
-	if d, upgrade, err := delivery(old{a}, "SessionStart", agent.Input{Slot: 0, Slots: 40}); err != nil || upgrade != "" || d != a.Delivery() {
-		t.Errorf("40 slots: %+v, %q, %v", d, upgrade, err)
-	}
-}
-
 // Options that can't be read add nothing, and are logged.
 func TestBadArgs(t *testing.T) {
 	h := testenv.Home(t)
 	var out bytes.Buffer
-	RunArgs("claude", "SessionStart", Args{Slot: -1, Err: errors.New("--slot given twice")}, strings.NewReader(`{"cwd": "/x"}`), &out, io.Discard)
+	RunArgs("claude-code", "SessionStart", Args{Slot: -1, Err: errors.New("--slot given twice")}, strings.NewReader(`{"cwd": "/x"}`), &out, io.Discard)
 	if strings.TrimSpace(out.String()) != "{}" {
 		t.Errorf("answer %q", out.String())
 	}
@@ -235,11 +201,11 @@ func TestBadArgs(t *testing.T) {
 		args    Args
 		input   string
 	}{
-		{"claude", Args{Slot: 3}, `{"cwd": "/x"}`},
-		{"claude", Args{Slot: -1}, `{"cwd": "/x"}`},
+		{"claude-code", Args{Slot: 3}, `{"cwd": "/x"}`},
+		{"claude-code", Args{Slot: -1}, `{"cwd": "/x"}`},
 		{"muse", Args{Slot: 0}, `{"cwd": "/x"}`},
-		{"claude", Args{Slot: -1, Slots: 40}, `{"cwd": "/x"}`},
-		{"claude", Args{Slot: 0}, `{"cwd": "/x", "ctxtra_slots": 40}`},
+		{"claude-code", Args{Slot: -1, Slots: 40}, `{"cwd": "/x"}`},
+		{"claude-code", Args{Slot: 0}, `{"cwd": "/x", "ctxtra_slots": 40}`},
 	} {
 		out.Reset()
 		RunArgs(c.harness, "SessionStart", c.args, strings.NewReader(c.input), &out, io.Discard)
@@ -249,7 +215,7 @@ func TestBadArgs(t *testing.T) {
 		}
 	}
 	// A plugin that doesn't say its version isn't one that setup writes.
-	for agent, event := range map[string]string{"pi": "before_agent_start", "opencode": "context", "dsh": "startup", "hermes": "pre_llm_call"} {
+	for agent, event := range map[string]string{"pi": "before_agent_start", "opencode": "context", "dsh": "startup", "hermes-agent": "pre_llm_call"} {
 		out.Reset()
 		Run(agent, event, strings.NewReader(`{"cwd": "/x", "ctxtra_slots": 125}`), &out, io.Discard)
 		a, _ := registry.Get(agent)
@@ -274,7 +240,7 @@ func TestHermesSlots(t *testing.T) {
 	run := func(extra string) map[string]any {
 		t.Helper()
 		var out bytes.Buffer
-		Run("hermes", "pre_llm_call", strings.NewReader(`{"cwd": "`+r+`"`+extra+`}`), &out, io.Discard)
+		Run("hermes-agent", "pre_llm_call", strings.NewReader(`{"cwd": "`+r+`"`+extra+`}`), &out, io.Discard)
 		var m map[string]any
 		if err := json.Unmarshal(out.Bytes(), &m); err != nil {
 			t.Fatalf("%s: %q", extra, out.String())

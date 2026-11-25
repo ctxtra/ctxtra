@@ -32,7 +32,7 @@ var (
 // contains the injected text.
 var events = []hookjson.Event{{Name: "SessionStart", Matcher: "startup|clear|compact"}, {Name: "SubagentStart"}}
 
-func (Agent) Name() string { return "claude" }
+func (Agent) Name() string { return "claude-code" }
 
 func dir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {

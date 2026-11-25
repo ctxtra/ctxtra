@@ -186,7 +186,7 @@ const bin = %s;
 function run(ev, cwd, signal) {
 	return new Promise((resolve) => {
 		try {
-			const child = execFile(bin, ["hook", "dsh", ev], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
+			const child = execFile(bin, ["hook", "dsh", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
 				(err, stdout) => {
 					if (err) return resolve({});
 					try {

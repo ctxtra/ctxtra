@@ -1,6 +1,7 @@
 // @ctxtra-managed
 // binary: $HOME/bin/ctxtra
 // protocol: 1
+// --setup-version=1
 // Written by ctxtra setup and loaded by its row in cordis.patch.yml. Adds the
 // instruction files and skills that ctxtra binds to the session's folder.
 // `ctxtra setup --remove` removes both.
@@ -14,7 +15,7 @@ const bin = join(homedir(), "bin/ctxtra");
 function run(ev, cwd, signal) {
 	return new Promise((resolve) => {
 		try {
-			const child = execFile(bin, ["hook", "dsh", ev], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
+			const child = execFile(bin, ["hook", "dsh", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
 				(err, stdout) => {
 					if (err) return resolve({});
 					try {

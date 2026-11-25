@@ -56,30 +56,30 @@ func (message) MissingAnswer(event, msg string) string { return agent.SystemMess
 func TestCommandIsStable(t *testing.T) {
 	h := testenv.Home(t)
 	for bin, want := range map[string]string{
-		filepath.Join(h, "go", "bin", "ctxtra"): `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
-		"/opt/homebrew/bin/ctxtra":              `/bin/sh -c 'f="/opt/homebrew/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
+		filepath.Join(h, "go", "bin", "ctxtra"): `/bin/sh -c 'f="$HOME/go/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
+		"/opt/homebrew/bin/ctxtra":              `/bin/sh -c 'f="/opt/homebrew/bin/ctxtra"; if [ -x "$f" ]; then exec "$f" hook codex SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`,
 	} {
 		got := agent.Command(bin, "codex", "SessionStart", nil)
 		if got != want {
 			t.Errorf("hook command changed:\n got %s\nwant %s", got, want)
 		}
-		if c, ok := agent.ParseCommand(got, nil); !ok || !reflect.DeepEqual(c, agent.Hook{Binary: bin, Agent: "codex", Event: "SessionStart", Slot: -1}) {
+		if c, ok := agent.ParseCommand(got, nil); !ok || !reflect.DeepEqual(c, agent.Hook{Binary: bin, Agent: "codex", Event: "SessionStart", Slot: -1, Current: true}) {
 			t.Errorf("ParseCommand(%s) = %+v, %v", got, c, ok)
 		}
 	}
 	withMessage := agent.Command("/opt/ctxtra", "devin", "SessionStart", message{})
-	if want := `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook devin SessionStart; else /bin/cat >/dev/null 2>&1; ` +
+	if want := `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook devin SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; ` +
 		`echo "{\"systemMessage\":\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent devin with the new binary\"}"; fi'`; withMessage != want {
 		t.Errorf("command with a message:\n got %s\nwant %s", withMessage, want)
 	}
-	slot := agent.SlotCommand("/opt/ctxtra", "claude", "SessionStart", 17, 40, message{})
-	if want := `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook claude SessionStart --slot 17 --of 40; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`; slot != want {
+	slot := agent.SlotCommand("/opt/ctxtra", "claude-code", "SessionStart", 17, 40, message{})
+	if want := `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook claude-code SessionStart --slot 17 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`; slot != want {
 		t.Errorf("slot command:\n got %s\nwant %s", slot, want)
 	}
 	if c, ok := agent.ParseCommand(slot, message{}); !ok || c.Slot != 17 || c.Slots != 40 || c.Binary != "/opt/ctxtra" {
 		t.Errorf("ParseCommand of a slot command: %+v, %v", c, ok)
 	}
-	if c, _ := agent.ParseCommand(agent.Command("/opt/ctxtra", "claude", "SessionStart", nil), nil); c.Slot != -1 || c.Slots != 0 {
+	if c, _ := agent.ParseCommand(agent.Command("/opt/ctxtra", "claude-code", "SessionStart", nil), nil); c.Slot != -1 || c.Slots != 0 {
 		t.Errorf("a slot in a command without one: %+v", c)
 	}
 	if _, ok := agent.ParseCommand("other-tool hook codex SessionStart", nil); ok {
@@ -97,33 +97,33 @@ func TestCommandIsStable(t *testing.T) {
 // slots, at session start. Another form, or a command edited by hand, isn't
 // ours.
 func TestParseCommand(t *testing.T) {
-	const pre = `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook claude `
-	msg := strings.ReplaceAll(agent.SystemMessage("SessionStart", agent.MissingMessage("claude")), `"`, `\"`)
+	const pre = `/bin/sh -c 'f="/opt/ctxtra"; if [ -x "$f" ]; then exec "$f" hook claude-code `
+	msg := strings.ReplaceAll(agent.SystemMessage("SessionStart", agent.MissingMessage("claude-code")), `"`, `\"`)
 	for cmd, want := range map[string]bool{
-		agent.SlotCommand("/opt/ctxtra", "claude", "SessionStart", 0, 40, message{}): true,
-		agent.SlotCommand("/opt/ctxtra", "claude", "SessionStart", 1, 40, message{}): true,
-		agent.Command("/opt/ctxtra", "claude", "SessionStart", message{}):            true,
-		agent.Command("/opt/ctxtra", "claude", "SubagentStart", message{}):           true,
+		agent.SlotCommand("/opt/ctxtra", "claude-code", "SessionStart", 0, 40, message{}): true,
+		agent.SlotCommand("/opt/ctxtra", "claude-code", "SessionStart", 1, 40, message{}): true,
+		agent.Command("/opt/ctxtra", "claude-code", "SessionStart", message{}):            true,
+		agent.Command("/opt/ctxtra", "claude-code", "SubagentStart", message{}):           true,
 		// Forms that setup doesn't write: {} where it writes the message,
 		// cat without its path, --slot without --of and the other way round.
-		pre + `SessionStart --slot 0 --of 40; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`: false,
-		pre + `SessionStart; else cat >/dev/null 2>&1; echo "{}"; fi'`:                       false,
-		pre + `SessionStart --slot 3; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:         false,
-		pre + `SessionStart --of 40; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:          false,
+		pre + `SessionStart --slot 0 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`: false,
+		pre + `SessionStart; else cat >/dev/null 2>&1; echo "{}"; fi'`:                                         false,
+		pre + `SessionStart --slot 3; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:                           false,
+		pre + `SessionStart --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:          false,
 		// The message where setup doesn't write it, or edited.
-		pre + `SessionStart --slot 1 --of 40; else /bin/cat >/dev/null 2>&1; echo "` + msg + `"; fi'`: false,
-		pre + `SubagentStart; else /bin/cat >/dev/null 2>&1; echo "` + msg + `"; fi'`:                 false,
-		pre + `SessionStart; else /bin/cat >/dev/null 2>&1; echo "{\"systemMessage\":\"gone\"}"; fi'`: false,
-		pre + `SessionStart; else /bin/cat >/dev/null 2>&1; echo "{}" >&2; fi'`:                       false,
-		pre + `SessionStart; else cat >/dev/null 2>&1; echo "` + msg + `"; fi'`:                       false,
-		pre + `SessionStart --slot x; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:                  false,
+		pre + `SessionStart --slot 1 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "` + msg + `"; fi'`: false,
+		pre + `SubagentStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo "` + msg + `"; fi'`:                 false,
+		pre + `SessionStart; else /bin/cat >/dev/null 2>&1; echo "{\"systemMessage\":\"gone\"}"; fi'`:                   false,
+		pre + `SessionStart; else /bin/cat >/dev/null 2>&1; echo "{}" >&2; fi'`:                                         false,
+		pre + `SessionStart; else cat >/dev/null 2>&1; echo "` + msg + `"; fi'`:                                         false,
+		pre + `SessionStart --slot x; else /bin/cat >/dev/null 2>&1; echo "{}"; fi'`:                                    false,
 	} {
 		if _, ok := agent.ParseCommand(cmd, message{}); ok != want {
 			t.Errorf("ParseCommand(%s) = %v, want %v", cmd, ok, want)
 		}
 	}
 	// Without a message, only {} is ours.
-	if _, ok := agent.ParseCommand(agent.Command("/opt/ctxtra", "claude", "SessionStart", message{}), nil); ok {
+	if _, ok := agent.ParseCommand(agent.Command("/opt/ctxtra", "claude-code", "SessionStart", message{}), nil); ok {
 		t.Error("a message recognized for an agent without one")
 	}
 }
@@ -139,7 +139,7 @@ func TestCommandRuns(t *testing.T) {
 	}
 	run := func() string {
 		t.Helper()
-		cmd := exec.Command("/bin/sh", "-c", agent.Command(bin, "claude", "SessionStart", nil))
+		cmd := exec.Command("/bin/sh", "-c", agent.Command(bin, "claude-code", "SessionStart", nil))
 		cmd.Env = []string{"HOME=" + h, "PATH=/usr/bin:/bin"}
 		cmd.Dir = t.TempDir()
 		cmd.Stdin = strings.NewReader(`{"cwd":"/x"}`)
@@ -149,7 +149,7 @@ func TestCommandRuns(t *testing.T) {
 		}
 		return string(out)
 	}
-	if got := run(); got != "args: hook claude SessionStart\n{\"cwd\":\"/x\"}" {
+	if got := run(); got != "args: hook claude-code SessionStart --setup-version=1\n{\"cwd\":\"/x\"}" {
 		t.Errorf("output %q", got)
 	}
 	// With the binary gone the hook adds nothing and still reads all of
@@ -161,18 +161,18 @@ func TestCommandRuns(t *testing.T) {
 	if got := run(); got != "{}\n" {
 		t.Errorf("missing binary: %q", got)
 	}
-	cmd := exec.Command("/bin/sh", "-c", agent.Command(bin, "claude", "SessionStart", message{}))
+	cmd := exec.Command("/bin/sh", "-c", agent.Command(bin, "claude-code", "SessionStart", message{}))
 	cmd.Env = []string{"HOME=" + h, "PATH=/missing"}
 	cmd.Stdin = strings.NewReader(`{"cwd":"/x"}`)
 	var m map[string]string
-	if out, err := cmd.Output(); err != nil || json.Unmarshal(out, &m) != nil || m["systemMessage"] != agent.MissingMessage("claude") || len(m) != 1 {
+	if out, err := cmd.Output(); err != nil || json.Unmarshal(out, &m) != nil || m["systemMessage"] != agent.MissingMessage("claude-code") || len(m) != 1 {
 		t.Errorf("missing binary, with a message: %v %q", err, out)
 	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd = exec.Command("/bin/sh", "-c", agent.Command(bin, "claude", "SessionStart", nil))
+	cmd = exec.Command("/bin/sh", "-c", agent.Command(bin, "claude-code", "SessionStart", nil))
 	cmd.Env = []string{"HOME=" + h, "PATH=/missing"}
 	cmd.Stdin = r
 	var out strings.Builder

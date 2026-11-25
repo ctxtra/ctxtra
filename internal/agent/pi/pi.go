@@ -113,7 +113,7 @@ const missing = {};
 function run(ev: string, cwd: string): Promise<any> {
 	return new Promise((resolve) => {
 		try {
-			const child = execFile(bin, ["hook", "pi", ev], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
+			const child = execFile(bin, ["hook", "pi", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
 				(err: any, stdout) => {
 					if (err) return resolve(err.code === "ENOENT" || err.code === "EACCES" ? missing : {});
 					try {

@@ -8,7 +8,7 @@ cp local.md dev/team-ctx/jira-ticket.md
 cp local.md dev/team-ctx/tool.sh
 chmod 755 dev/team-ctx/tool.sh
 gitcommit dev/team-ctx
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 
 exec ctxtra source add git dev/team-ctx --include bindings/billing.yaml
 stdout '^~/dev/team-ctx is a clone of https://127.0.0.1:\d+/team-ctx, added as source team-ctx \(pinned\)$'
@@ -24,7 +24,7 @@ stdout '^  clone: ~/dev/team-ctx '
 # Your own binding keeps the plain path; it is served from the store, at
 # the committed version. Uncommitted edits are not used.
 cp uncommitted.md dev/team-ctx/jira-ticket.md
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'Contents of .*/.local/share/ctxtra/store/.*/jira-ticket.md'
 stdout 'LOCAL-COMMIT'
 ! stdout 'UNCOMMITTED'
@@ -50,7 +50,7 @@ stdout '"check_updates": true'
 
 # The clone moves: nothing changes.
 mv dev/team-ctx dev/moved
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'LOCAL-COMMIT'
 mv dev/moved dev/team-ctx
 

@@ -5,7 +5,7 @@
 
 gitrepo srv/team-ctx
 gitrepo srv/plain
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 
 # source add says whether sessions check the source.
 exec ctxtra source add git $GITSRV/plain --check-updates=false
@@ -25,18 +25,18 @@ stdout '"check_updates": false'
 exec ctxtra check-updates
 stdout '^team-ctx: no new commits \(checked \d{4}-\d\d-\d\d \d\d:\d\d\)$'
 ! stdout 'plain|ctxtra'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
 ! stdout 'ℹ'
 
 # A new commit is no notice until a check finds it.
 cp new-overview.md srv/team-ctx/services-overview.md
 gitcommit srv/team-ctx
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'ℹ'
 exec ctxtra check-updates
 stdout '^team-ctx: new commits \(checked .*\); run `ctxtra source update team-ctx` to review them$'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout '\\n\\nℹ team-ctx has new commits on main\\n  run `ctxtra source update team-ctx` to review them.'
 stdout 'CTXMARK-OVERVIEW'
 ! stdout 'CTXMARK-NEW'
@@ -49,7 +49,7 @@ stdout '^  source plain: .*; update checks off \(remove check-updates: false to 
 # Accepting the commit ends the notice.
 stdin yes.txt
 exec ctxtra-tty source update team-ctx
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-NEW'
 ! stdout 'ℹ'
 
@@ -67,7 +67,7 @@ mv srv/team-ctx srv/moved
 stdout '^team-ctx: can''t check: git ls-remote: '
 exec ctxtra doctor notes
 stdout '^  source team-ctx: .*; the last check for new commits failed: git ls-remote: '
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'ℹ'
 
 # With every check off, there is nothing to check.

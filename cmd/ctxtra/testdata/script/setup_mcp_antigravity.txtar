@@ -46,7 +46,8 @@ mcp-servers:
       "args": [
         "mcp",
         "proxy",
-        "antigravity"
+        "antigravity",
+        "--setup-version=1"
       ]
     }
   }

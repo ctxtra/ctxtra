@@ -6,7 +6,7 @@ package e2e
 // isolated home folder, and checks what reaches the model.
 //
 //	go test -count=1 ./...                 every agent found
-//	go test -count=1 . -agent claude       one agent
+//	go test -count=1 . -agent claude-code       one agent
 //	CTXTRA_E2E_REQUIRE=1                 a missing agent fails instead of skipping (CI)
 //	CTXTRA_E2E_EVIDENCE=DIR              save everything about a failed run in DIR
 //	go test -count=1 ./... -keep           keep fixture folders and print where
@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	agentFlag  = flag.String("agent", "", "run only this agent (claude, codex, pi, opencode, copilot, muse, antigravity, hermes, dsh)")
+	agentFlag  = flag.String("agent", "", "run only this agent (claude-code, codex, pi, opencode, github-copilot, muse, antigravity, hermes-agent, dsh)")
 	keepFlag   = flag.Bool("keep", false, "keep each run's home folder and log its path")
 	timeoutRun = flag.Duration("run-timeout", 3*time.Minute, "timeout of one agent run")
 )

@@ -14,6 +14,7 @@ stdout 'trust .*hooks.json:session_start:1:0: NOT TRUSTED'
 stdout 'trust .*hooks.json:subagent_start:0:0: NOT TRUSTED'
 
 expand trusted.toml .codex/config.toml
+exec ctxtra setup --agent codex
 exec ctxtra doctor
 stdout 'trust .*hooks.json:session_start:1:0: trust record present'
 stdout 'trust .*hooks.json:subagent_start:0:0: trust record present'

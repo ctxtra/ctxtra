@@ -20,7 +20,7 @@ This folder is a separate Go module: `go test ./...` at the repository root does
 ```bash
 cd e2e
 go test -count=1 -timeout 20m ./...                      # every agent found
-go test -count=1 . -agent claude            # one agent
+go test -count=1 . -agent claude-code            # one agent
 go test -count=1 -timeout 20m ./... -run TestSkills -v   # one scenario, with each agent's version and timing
 go test -count=1 . -keep -v                 # keep each run's home folder, and print where it is
 ```
@@ -78,7 +78,7 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestCodexTrustTUI` | Interactive Codex in tmux: one "Trust all and continue" in the hook review trusts ctxtra's hooks, which set a finite `additionalContextLimit`; the session gets the text in full; `setup` run again asks for no new trust. Needs tmux |
 | `TestCodexUpgradeKeepsTrust` | Interactive Codex in tmux: after the user trusted ctxtra's hooks, a newer binary at the same path asks for no new trust, and the session gets the text in full. Needs tmux |
 | `TestImportTUI` | `ctxtra import --start AGENT` in tmux, with the ctxtra skill installed: import backs up the agent's own instruction file and starts the agent's interactive app through a shim pointed at the mock (Hermes, which has no such file, moves Claude Code's; DSH, without a terminal app, gets the prompt that `ctxtra import` prints). The first request has the import prompt with the file and its backup, and the ctxtra skill. It doesn't check what a real model does with them. Needs tmux |
-| `TestMCPProxy` | MCP servers with `XDG_CONFIG_HOME` at a path of its own, including Muse's recorded XDG values after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
+| `TestMCPProxy` | MCP servers added after setup, with `XDG_CONFIG_HOME` at a path of its own, including Muse's recorded XDG values after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
 | `TestMCPRemoteCredential` | A remote MCP server on 127.0.0.1 that wants an API key, stored with `ctxtra mcp login` under a file key in the test's home (never the user's keychain): the proxy reaches it from inside each agent |
 | `TestMCPFailingServer` | A bound server that fails to start costs only its own tools |
 | `TestMuseBackgroundConfig` | A cleared-environment Muse hook starts a detached check using its recorded XDG values, not a same-named source in the default config. Uses only local repositories |
@@ -129,7 +129,7 @@ records what it gets (folder, environment names, client capabilities, roots, too
 model call MCP tools by name (`mock.CallMCPTools`). It runs only with `-out`:
 
 ```bash
-go test -count=1 ./mcpprobe -v -out /tmp/probe -agents claude,codex
+go test -count=1 ./mcpprobe -v -out /tmp/probe -agents claude-code,codex
 python3 -I mcpprobe/analyze.py /tmp/probe
 ```
 

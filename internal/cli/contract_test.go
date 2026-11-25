@@ -222,7 +222,7 @@ func fixtureCommands(t *testing.T, dir string) []string {
 		walk = func(v any) {
 			switch v := v.(type) {
 			case map[string]any:
-				if cmd, ok := v["command"].(string); ok {
+				if cmd, ok := v["command"].(string); ok && strings.Contains(cmd, " hook ") {
 					out = append(out, cmd)
 				}
 				for _, k := range slices.Sorted(maps.Keys(v)) {

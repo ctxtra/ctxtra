@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ctxtra-proxy": {
+      "type": "stdio",
+      "command": "@@HOME@@/bin/ctxtra",
+      "args": [
+        "mcp",
+        "proxy",
+        "claude-code",
+        "--setup-version=1"
+      ]
+    }
+  }
+}

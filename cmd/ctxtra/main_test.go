@@ -204,9 +204,9 @@ func runHook(ts *testscript.TestScript, neg bool, args []string) {
 	input, _ := json.Marshal(map[string]string{"cwd": dir, "hook_event_name": event, "source": "startup"})
 	var cmd *exec.Cmd
 	switch agent {
-	case "claude", "codex", "copilot", "muse", "devin":
-		cfg := map[string]string{"claude": ".claude/settings.json", "codex": ".codex/hooks.json",
-			"copilot": ".copilot/hooks/ctxtra.json", "muse": ".config/muse/settings.json",
+	case "claude-code", "codex", "github-copilot", "muse", "devin":
+		cfg := map[string]string{"claude-code": ".claude/settings.json", "codex": ".codex/hooks.json",
+			"github-copilot": ".copilot/hooks/ctxtra.json", "muse": ".config/muse/settings.json",
 			"devin": ".config/devin/config.json"}[agent]
 		path := filepath.Join(home, cfg)
 		if agent == "muse" && filepath.IsAbs(ts.Getenv("XDG_CONFIG_HOME")) {
@@ -226,9 +226,9 @@ func runHook(ts *testscript.TestScript, neg bool, args []string) {
 		input, _ = json.Marshal(map[string]any{"workspacePaths": []string{dir}, "conversationId": "e2e"})
 		cmd = exec.Command("/bin/sh", "-c", hooks.Ctxtra.SessionStart[0].Command)
 		cmd.Dir = filepath.Dir(cfg)
-	case "pi", "opencode", "hermes", "dsh":
+	case "pi", "opencode", "hermes-agent", "dsh":
 		path := map[string]string{"pi": ".pi/agent/extensions/ctxtra.ts", "opencode": ".config/opencode/plugins/ctxtra.ts",
-			"hermes": ".hermes/plugins/ctxtra/__init__.py", "dsh": ".dsh/ctxtra.mjs"}[agent]
+			"hermes-agent": ".hermes/plugins/ctxtra/__init__.py", "dsh": ".dsh/ctxtra.mjs"}[agent]
 		ext := ts.ReadFile(filepath.Join(home, path))
 		m := regexp.MustCompile(`(?m)^(?://|#) binary: (.+)$`).FindStringSubmatch(ext)
 		v := regexp.MustCompile(`(?m)^(?://|#) protocol: (\d+)$`).FindStringSubmatch(ext)
@@ -241,7 +241,7 @@ func runHook(ts *testscript.TestScript, neg bool, args []string) {
 			in["ctxtra_slots"] = json.Number(n[1])
 		}
 		input, _ = json.Marshal(in)
-		cmd = exec.Command(bin, "hook", agent, event)
+		cmd = exec.Command(bin, "hook", agent, event, "--setup-version=1")
 	default:
 		ts.Fatalf("runhook: unknown agent %q", agent)
 	}
@@ -277,7 +277,7 @@ func collapseSlots(ts *testscript.TestScript, neg bool, args []string) {
 	path := ts.MkAbs(args[0])
 	data, err := jsonorder.ReadFile(path)
 	ts.Check(err)
-	re := regexp.MustCompile(` --slot (\d+)( --of \d+)?;`)
+	re := regexp.MustCompile(` --slot (\d+)( --of \d+)? --setup-version=1;`)
 	hv, _ := data.Get("hooks")
 	hooks, ok := hv.(*jsonorder.Map)
 	if !ok {
@@ -310,7 +310,7 @@ func collapseSlots(ts *testscript.TestScript, neg bool, args []string) {
 				kept = append(kept, e)
 				continue
 			}
-			norm := re.ReplaceAllString(string(b), " --slot N$2;")
+			norm := re.ReplaceAllString(string(b), " --slot N$2 --setup-version=1;")
 			if n > 0 && norm != prev {
 				flush()
 			}
@@ -373,9 +373,9 @@ func mcpClient(ts *testscript.TestScript, neg bool, args []string) {
 	// $MCP_AGENT is the agent the proxy starts for, with its deadline.
 	agentName := ts.Getenv("MCP_AGENT")
 	if agentName == "" {
-		agentName = "test"
+		agentName = "codex"
 	}
-	cmd := exec.Command(bin, "mcp", "proxy", agentName, "--unknown-flag")
+	cmd := exec.Command(bin, "mcp", "proxy", agentName, "--setup-version=1", "--unknown-flag")
 	cmd.Dir = ts.MkAbs(args[0])
 	cmd.Env = environ(ts)
 	var stderr strings.Builder

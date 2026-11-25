@@ -10,6 +10,12 @@ not check what the bound files say: bind only files you wrote or reviewed.
 
 ## How it works
 
+The agent IDs for commands are `claude-code`, `github-copilot` and `hermes-agent`. The other IDs are
+`codex`, `cursor`, `opencode`, `pi`, `antigravity`, `devin`, `muse` and `dsh`.
+After upgrading from an earlier release, run `ctxtra setup` again. Earlier hook and proxy entries add
+nothing with this release. Setup replaces them; `ctxtra doctor` lists the command for each agent that
+needs it. Once every agent is set up again, you can delete `~/.ctxtra`.
+
 `ctxtra setup` adds a session-start hook to each agent's user-level config. When a session starts, the
 hook reads your config, finds the bindings that match the session folder, and gives the agent the bound
 files and a list of the bound skills. Pi and OpenCode have no command hooks: for them, setup writes a small
@@ -100,7 +106,7 @@ and Antigravity, and OpenCode, Hermes and DSH plugins, can't show a message.
 ```bash
 brew install atelpis/tap/ctxtra   # or: go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest
 ctxtra setup --dry-run            # show what would change
-ctxtra setup                      # every agent found on this machine, or --agent claude --agent codex
+ctxtra setup                      # every agent found on this machine, or --agent claude-code --agent codex
 ```
 
 `setup` adds hooks that run the binary you started it from, by its full path: agents started from the Dock
@@ -174,7 +180,7 @@ tests:
 
 Files that replace an agent's own system prompt or persona (Pi's `SYSTEM.md`, Hermes's `SOUL.md`) and files the
 agent writes itself (Hermes's `memories/`) stay where they are. `ctxtra import` copies the files to
-`~/.local/state/ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude` then starts that
+`~/.local/state/ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude-code` then starts that
 agent in `~/.local/state/ctxtra/import`, in your terminal, with a prompt that lists the files and the backup. Every agent
 above except DSH, whose app is a web page, can be started, and so can Hermes. The agent follows the skill
 (install it first): it merges rules that repeat, asks about rules that fit only one agent, shows you the new
@@ -320,7 +326,7 @@ session folder: a binding for `~/dev/mono/billing/**` doesn't reach a session st
 
 ## Skills as slash commands in Claude Code
 
-`ctxtra setup --agent claude` writes a plugin named `ctxtra` to `~/.claude/skills/ctxtra/` (or
+`ctxtra setup --agent claude-code` writes a plugin named `ctxtra` to `~/.claude/skills/ctxtra/` (or
 `$CLAUDE_CONFIG_DIR/skills/ctxtra/`). Claude Code loads a plugin from that folder as it is: nothing is
 installed from a marketplace. When a session starts, the plugin asks ctxtra for the skills bound to the
 session folder and adds a command for each. Type `/` to see them; their descriptions end with `(ctxtra)`.
@@ -345,14 +351,15 @@ as it reads any file.
   left alone: setup says so, and Claude Code gets no commands.
 
 `ctxtra setup --remove` removes the plugin. After an upgrade that added it, every ctxtra command reminds you
-to run `ctxtra setup --agent claude` until you do.
+to run `ctxtra setup --agent claude-code` until you do.
 
 ## MCP servers
 
 ctxtra gives your sessions MCP servers by folder, like instructions and skills, through one MCP server named
 `ctxtra-proxy`. Setup supports Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity.
-No experimental environment variable is needed. Earlier versions named the entry `ctxtra`: run
-`ctxtra setup` to rename it. [spec.md](spec.md#mcp-servers) describes the format and limits.
+Setup adds the proxy even when you have no servers yet. Servers you bind later reach the next session
+without another setup. No experimental environment variable is needed.
+[spec.md](spec.md#mcp-servers) describes the format and limits.
 
 For a server you declare yourself:
 

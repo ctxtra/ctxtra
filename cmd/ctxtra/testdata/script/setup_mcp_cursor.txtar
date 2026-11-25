@@ -46,7 +46,8 @@ mcp-servers:
       "args": [
         "mcp",
         "proxy",
-        "cursor"
+        "cursor",
+        "--setup-version=1"
       ]
     }
   }

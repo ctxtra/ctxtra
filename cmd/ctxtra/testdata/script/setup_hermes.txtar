@@ -1,7 +1,7 @@
 # Hermes: setup writes a managed plugin folder, tells the user to enable it,
 # never overwrites someone else's files, and --remove deletes only its own.
 
-exec ctxtra setup --agent hermes
+exec ctxtra setup --agent hermes-agent
 stdout '^ctxtra is set up for Hermes:$'
 stdout 'hermes plugins enable ctxtra'
 grep '^# @ctxtra-managed' .hermes/plugins/ctxtra/__init__.py
@@ -11,28 +11,28 @@ grep '^name: ctxtra$' .hermes/plugins/ctxtra/plugin.yaml
 exists .hermes/plugins/other/plugin.yaml
 
 ! exec ctxtra doctor
-stdout 'hermes: set up, runs .*/ctxtra \(ok\)'
+stdout 'hermes-agent: set up, runs .*/ctxtra \(ok\)'
 stdout '^    the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra$'
 ! stderr .
 exec ctxtra context files
-stderr '^hermes: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra$'
+stderr '^hermes-agent: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra$'
 
 cp enabled.yaml .hermes/config.yaml
 exec ctxtra doctor
 stdout 'plugin enabled in ~/.hermes/config.yaml'
 ! stderr .
 
-exec ctxtra setup --agent hermes
+exec ctxtra setup --agent hermes-agent
 stdout '^ctxtra is already set up for Hermes\.$'
 ! stdout 'hermes plugins enable'
 
-exec ctxtra setup --remove --agent hermes
+exec ctxtra setup --remove --agent hermes-agent
 ! exists .hermes/plugins/ctxtra
 exists .hermes/plugins/other/plugin.yaml
 
 mkdir .hermes/plugins/ctxtra
 cp foreign.yaml .hermes/plugins/ctxtra/plugin.yaml
-! exec ctxtra setup --agent hermes
+! exec ctxtra setup --agent hermes-agent
 stderr 'is not managed by ctxtra; left alone'
 cmp .hermes/plugins/ctxtra/plugin.yaml foreign.yaml
 ! exists .hermes/plugins/ctxtra/__init__.py

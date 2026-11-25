@@ -72,7 +72,7 @@ cmp .gemini/config/hooks.json original.json
   "ctxtra": {
     "SessionStart": [
       {
-        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook antigravity SessionStart; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook antigravity SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
         "timeout": 10
       }
     ]
@@ -84,7 +84,7 @@ cmp .gemini/config/hooks.json original.json
     "enabled": false,
     "SessionStart": [
       {
-        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook antigravity SessionStart; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook antigravity SessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
         "timeout": 10
       }
     ]

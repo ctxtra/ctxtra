@@ -38,7 +38,7 @@ func TestNativeFilesFIFO(t *testing.T) {
 	}
 	binary = func() (string, []string, error) { return "/opt/homebrew/bin/ctxtra", nil, nil }
 	t.Cleanup(func() { binary = setup.Binary })
-	if code, _, e := run("setup", "--agent", "claude"); code != 0 {
+	if code, _, e := run("setup", "--agent", "claude-code"); code != 0 {
 		t.Fatalf("setup: %s", e)
 	}
 	code, out, e := run("import")

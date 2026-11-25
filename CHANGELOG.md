@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Agent IDs are now `claude-code`, `github-copilot` and `hermes-agent`; the earlier names are not aliases.
+  Run `ctxtra setup` again after upgrading. This release starts the setup contract over: earlier hooks and
+  proxies add nothing. Setup replaces them, and `doctor` lists each repair command. Once every agent is
+  set up again, `~/.ctxtra` can be deleted.
+- Setup always adds the MCP proxy for Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity,
+  even without servers. Servers bound later reach the next session without another setup.
+
 - Files now follow XDG folders on Linux and macOS: config in `~/.config/ctxtra`, accepted source content
   and installed skills in `~/.local/share/ctxtra`, local state in `~/.local/state/ctxtra`, and git clones
   in `~/.cache/ctxtra`. Only absolute `XDG_*` values override these defaults. `doctor` shows the folders.

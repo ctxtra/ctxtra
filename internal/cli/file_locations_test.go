@@ -40,7 +40,7 @@ func TestTheFolderMovedAfterSetup(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			h := testenv.Home(t)
 			t.Setenv(key, filepath.Join(h, "a", "state"))
-			r, err := setup.Run(setup.Options{Agents: []string{"muse"}, Options: agent.Options{Binary: "/bin/sh"}, MCP: setup.MCPConfig{Want: true}})
+			r, err := setup.Run(setup.Options{Agents: []string{"muse"}, Options: agent.Options{Binary: "/bin/sh"}, MCP: setup.MCPConfig{}})
 			if err != nil || len(r.Errors) != 0 {
 				t.Fatalf("setup: %+v %v", r, err)
 			}
@@ -54,7 +54,7 @@ func TestTheFolderMovedAfterSetup(t *testing.T) {
 					t.Errorf("missing %s: %s", what, out)
 				}
 			}
-			r, err = setup.Run(setup.Options{Agents: []string{"muse"}, Options: agent.Options{Binary: "/bin/sh"}, MCP: setup.MCPConfig{Want: true}})
+			r, err = setup.Run(setup.Options{Agents: []string{"muse"}, Options: agent.Options{Binary: "/bin/sh"}, MCP: setup.MCPConfig{}})
 			if err != nil || len(r.Errors) != 0 {
 				t.Fatalf("repair: %+v %v", r, err)
 			}

@@ -5,7 +5,8 @@
       "args": [
         "mcp",
         "proxy",
-        "pi"
+        "pi",
+        "--setup-version=1"
       ]
     }
   }

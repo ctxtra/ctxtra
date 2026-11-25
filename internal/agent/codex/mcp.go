@@ -56,8 +56,7 @@ func (Agent) MCPPath() string { return filepath.Join(dir(), "config.toml") }
 func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.
-	// Keep the legacy opt-in name in the serialized setup contract.
-	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
 	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"} {
 		vars = append(vars, v, strings.ToLower(v))
 	}
@@ -462,6 +461,14 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 		return []string{fmt.Sprintf("%s: %v; restore or delete it, then %s", paths.Tilde(path), errHandEdited, repair)}
 	}
 	out := agent.BinaryNotices("the ctxtra MCP proxy runs", []string{b}, bin, repair)
+	args, _ := f.entry()["args"].([]any)
+	current := make([]string, len(args))
+	for i, v := range args {
+		current[i], _ = v.(string)
+	}
+	if !slices.Equal(current, agent.MCPArgs(a.Name())) {
+		out = append(out, "the ctxtra MCP proxy entry is from an earlier ctxtra; "+repair)
+	}
 	if t, _ := f.entry()["startup_timeout_sec"].(int64); t < StartupTimeout {
 		out = append(out, "the ctxtra MCP proxy has a shorter startup_timeout_sec than setup writes; "+repair)
 	}

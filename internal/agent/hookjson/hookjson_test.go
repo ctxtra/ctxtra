@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
-	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -41,10 +40,42 @@ func fakeBinary(t *testing.T, h string) agent.Options {
 
 var remove = agent.Options{Remove: true}
 
+func TestEarlierAndCurrentHooksAreReplacedTogether(t *testing.T) {
+	h := testenv.Home(t)
+	o := fakeBinary(t, h)
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	old := strings.ReplaceAll(agent.Command(o.Binary, "claude", "SessionStart", nil), " "+agent.SetupVersionArg, "")
+	current := agent.Command(o.Binary, c.Agent, "SessionStart", nil)
+	data := map[string]any{"hooks": map[string]any{"SessionStart": []any{
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": old},
+			map[string]any{"type": "command", "command": "other-tool"},
+			map[string]any{"type": "command", "command": current},
+		}},
+	}}}
+	b, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testenv.Write(t, c.Path, string(b))
+	var r agent.Report
+	if err := c.Apply(o, &r); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := c.Commands()
+	if err != nil || len(commands["SessionStart"]) != 1 {
+		t.Fatalf("commands: %v, %v", commands, err)
+	}
+	b, err = os.ReadFile(c.Path)
+	if err != nil || !strings.Contains(string(b), "other-tool") || strings.Contains(string(b), "hook claude ") {
+		t.Fatalf("replacement lost another tool or kept an earlier hook: %s, %v", b, err)
+	}
+}
+
 func TestApplyKeepsOtherEntries(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
 	testenv.Write(t, c.Path, otherTool)
 	var r agent.Report
 	if err := c.Apply(on, &r); err != nil {
@@ -58,7 +89,7 @@ func TestApplyKeepsOtherEntries(t *testing.T) {
 	if !strings.Contains(s, `"<&>"`) || !strings.Contains(s, ">/dev/null && true") || !strings.Contains(s, "1.50") {
 		t.Errorf("values re-encoded:\n%s", s)
 	}
-	if strings.Index(s, "other-tool") > strings.Index(s, "hook claude SessionStart") {
+	if strings.Index(s, "other-tool") > strings.Index(s, "hook claude-code SessionStart") {
 		t.Errorf("want [other, ours]:\n%s", s)
 	}
 	if st := c.Status("", false); !st.OK || st.State != "set up for [SessionStart SubagentStart], runs ~/go/bin/ctxtra (ok)" {
@@ -93,7 +124,7 @@ func TestApplyMixedGroupAndSymlink(t *testing.T) {
 	// A config that is a symlink into a dotfiles repo stays a symlink.
 	real := filepath.Join(h, "dotfiles", "claude-settings.json")
 	testenv.Write(t, real, "{}")
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
 	if err := os.MkdirAll(filepath.Dir(c.Path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +138,7 @@ func TestApplyMixedGroupAndSymlink(t *testing.T) {
 	if st, err := os.Lstat(c.Path); err != nil || st.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("symlink replaced: %v", err)
 	}
-	if b, _ := os.ReadFile(real); !strings.Contains(string(b), "hook claude SessionStart") {
+	if b, _ := os.ReadFile(real); !strings.Contains(string(b), "hook claude-code SessionStart") {
 		t.Errorf("target not updated: %s", b)
 	}
 
@@ -129,7 +160,7 @@ func TestApplyMixedGroupAndSymlink(t *testing.T) {
 	// A hand-written group with our handler and another tool's handler: the
 	// other handler is kept on setup and remove, and positions don't move
 	// on setup (Codex trust keys are positional).
-	ours := agent.Command(on.Binary, "claude", "SessionStart", nil)
+	ours := agent.Command(on.Binary, "claude-code", "SessionStart", nil)
 	mixed, _ := json.Marshal(map[string]any{"hooks": map[string]any{"SessionStart": []any{
 		map[string]any{"hooks": []any{
 			map[string]any{"type": "command", "command": ours},
@@ -151,10 +182,10 @@ func TestApplyMixedGroupAndSymlink(t *testing.T) {
 		if !strings.Contains(s, "other-tool --flag") || !strings.Contains(s, "exec audit") {
 			t.Errorf("add=%v removed another tool's handler: %s", add, s)
 		}
-		if n := strings.Count(s, "hook claude SessionStart"); (add && n != 1) || (!add && n != 0) {
+		if n := strings.Count(s, "hook claude-code SessionStart"); (add && n != 1) || (!add && n != 0) {
 			t.Errorf("add=%v: %d ctxtra handlers: %s", add, n, s)
 		}
-		if add && strings.Index(s, "hook claude SessionStart") > strings.Index(s, "other-tool") {
+		if add && strings.Index(s, "hook claude-code SessionStart") > strings.Index(s, "other-tool") {
 			t.Errorf("setup moved our handler: %s", s)
 		}
 	}
@@ -219,7 +250,7 @@ func TestOldCommandLeftAlone(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
 	c := Config{Agent: "codex", Path: filepath.Join(h, ".codex", "hooks.json"), Events: events[:1]}
-	old := `/bin/sh -c 'f=\"$HOME/go/bin/ctxtra\"; if [ -x \"$f\" ]; then exec \"$f\" hook codex SessionStart; else cat >/dev/null 2>&1; echo \"{}\"; fi'`
+	old := `/bin/sh -c 'f=\"$HOME/go/bin/ctxtra\"; if [ -x \"$f\" ]; then exec \"$f\" hook codex SessionStart --setup-version=1; else cat >/dev/null 2>&1; echo \"{}\"; fi'`
 	content := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "` + old + `"}]}]}}`
 	testenv.Write(t, c.Path, content)
 	for _, o := range []agent.Options{on, {Remove: true}} {
@@ -236,7 +267,7 @@ func TestOldCommandLeftAlone(t *testing.T) {
 // Remove leaves a file without our entries untouched, and doesn't create one.
 func TestRemoveWithoutOurEntries(t *testing.T) {
 	h := testenv.Home(t)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
 	var r agent.Report
 	if err := c.Apply(remove, &r); err != nil || len(r.Changes) != 0 {
 		t.Fatalf("missing file: %v %v", r.Changes, err)
@@ -259,7 +290,7 @@ func TestRemoveWithoutOurEntries(t *testing.T) {
 func TestOwnFileRemoved(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
-	c := Config{Agent: "copilot", Path: filepath.Join(h, ".copilot", "hooks", "ctxtra.json"),
+	c := Config{Agent: "github-copilot", Path: filepath.Join(h, ".copilot", "hooks", "ctxtra.json"),
 		Events: []Event{{Name: "sessionStart"}}, Flat: true, Version: 1, Own: true}
 	var r agent.Report
 	if err := c.Apply(on, &r); err != nil {
@@ -307,7 +338,7 @@ func TestOwnFileRemoved(t *testing.T) {
 func TestSlots(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
-	single := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	single := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
 	c := single
 	c.Slots = 4
 	testenv.Write(t, c.Path, otherTool)
@@ -319,7 +350,7 @@ func TestSlots(t *testing.T) {
 	b, _ := os.ReadFile(c.Path)
 	after := strings.Replace(string(b), `"SubagentStart": [`, `"SubagentStart": [{"hooks": [{"type": "command", "command": "late-tool"}]}, `, 1)
 	testenv.Write(t, c.Path, after)
-	if st := c.Status("", false); st.OK || !strings.Contains(strings.Join(st.Details, "\n"), "SessionStart has 0 of the 4 ctxtra hooks; run ctxtra setup --agent claude") {
+	if st := c.Status("", false); st.OK || !strings.Contains(strings.Join(st.Details, "\n"), "SessionStart has 0 of the 4 ctxtra hooks; run ctxtra setup --agent claude-code") {
 		t.Errorf("old single entry: %+v", st)
 	}
 	r = agent.Report{}
@@ -330,11 +361,11 @@ func TestSlots(t *testing.T) {
 	s := string(b)
 	for _, ev := range []string{"SessionStart", "SubagentStart"} {
 		for n := range 4 {
-			if !strings.Contains(s, fmt.Sprintf("hook claude %s --slot %d --of 4;", ev, n)) {
+			if !strings.Contains(s, fmt.Sprintf("hook claude-code %s --slot %d --of 4 --setup-version=1;", ev, n)) {
 				t.Errorf("no slot %d for %s:\n%s", n, ev, s)
 			}
 		}
-		if strings.Contains(s, "hook claude "+ev+";") {
+		if strings.Contains(s, "hook claude-code "+ev+";") {
 			t.Errorf("the old %s entry is still there:\n%s", ev, s)
 		}
 	}
@@ -353,7 +384,7 @@ func TestSlots(t *testing.T) {
 		t.Errorf("second setup changed %v (err %v)", r.Changes, err)
 	}
 	// A slot removed by hand: doctor says so, and setup puts it back.
-	testenv.Write(t, c.Path, strings.Replace(s, "SessionStart --slot 2 --of 4;", "SessionStart --slot 1 --of 4;", 1))
+	testenv.Write(t, c.Path, strings.Replace(s, "SessionStart --slot 2 --of 4 --setup-version=1;", "SessionStart --slot 1 --of 4 --setup-version=1;", 1))
 	if st := c.Status("", false); st.OK {
 		t.Errorf("slot 2 missing: %+v", st)
 	}
@@ -375,9 +406,6 @@ func TestSlots(t *testing.T) {
 func TestContextLimit(t *testing.T) {
 	h := testenv.Home(t)
 	c := Config{Agent: "codex", Path: filepath.Join(h, ".codex", "hooks.json"), Events: events, ContextLimit: 250000,
-		Legacy: func(_ string, _ agent.Hook, limited bool) (agent.Delivery, bool) {
-			return agent.Delivery{Title: "Codex", Capacity: 9000, Unit: chunk.Bytes}, !limited
-		},
 		RepairNote: " (and trust)"}
 	var r agent.Report
 	if err := c.Apply(fakeBinary(t, h), &r); err != nil {
@@ -390,12 +418,11 @@ func TestContextLimit(t *testing.T) {
 	if st := c.Status("", false); !st.OK || len(st.Details) != 0 {
 		t.Errorf("status %+v", st)
 	}
-	// A handler without the limit, which this test's Legacy recognizes:
-	// doctor says so, and setup adds the limit.
+	// Doctor reports a missing limit, and setup restores it.
 	testenv.Write(t, c.Path, strings.Replace(string(b), `,
             "additionalContextLimit": 250000`, "", 1))
 	if st := c.Status("", false); st.OK || len(st.Details) != 1 ||
-		st.Details[0] != "set up by an older ctxtra, with Codex's limit of 9,000 bytes; run ctxtra setup --agent codex (and trust)" {
+		st.Details[0] != "SessionStart has a different additionalContextLimit; run ctxtra setup --agent codex (and trust)" {
 		t.Errorf("without the limit: %+v", st)
 	}
 	r = agent.Report{}
@@ -414,21 +441,21 @@ func (message) MissingAnswer(event, msg string) string { return agent.SystemMess
 func TestMissingMessage(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}}
 	var r agent.Report
 	if err := c.Apply(on, &r); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(c.Path)
 	s := string(b)
-	if n := strings.Count(s, "systemMessage"); n != 1 || !strings.Contains(s, `SessionStart --slot 0 --of 3; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\"`) {
+	if n := strings.Count(s, "systemMessage"); n != 1 || !strings.Contains(s, `SessionStart --slot 0 --of 3 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\"`) {
 		t.Errorf("want the message in slot 0 of SessionStart only, found %d:\n%s", n, s)
 	}
 	if st := c.Status("", false); !st.OK {
 		t.Errorf("status %+v", st)
 	}
 	// A slot count other than the agent's is a problem for doctor.
-	testenv.Write(t, c.Path, strings.ReplaceAll(s, "--of 3;", "--of 5;"))
+	testenv.Write(t, c.Path, strings.ReplaceAll(s, "--of 3 --setup-version=1;", "--of 5 --setup-version=1;"))
 	if st := c.Status("", false); st.OK {
 		t.Errorf("--of 5 with 3 slots: %+v", st)
 	}
@@ -441,7 +468,7 @@ func TestMissingMessage(t *testing.T) {
 	}
 	b, _ = os.ReadFile(d.Path)
 	s = string(b)
-	if strings.Count(s, "hook codex") != 2 || strings.Count(s, "systemMessage") != 1 || !strings.Contains(s, `SubagentStart; else /bin/cat >/dev/null 2>&1; echo \"{}\"`) ||
+	if strings.Count(s, "hook codex") != 2 || strings.Count(s, "systemMessage") != 1 || !strings.Contains(s, `SubagentStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"`) ||
 		strings.Index(s, "other-tool") > strings.Index(s, "hook codex SessionStart") {
 		t.Errorf("hooks:\n%s", s)
 	}
@@ -453,7 +480,7 @@ func TestChangedByHand(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
 	for _, c := range []Config{
-		{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}},
+		{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}},
 		{Agent: "codex", Path: filepath.Join(h, ".codex", "hooks.json"), Events: events, Missing: message{}},
 		{Agent: "cursor", Path: filepath.Join(h, ".cursor", "hooks.json"), Events: []Event{{Name: "sessionStart"}}, Flat: true, Version: 1},
 	} {
@@ -493,7 +520,7 @@ func TestChangedByHand(t *testing.T) {
 		`/bin/sh -c 'f=\"$HOME/go/bin/ctxtra\"; exec \"$f\" hook  claude\tSessionStart'`,
 		"~/go/bin/ctxtra hook claude; true",
 	} {
-		c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}}
+		c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 3, Missing: message{}}
 		content := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "` + cmd + `"}]}]}}`
 		testenv.Write(t, c.Path, content)
 		for _, o := range []agent.Options{on, remove} {
@@ -507,7 +534,7 @@ func TestChangedByHand(t *testing.T) {
 		}
 	}
 	// Another tool's command that names ctxtra isn't one of ours.
-	c := Config{Agent: "claude", Path: filepath.Join(h, "other", "settings.json"), Events: events}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, "other", "settings.json"), Events: events}
 	testenv.Write(t, c.Path, `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "audit ctxtra hook codex x; hookclaude; claude hook"}]}]}}`)
 	var r agent.Report
 	if err := c.Apply(on, &r); err != nil {
@@ -521,7 +548,7 @@ func TestChangedByHand(t *testing.T) {
 func TestCheck(t *testing.T) {
 	h := testenv.Home(t)
 	on := fakeBinary(t, h)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 4}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events, Slots: 4}
 	if n := c.Check("", true); len(n) != 1 || !strings.HasPrefix(n[0], "ctxtra's hooks are gone from ~/.claude/settings.json") {
 		t.Errorf("gone: %q", n)
 	}
@@ -541,7 +568,7 @@ func TestCheck(t *testing.T) {
 	delete(data["hooks"], "SubagentStart")
 	b, _ = json.Marshal(data)
 	testenv.Write(t, c.Path, string(b))
-	want := []string{"SessionStart has 3 of the 4 ctxtra hooks; run ctxtra setup --agent claude", "SubagentStart has no ctxtra hook; run ctxtra setup --agent claude"}
+	want := []string{"SessionStart has 3 of the 4 ctxtra hooks; run ctxtra setup --agent claude-code", "SubagentStart has no ctxtra hook; run ctxtra setup --agent claude-code"}
 	if n := c.Check("", false); !slices.Equal(n, want) {
 		t.Errorf("incomplete: %q", n)
 	}
@@ -574,7 +601,7 @@ func TestCheckChangedByHand(t *testing.T) {
 // hooks as that count: a slot past it is a part that never arrives.
 func TestCheckSlotRange(t *testing.T) {
 	h := testenv.Home(t)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events[:1], Slots: 4}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events[:1], Slots: 4}
 	var r agent.Report
 	if err := c.Apply(fakeBinary(t, h), &r); err != nil {
 		t.Fatal(err)
@@ -584,12 +611,12 @@ func TestCheckSlotRange(t *testing.T) {
 		t.Fatalf("fresh: %q", n)
 	}
 	testenv.Write(t, c.Path, strings.Replace(string(b), "--slot 3 --of 4", "--slot 4 --of 4", 1))
-	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 3 of the 4 ctxtra hooks; run ctxtra setup --agent claude"}) {
+	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 3 of the 4 ctxtra hooks; run ctxtra setup --agent claude-code"}) {
 		t.Errorf("slot 4 of 4: %q", n)
 	}
 	// Hooks that say 5 slots, of which 4 are there.
 	testenv.Write(t, c.Path, strings.ReplaceAll(string(b), "--of 4", "--of 5"))
-	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 4 of the 5 ctxtra hooks; run ctxtra setup --agent claude"}) {
+	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 4 of the 5 ctxtra hooks; run ctxtra setup --agent claude-code"}) {
 		t.Errorf("4 hooks of 5: %q", n)
 	}
 }
@@ -597,14 +624,14 @@ func TestCheckSlotRange(t *testing.T) {
 // Hooks with --of 0, which the hook refuses, are a broken setup.
 func TestCheckOfZero(t *testing.T) {
 	h := testenv.Home(t)
-	c := Config{Agent: "claude", Path: filepath.Join(h, ".claude", "settings.json"), Events: events[:1], Slots: 4}
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events[:1], Slots: 4}
 	var r agent.Report
 	if err := c.Apply(fakeBinary(t, h), &r); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(c.Path)
 	testenv.Write(t, c.Path, strings.ReplaceAll(string(b), "--of 4", "--of 0"))
-	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 0 of the 4 ctxtra hooks; run ctxtra setup --agent claude"}) {
+	if n := c.Check("", false); !slices.Equal(n, []string{"SessionStart has 0 of the 4 ctxtra hooks; run ctxtra setup --agent claude-code"}) {
 		t.Errorf("--of 0: %q", n)
 	}
 }

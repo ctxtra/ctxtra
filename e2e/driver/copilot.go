@@ -10,7 +10,7 @@ import (
 // GitHub login, telemetry and updates.
 type Copilot struct{}
 
-func (Copilot) Name() string       { return "copilot" }
+func (Copilot) Name() string       { return "github-copilot" }
 func (Copilot) Executable() string { return "copilot" }
 func (Copilot) Caps() []Cap        { return []Cap{Subagent, Resume} }
 

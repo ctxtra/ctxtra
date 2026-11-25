@@ -44,10 +44,10 @@ bindings:
 		!strings.Contains(out, "MISSING  "+filepath.Join(h, "gone.md")) {
 		t.Errorf("explain: %d\n%s", code, out)
 	}
-	if code, out, _ := run("doctor", r); code != 1 || !strings.Contains(out, "claude: not set up") || !strings.Contains(out, "MISSING") {
+	if code, out, _ := run("doctor", r); code != 1 || !strings.Contains(out, "claude-code: not set up") || !strings.Contains(out, "MISSING") {
 		t.Errorf("doctor: %d\n%s", code, out)
 	}
-	if code, out, _ := run("hook", "claude", "SessionStart", "--slot", "0"); code != 0 || out != "{}\n" {
+	if code, out, _ := run("hook", "claude-code", "SessionStart", "--slot", "0"); code != 0 || out != "{}\n" {
 		t.Errorf("hook without input: %d %q", code, out)
 	}
 	for _, args := range [][]string{
@@ -69,7 +69,7 @@ bindings:
 			t.Errorf("%v: exit %d, want 0 and output", args, code)
 		}
 	}
-	if code, out, _ := run("setup", "--agent", "claude", "--dry-run"); code != 0 || !strings.Contains(out, "Setup would change these files:\n  Claude Code   ~/.claude/settings.json\n") {
+	if code, out, _ := run("setup", "--agent", "claude-code", "--dry-run"); code != 0 || !strings.Contains(out, "Setup would change these files:\n  Claude Code   ~/.claude/settings.json\n") {
 		t.Errorf("setup dry run: %d %q", code, out)
 	}
 }
@@ -88,19 +88,19 @@ func TestSizeWarnings(t *testing.T) {
 		warn    []string
 	}{
 		{"short", nil},
-		{strings.Repeat("a\n", 75_000), []string{"copilot"}}, // 150,000 bytes
-		{strings.Repeat("a\n", 200_000), []string{"claude", "muse", "copilot"}},
-		{strings.Repeat("界\n", 300_000), []string{"claude", "muse", "codex", "antigravity", "copilot"}}, // 1,200,000 bytes
+		{strings.Repeat("a\n", 75_000), []string{"github-copilot"}}, // 150,000 bytes
+		{strings.Repeat("a\n", 200_000), []string{"claude-code", "muse", "github-copilot"}},
+		{strings.Repeat("界\n", 300_000), []string{"claude-code", "muse", "codex", "antigravity", "github-copilot"}}, // 1,200,000 bytes
 	} {
 		testenv.Write(t, filepath.Join(h, "b.md"), tc.content)
 		_, out, _ := run("context", "explain", h)
-		for _, a := range []string{"claude", "muse", "codex", "antigravity", "copilot", "pi", "hermes"} {
+		for _, a := range []string{"claude-code", "muse", "codex", "antigravity", "github-copilot", "pi", "hermes-agent"} {
 			warned := strings.Contains(out, ", "+a+" sessions don't get b.md\n")
 			if warned != slices.Contains(tc.warn, a) {
 				t.Errorf("%d bytes: %s warned %v:\n%s", len(tc.content), a, warned, out)
 			}
 		}
-		if slices.Contains(tc.warn, "claude") && !strings.Contains(out, "warning: over Claude Code's limit of 360,000 characters, claude sessions don't get b.md\n") {
+		if slices.Contains(tc.warn, "claude-code") && !strings.Contains(out, "warning: over Claude Code's limit of 360,000 characters, claude-code sessions don't get b.md\n") {
 			t.Errorf("warning:\n%s", out)
 		}
 	}
@@ -114,7 +114,7 @@ func TestSetupNextSteps(t *testing.T) {
 	t.Cleanup(func() { binary = setup.Binary })
 	steps := func() string {
 		t.Helper()
-		code, out, e := run("setup", "--agent", "claude")
+		code, out, e := run("setup", "--agent", "claude-code")
 		if code != 0 {
 			t.Fatalf("setup: %d %s", code, e)
 		}
@@ -139,10 +139,10 @@ func TestSetupNextSteps(t *testing.T) {
 	if code, _, e := run("skill", "install", "ctxtra-follow"); code != 0 {
 		t.Fatalf("skill install: %s", e)
 	}
-	if code, out, _ := run("setup", "--agent", "claude"); code != 0 || strings.Contains(out, "Next:") {
+	if code, out, _ := run("setup", "--agent", "claude-code"); code != 0 || strings.Contains(out, "Next:") {
 		t.Errorf("nothing left to do: %d\n%s", code, out)
 	}
-	if code, out, _ := run("setup", "--agent", "claude", "--dry-run"); code != 0 || strings.Contains(out, "Next:") {
+	if code, out, _ := run("setup", "--agent", "claude-code", "--dry-run"); code != 0 || strings.Contains(out, "Next:") {
 		t.Errorf("dry run: %d\n%s", code, out)
 	}
 }
@@ -182,7 +182,7 @@ func TestHookArgs(t *testing.T) {
 	}
 	h := testenv.Home(t)
 	for _, args := range [][]string{{"--slot", "x"}, {"--slot", "1", "--slot", "2"}} {
-		code, out, _ := run(append([]string{"hook", "claude", "SessionStart"}, args...)...)
+		code, out, _ := run(append([]string{"hook", "claude-code", "SessionStart", "--setup-version=1"}, args...)...)
 		if code != 0 || out != "{}\n" {
 			t.Errorf("%v: %d %q", args, code, out)
 		}

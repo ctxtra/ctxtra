@@ -585,7 +585,7 @@ any of them matches.
   OpenCode gets instruction files in the system prompt and skills as native skills, which its `skill` tool loads.
 - Claude Code also gets the skills as slash commands, from the plugin that setup writes to
   `~/.claude/skills/ctxtra/` (`$CLAUDE_CONFIG_DIR/skills/ctxtra/`), which Claude loads as `ctxtra@skills-dir`.
-  Its mod runs `ctxtra hook claude PluginStart` at session start, with `ctxtra_plugin` in the input, and
+  Its mod runs `ctxtra hook claude-code PluginStart` at session start, with `ctxtra_plugin` in the input, and
   registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). A command name
   that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
   `/NAME ARGS` gives the model the `SKILL.md` text after its frontmatter as hidden context, with `$ARGUMENTS`
@@ -661,7 +661,7 @@ setup, and without the slot count each hook would get the whole text. `ctxtra ho
 version set up still run after a downgrade.
 
 When the binary that a hook runs is gone, Claude Code, Codex, Muse and Devin show `ctxtra: the ctxtra binary
-that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude with the new binary`
+that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude-code with the new binary`
 (with the agent's name) at session start, and Pi shows it as a warning. The other agents add nothing, without
 a word. `ctxtra doctor` and the [setup notices](#setup-notices) show the missing binary. Setup leaves a config
 alone that has a ctxtra hook changed by hand, and says so, instead of adding a second hook next to it.
@@ -996,9 +996,9 @@ a newer format fails that server's calls with an upgrade hint, and changes nothi
 
 ### Setup
 
-With at least one MCP server in the config or a source catalog, `ctxtra setup` adds the entry to each supported
-agent it sets up. It never copies the user's servers into agent configs. Without servers, it adds no entry and
-keeps one that is there; `--remove` removes it.
+`ctxtra setup` always adds the entry to each MCP-supported agent it sets up, even with no servers in the
+config or sources. A server bound later reaches the next session without another setup. Setup never copies
+the user's servers into agent configs. `--remove` removes the entry.
 
 | Agent | File | Entry |
 |---|---|---|
@@ -1043,8 +1043,7 @@ rewrites only its own keys' lines in the block, and keeps the rest of the file b
 the block, keys you added to ctxtra's table after it, and `[mcp_servers.ctxtra-proxy.*]` tables. Before it writes,
 it checks that the new file is valid TOML and says the same as the old one but for those keys; otherwise it
 changes nothing, because Codex refuses an invalid config. Codex starts MCP servers with an allow-listed
-environment, so `env_vars` lists the four XDG folder variables, `CTXTRA_LOG`, plus the unused legacy
-`CTXTRA_EXPERIMENTAL_MCP` name for setup compatibility,
+environment, so `env_vars` lists the four XDG folder variables, `CTXTRA_LOG`,
 the Secret Service's (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`), the proxy and certificate variables, and
 every local server's `env-pass` names. `startup_timeout_sec` is 30, and `required = true`: Codex waits about 1
 second for an optional server's tools, and for a required one up to `startup_timeout_sec`. A required server that
@@ -1061,12 +1060,12 @@ The setup notices and `doctor` report the entry:
 
 | When | Notice |
 |---|---|
-| Servers were added after setup | `claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude` |
-| The entry runs another binary | `claude: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude` |
-| The entry is gone from its file | `claude: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; ...` |
+| A hook setup is missing its proxy | `claude-code: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude-code` |
+| The entry runs another binary | `claude-code: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
+| The entry is gone from its file | `claude-code: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; ...` |
 | Codex's entry doesn't pass a local server's `env-pass` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
-| The entry has its old name | `claude: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude` |
-| An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude` |
+| The entry has its old name | `claude-code: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude-code` |
+| An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude-code` |
 
 ### Security
 
@@ -1130,9 +1129,19 @@ plugin files (the events they send, their input fields, the answer fields they r
 arguments of `ctxtra hook`. A new version changes only the binary, and the binary keeps serving every setup
 that a released version wrote with what that setup was promised.
 
-The contract holds from 0.1, the first release, on.
+This release starts the contract over. Entries from earlier releases are not served, including entries for
+agents whose names did not change. Run `ctxtra setup` again. Setup recognizes earlier entries by their
+commands and replaces them, so an agent never runs both. `doctor` reports each earlier entry with its
+`ctxtra setup --agent NAME` command and exits 1. When `~/.ctxtra` exists, it says that folder can be deleted
+once every agent is set up again. No earlier config or state is read or converted.
 
-An upgrade keeps existing setups working with the same capacity. New features may need another
+Agent IDs are `claude-code`, `github-copilot` and `hermes-agent`; the earlier names `claude`, `copilot` and
+`hermes` are not aliases. `codex`, `cursor`, `opencode`, `pi`, `antigravity`, `devin`, `muse` and `dsh` keep
+their names. These IDs apply to `--agent`, `ctxtra hook` and `ctxtra mcp proxy`, and to import's `--start`.
+Setup writes `--setup-version=1` in hook and proxy commands and marks managed plugins with that version.
+Commands without the marker add nothing. Contract and upgrade fixtures start with these setups.
+
+From this baseline, an upgrade keeps existing setups working with the same capacity. New features may need another
 `ctxtra setup`; a capacity increase may need it too. In either case, the release notes explain when to
 run setup, and `ctxtra doctor` reports what the existing setup is missing. In Codex, changing the hooks
 also requires trusting them again.
@@ -1171,12 +1180,12 @@ shows the same lines under each agent instead:
 
 | When | Notice |
 |---|---|
-| The binary in the setup is gone | `claude: the hooks run ~/Downloads/ctxtra-0.3/ctxtra, which doesn't exist; run ctxtra setup --agent claude` |
-| The setup runs another binary | `claude: the hooks run /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude` |
-| An older version set it up, with less room (after a capacity change) | `codex: set up by an older ctxtra, with Codex's limit of 1,000,000 bytes; run ctxtra setup --agent codex (Codex will then ask you to trust the hooks again)` |
-| Part of the setup is missing | `claude: SessionStart has 3 of the 40 ctxtra hooks; run ctxtra setup --agent claude`, `dsh: the patch row that loads ctxtra's plugin is missing; run ctxtra setup --agent dsh`, `claude: ctxtra's plugin, which offers the skills as slash commands, is missing from ~/.claude/skills/ctxtra; run ctxtra setup --agent claude` |
-| The Hermes plugin isn't enabled | `hermes: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra` |
-| A setup is gone from its file | `claude: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice` |
+| The binary in the setup is gone | `claude-code: the hooks run ~/Downloads/ctxtra-0.3/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code` |
+| The setup runs another binary | `claude-code: the hooks run /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
+| An earlier release set it up | `claude-code: SessionStart hook 0:0 in ~/.claude/settings.json is from an earlier ctxtra; run ctxtra setup --agent claude-code` |
+| Part of the setup is missing | `claude-code: SessionStart has 3 of the 40 ctxtra hooks; run ctxtra setup --agent claude-code`, `dsh: the patch row that loads ctxtra's plugin is missing; run ctxtra setup --agent dsh`, `claude-code: ctxtra's plugin, which offers the skills as slash commands, is missing from ~/.claude/skills/ctxtra; run ctxtra setup --agent claude-code` |
+| The Hermes plugin isn't enabled | `hermes-agent: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra` |
+| A setup is gone from its file | `claude-code: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; if it was, ctxtra setup --remove --agent claude-code stops this notice` |
 | An agent was found since the last setup | `cursor: found since the last ctxtra setup; to add ctxtra to it, run ctxtra setup --agent cursor` |
 
 A new agent is told about once: ctxtra then adds it to `detected` in `~/.local/state/ctxtra/setup.json`, unless a setup

@@ -60,7 +60,7 @@ func TestProxyBrokenStdout(t *testing.T) {
 		"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(exe, "mcp", "proxy", "test")
+	cmd := exec.Command(exe, "mcp", "proxy", "codex", "--setup-version=1")
 	cmd.Dir = h
 	cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
 		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
@@ -163,7 +163,7 @@ func TestProxyStartBudget(t *testing.T) {
 // its answers to initialize and to the first tool list. The agent is Codex
 // for its long deadline: a slow run has the server's tools too.
 func proxyStart(exe, dir, cfg string) (initialize, list time.Duration, err error) {
-	cmd := exec.Command(exe, "mcp", "proxy", "codex")
+	cmd := exec.Command(exe, "mcp", "proxy", "codex", "--setup-version=1")
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
 		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}

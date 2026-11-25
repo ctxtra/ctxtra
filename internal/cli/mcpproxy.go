@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -33,6 +34,9 @@ func runProxy(args []string, stdio IO, version string) int {
 	agent := ""
 	if len(args) > 0 {
 		agent = args[0]
+	}
+	if _, ok := registry.Get(agent); !ok || !slices.Contains(args, agentpkg.SetupVersionArg) {
+		return 0
 	}
 	dir, err := os.Getwd()
 	log := func(r proxy.Record) {

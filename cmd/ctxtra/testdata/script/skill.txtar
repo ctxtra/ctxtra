@@ -25,7 +25,7 @@ stdout '^<!-- ctxtra skill file: references/tasks.md -->$'
 stdout '^## First setup$'
 
 # setup doesn't install skills: it names the commands that do.
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 stdout '^  ctxtra skill install ctxtra  '
 stdout '^  ctxtra skill install ctxtra-follow '
 ! exists .local/share/ctxtra/skills
@@ -45,7 +45,7 @@ stdout '"binding": "ctxtra \(~/.config/ctxtra/config.yaml\)"'
 
 exec ctxtra context files notes
 stdout '/.local/share/ctxtra/skills/ctxtra/SKILL.md$'
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 ! stdout 'ctxtra skill install ctxtra '
 stdout 'ctxtra skill install ctxtra-follow'
 
@@ -59,7 +59,7 @@ cmp .config/ctxtra/config.yaml want.yaml
 # lists the skill.
 cp old.md .local/share/ctxtra/skills/ctxtra/SKILL.md
 rm .local/share/ctxtra/skills/ctxtra/references/tasks.md
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'Set up and change ctxtra'
 ! stdout 'An older ctxtra skill'
 ! grep 'An older ctxtra skill' .local/share/ctxtra/skills/ctxtra/SKILL.md
@@ -79,10 +79,10 @@ stdout '^Installed to ~/.local/share/ctxtra/skills/ctxtra-follow$'
 stdout '^Added to ~/.config/ctxtra/config.yaml$'
 stdout '^The skill is ready for new agent sessions in any folder\.$'
 cmp .config/ctxtra/config.yaml want-follow.yaml
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 ! stdout 'ctxtra skill install'
 cp old.md .local/share/ctxtra/skills/ctxtra-follow/SKILL.md
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'instructions and skills for a folder your work moves to'
 ! stdout 'An older ctxtra skill'
 grep '^name: ctxtra-follow$' .local/share/ctxtra/skills/ctxtra-follow/SKILL.md

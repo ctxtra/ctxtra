@@ -7,12 +7,12 @@ stdout '^MCP servers of ~/dev/app:$'
 stdout '^  pg  local, mcptest, none needed$'
 stdout 'no session has started here'
 
-env MCP_AGENT=claude
+env MCP_AGENT=claude-code
 mcp dev/app
 stdout '^tool fast__echo'
 ! stdout '^tool pg__'
 exec ctxtra mcp status dev/app
-stdout '^the last session here \(claude, .*\):$'
+stdout '^the last session here \(claude-code, .*\):$'
 stdout '^  first tool list after (1\.[5-9]|[2-9]\.[0-9]) s \(waits up to 1\.5 s\); ctxtra''s own start took [0-9]\.[0-9][0-9] s$'
 stdout '^  fast  ready after [0-9.]+ s$'
 stdout '^  (pg  missing: too slow for the first tool list|pg  later: too slow for the first tool list, after [3-9]\.[0-9] s; added with a tool list change)$'

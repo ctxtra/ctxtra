@@ -42,10 +42,10 @@ const pluginVersion = 3
 
 func (Agent) Protocol() int { return pluginVersion }
 
-const enableNote = "hermes: the plugin runs only after you enable it: run `hermes plugins enable " + pluginName +
+const enableNote = "hermes-agent: the plugin runs only after you enable it: run `hermes plugins enable " + pluginName +
 	"`. It applies from the next session."
 
-func (Agent) Name() string { return "hermes" }
+func (Agent) Name() string { return "hermes-agent" }
 
 func dir() string {
 	if d := os.Getenv("HERMES_HOME"); d != "" {
@@ -318,7 +318,7 @@ def _run(event):
             {"cwd": _cwd(), "ctxtra_plugin": ` + strconv.Itoa(pluginVersion) + `, "ctxtra_slots": SLOTS}, ensure_ascii=False
         ).encode("utf-8")
         proc = subprocess.Popen(
-            [BIN, "hook", "hermes", event],
+            [BIN, "hook", "hermes-agent", event, "--setup-version=1"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
