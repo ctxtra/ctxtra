@@ -421,8 +421,13 @@ func (c Config) check(data *jsonorder.Map, bin string, o agent.MCPCheck) []strin
 		}
 		out = append(out, agent.XDGNotices("the ctxtra MCP proxy entries", c.Agent, env)...)
 	}
-	if !slices.Equal(c.commandLine(cur)[1:], agent.MCPArgs(c.Agent)) {
-		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't run as %s; %s", c.Agent, repair))
+	args := c.commandLine(cur)[1:]
+	if !slices.Equal(args, agent.MCPArgs(c.Agent)) {
+		if !slices.Contains(args, agent.SetupVersionArg) {
+			out = append(out, "the ctxtra MCP proxy entry is from an earlier ctxtra; "+repair)
+		} else {
+			out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't run as %s; %s", c.Agent, repair))
+		}
 	}
 	if legacy != nil {
 		out = append(out, fmt.Sprintf("the ctxtra MCP proxy has its old name %s; %s", agent.LegacyMCPEntryName, repair))

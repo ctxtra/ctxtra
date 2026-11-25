@@ -1133,7 +1133,7 @@ This release starts the contract over. Entries from earlier releases are not ser
 agents whose names did not change. Run `ctxtra setup` again. Setup recognizes earlier entries by their
 commands and replaces them, so an agent never runs both. `doctor` reports each earlier entry with its
 `ctxtra setup --agent NAME` command and exits 1. When `~/.ctxtra` exists, it says that folder can be deleted
-once every agent is set up again. No earlier config or state is read or converted.
+once every agent is set up again. The earlier state in that folder is not read or converted.
 
 Agent IDs are `claude-code`, `github-copilot` and `hermes-agent`; the earlier names `claude`, `copilot` and
 `hermes` are not aliases. `codex`, `cursor`, `opencode`, `pi`, `antigravity`, `devin`, `muse` and `dsh` keep

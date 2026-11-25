@@ -45,7 +45,7 @@ func TestReplacesEarlierSetups(t *testing.T) {
 			}
 			if m, ok := a.(agent.MCPAgent); ok {
 				n := m.MCP().CheckMCP(bin, agent.MCPCheck{})
-				if len(n) == 0 || !strings.Contains(strings.Join(n, "\n"), "ctxtra setup --agent "+a.Name()) {
+				if !strings.Contains(strings.Join(n, "\n"), "earlier ctxtra") || !strings.Contains(strings.Join(n, "\n"), "ctxtra setup --agent "+a.Name()) {
 					t.Fatalf("earlier proxy not diagnosed: %v", n)
 				}
 			}
