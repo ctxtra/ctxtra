@@ -5,6 +5,7 @@ package lock
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -138,11 +139,15 @@ func decodeEntry(d *yamlx.Doc, p yamlx.Pair) *Entry {
 	if len(refs) != 1 {
 		r.Fail(p.V, "an entry has one of branch, tag and rev")
 	}
-	if e.Commit != "" && !cfg.IsFullCommitID(e.Commit) {
-		r.Fail(f["commit"], "commit %s is not a full commit ID", e.Commit)
+	if e.Commit != "" {
+		if msg := cfg.CommitIDError("commit", e.Commit); msg != "" {
+			r.Fail(f["commit"], "%s", msg)
+		}
 	}
-	if e.Ref.Kind == cfg.Rev && e.Ref.Name != "" && !cfg.IsFullCommitID(e.Ref.Name) {
-		r.Fail(f["rev"], "rev %s is not a full commit ID", e.Ref.Name)
+	if e.Ref.Kind == cfg.Rev && e.Ref.Name != "" {
+		if msg := cfg.CommitIDError("rev", e.Ref.Name); msg != "" {
+			r.Fail(f["rev"], "%s", msg)
+		}
 	}
 	return e
 }
@@ -180,8 +185,9 @@ func Compare(e *Entry, s *cfg.Source) Changes {
 // Format is the lock file of entries: block YAML, sources sorted by name,
 // one key per line in the order repo, branch, tag or rev, subdir, commit.
 // It leaves out the entries of sources that c doesn't have as repo
-// sources. An entry that isn't complete is an error, and nothing is
-// written.
+// sources. An entry that isn't complete, or one read with errors, is an
+// error, and nothing is written: writing a broken entry back in a clean
+// form would make it used again. The caller replaces or removes it.
 func Format(entries []*Entry, c *cfg.Config) ([]byte, error) {
 	var keep []*Entry
 	for _, e := range entries {
@@ -234,9 +240,11 @@ func check(e *Entry) error {
 	case !slices.Contains([]cfg.RefKind{cfg.Branch, cfg.Tag, cfg.Rev}, e.Ref.Kind) || e.Ref.Name == "":
 		return fmt.Errorf("branch, tag or rev is missing")
 	case e.Ref.Kind == cfg.Rev && !cfg.IsFullCommitID(e.Ref.Name):
-		return fmt.Errorf("rev %s is not a full commit ID", e.Ref.Name)
+		return errors.New(cfg.CommitIDError("rev", e.Ref.Name))
 	case !cfg.IsFullCommitID(e.Commit):
-		return fmt.Errorf("commit %q is not a full commit ID", e.Commit)
+		return errors.New(cfg.CommitIDError("commit", e.Commit))
+	case e.Broken():
+		return fmt.Errorf("it has errors (%v); replace or remove it before writing the lock", e.Errs[0])
 	}
 	return nil
 }

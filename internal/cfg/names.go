@@ -46,6 +46,9 @@ type Entry struct {
 	// Not is true for an entry that starts with !: it leaves out what it
 	// matches.
 	Not bool
+	// InSource is true for SOURCE:VALUE, also when SOURCE is empty, which
+	// is an error.
+	InSource bool
 	// Source is the source that SOURCE:VALUE names; "" for a path on disk
 	// or a name of the file's own.
 	Source string
@@ -80,36 +83,47 @@ const (
 
 // splitEntry reads the ! flag and the SOURCE: prefix of text. An entry that
 // starts with ./, / or ~ is always a path on disk.
-func splitEntry(text string) (not bool, source, value string) {
-	value = text
-	if rest, ok := strings.CutPrefix(value, "!"); ok {
-		not, value = true, rest
+func splitEntry(text string) Entry {
+	e := Entry{Text: text}
+	e.Value, e.Not = strings.CutPrefix(text, "!")
+	if strings.HasPrefix(e.Value, "./") || strings.HasPrefix(e.Value, "/") || strings.HasPrefix(e.Value, "~") {
+		return e
 	}
-	if strings.HasPrefix(value, "./") || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "~") {
-		return not, "", value
+	if source, rest, ok := strings.Cut(e.Value, ":"); ok {
+		e.InSource, e.Source, e.Value = true, source, rest
 	}
-	if s, rest, ok := strings.Cut(value, ":"); ok {
-		return not, s, rest
+	return e
+}
+
+// checkSource says what is wrong with the SOURCE of a SOURCE:VALUE entry.
+func checkSource(e Entry) string {
+	switch {
+	case !e.InSource:
+		return ""
+	case e.Source == "":
+		return fmt.Sprintf("%s: the source name before : is empty; start a file name with a colon with ./", e.Text)
+	case CheckName(e.Source) != nil:
+		return fmt.Sprintf("%s: %s names no source (%v); start a file name with a colon with ./", e.Text, e.Source, CheckName(e.Source))
 	}
-	return not, "", value
+	return ""
 }
 
 // contentEntry checks one entry of a content list. The error, if any, is
 // the entry's own.
 func contentEntry(text string, kind listKind, owner Owner) (Entry, string) {
-	not, source, value := splitEntry(text)
-	e := Entry{Text: text, Not: not, Source: source, Value: value}
-	if value == "" {
-		return e, "the entry is empty"
-	}
-	if source != "" {
+	e := splitEntry(text)
+	value := e.Value
+	if e.InSource {
 		if owner == InManifest {
 			what := map[listKind]string{pathList: "files in its own source", nameList: "its own collections", serverList: "its own servers"}[kind]
 			return e, fmt.Sprintf("%s: a manifest references only %s, without a source name", text, what)
 		}
-		if err := CheckName(source); err != nil {
-			return e, fmt.Sprintf("%s: %s names no source (%v); start a file name with a colon with ./", text, source, err)
+		if msg := checkSource(e); msg != "" {
+			return e, msg
 		}
+	}
+	if value == "" {
+		return e, "the entry is empty"
 	}
 	switch kind {
 	case pathList:
@@ -125,7 +139,7 @@ func contentEntry(text string, kind listKind, owner Owner) (Entry, string) {
 // config.
 func checkPath(e Entry, owner Owner) string {
 	v := e.Value
-	inSource := e.Source != "" || owner == InManifest
+	inSource := e.InSource || owner == InManifest
 	if inSource {
 		if strings.HasPrefix(v, "/") || strings.HasPrefix(v, "~") {
 			where := "the source"

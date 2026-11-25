@@ -106,10 +106,12 @@ func DecodeCollection(d *yamlx.Doc, p yamlx.Pair, owner Owner) *Collection {
 
 // RepoSet is a named list of repositories, in the config or a manifest.
 type RepoSet struct {
-	Name    string
-	Pos     yamlx.Pos
+	Name string
+	Pos  yamlx.Pos
+	// Entries are the set's entries as written. A broken entry has its
+	// error and is left out; the set's other entries apply.
 	Entries []RepoEntry
-	// Errs are the set's errors. A set with broken entries keeps the others.
+	// Errs are the set's errors, its entries' included.
 	Errs []*yamlx.Error
 }
 
@@ -159,10 +161,10 @@ type RepoEntry struct {
 	Err *yamlx.Error
 }
 
-// decodeRepoEntry reads one repository entry. In a set, a broken entry is
-// left out; in a location, a broken positive entry stays and matches
-// nothing, and a broken ! entry leaves out the binding. ok is false when
-// the entry isn't kept.
+// decodeRepoEntry reads one repository entry. A broken entry has its
+// error: in a set it is left out, and in a location a positive one matches
+// nothing and a ! one leaves out the binding. ok is false when an error
+// leaves out the whole part, and the entry with it.
 func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool) {
 	e := RepoEntry{Pos: yamlx.At(n)}
 	// entryErr is the mistake of a broken entry.
@@ -176,14 +178,22 @@ func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool
 		return yamlx.BrokenLocation
 	}
 	repoNode := n
-	if n.Kind == yaml.MappingNode {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		text, ok := r.Text(n, "repos entry")
+		if !ok {
+			return e, false
+		}
+		e.Text = text
+		e.Repo, e.Not = strings.CutPrefix(text, "!")
+	case yaml.MappingNode:
 		f, ok := r.Map(n, "a repos entry", "repo", "subdirs")
 		if !ok {
 			return e, false
 		}
 		if f["repo"] == nil {
 			e.Err = r.EntryError(n, entryErr(false), "a repos entry with subdirs needs repo%s", matchesNothing(inSet, false))
-			return e, !inSet
+			return e, true
 		}
 		repoNode = f["repo"]
 		text, ok := r.Text(repoNode, "repo")
@@ -196,41 +206,40 @@ func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool
 			if inSet {
 				m = yamlx.BrokenEntry
 			}
-			r.Add(repoNode, m, "repo %s: put ! in subdirs to leave out parts of the repository, or write the repository alone to leave out all of it", text)
-			return e, false
+			e.Err = r.EntryError(repoNode, m, "repo %s: put ! in subdirs to leave out parts of the repository, or write the repository alone to leave out all of it", text)
+			return e, true
 		}
 		if sn := f["subdirs"]; sn != nil {
 			if !decodeSubdirs(r, sn, &e, inSet) {
 				return e, false
 			}
 		}
-	} else {
-		text, ok := r.Text(n, "repos entry")
-		if !ok {
-			return e, false
-		}
-		e.Text = text
-		e.Repo, e.Not = strings.CutPrefix(text, "!")
+	default:
+		e.Err = r.EntryError(n, entryErr(false), "a repos entry is a repository, or a map with repo and subdirs%s", matchesNothing(inSet, false))
+		return e, true
+	}
+	if e.Err != nil {
+		return e, true
 	}
 	if msg := checkRepoPattern(e.Repo); msg != "" {
 		if inSet && (strings.HasPrefix(e.Repo, "/") || strings.HasPrefix(e.Repo, "~")) {
 			msg = fmt.Sprintf("%s is a folder; a set lists repositories only", e.Repo)
 		}
 		e.Err = r.EntryError(repoNode, entryErr(e.Not), "%s%s", msg, matchesNothing(inSet, e.Not))
-		return e, !inSet
 	}
 	return e, true
 }
 
-// decodeSubdirs reads the subdirs of e. It returns false when the entry
-// isn't kept.
+// decodeSubdirs reads the subdirs of e. In a set, a broken subdirs entry
+// breaks e. It returns false when an error leaves out the whole part.
 func decodeSubdirs(r *yamlx.Reader, n *yaml.Node, e *RepoEntry, inSet bool) bool {
+	const empty = "subdirs is empty; remove it to use the whole repository"
 	if yamlx.IsEmpty(n) {
 		if inSet {
-			r.Add(n, yamlx.BrokenEntry, "subdirs is empty; remove it to use the whole repository")
-		} else {
-			r.Add(n, yamlx.EmptyCondition, "subdirs is empty; remove it to use the whole repository")
+			e.Err = r.EntryError(n, yamlx.BrokenEntry, empty)
+			return true
 		}
+		r.Add(n, yamlx.EmptyCondition, empty)
 		return false
 	}
 	items, ok := r.List(n, "subdirs")
@@ -245,15 +254,17 @@ func decodeSubdirs(r *yamlx.Reader, n *yaml.Node, e *RepoEntry, inSet bool) bool
 		s := Entry{Text: text, Pos: yamlx.At(it)}
 		s.Value, s.Not = strings.CutPrefix(text, "!")
 		if msg := checkSubdir(s.Value); msg != "" {
-			m := yamlx.BrokenLocation
 			switch {
 			case inSet:
-				r.Add(it, yamlx.BrokenEntry, "%s", msg)
-				return false
+				s.Err = r.EntryError(it, yamlx.BrokenEntry, "%s", msg)
+				if e.Err == nil {
+					e.Err = s.Err
+				}
 			case s.Not:
-				m = yamlx.BrokenExclusion
+				s.Err = r.EntryError(it, yamlx.BrokenExclusion, "%s", msg)
+			default:
+				s.Err = r.EntryError(it, yamlx.BrokenLocation, "%s%s", msg, matchesNothing(false, false))
 			}
-			s.Err = r.EntryError(it, m, "%s%s", msg, matchesNothing(false, s.Not))
 		}
 		e.Subdirs = append(e.Subdirs, s)
 	}

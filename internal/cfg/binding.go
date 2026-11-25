@@ -179,13 +179,10 @@ func decodeLocation(r *yamlx.Reader, n *yaml.Node) *Location {
 		if !ok {
 			continue
 		}
-		var e Entry
-		e.Not, e.Source, e.Value = splitEntry(text)
-		e.Text, e.Pos = text, yamlx.At(it)
-		var msg string
-		if e.Source != "" && CheckName(e.Source) != nil {
-			msg = fmt.Sprintf("%s: %v", text, CheckName(e.Source))
-		} else if err := CheckName(e.Value); err != nil {
+		e := splitEntry(text)
+		e.Pos = yamlx.At(it)
+		msg := checkSource(e)
+		if err := CheckName(e.Value); msg == "" && err != nil {
 			msg = fmt.Sprintf("%s: %v", text, err)
 		}
 		if msg != "" {

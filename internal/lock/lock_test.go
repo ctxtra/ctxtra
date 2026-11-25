@@ -147,6 +147,8 @@ func TestParse(t *testing.T) {
 		{"no commit", "{repo: x, branch: main}", "commit is missing"},
 		{"branch and tag", "{repo: x, branch: main, tag: v1, commit: " + commitA + "}", "one of branch, tag and rev"},
 		{"an unknown key", "{repo: x, branch: main, commit: " + commitA + ", accepted: today}", `unknown key "accepted"`},
+		{"a commit in upper case", "{repo: x, branch: main, commit: " + strings.ToUpper(commitA) + "}", "write it in lower case: " + commitA},
+		{"a rev in upper case", "{repo: x, rev: " + strings.ToUpper(commitA) + ", commit: " + commitA + "}", "rev " + strings.ToUpper(commitA) + " has upper-case letters"},
 		{"a tag that YAML reads as a number", "{repo: x, tag: 1.10, commit: " + commitA + "}", "quote it: tag: '1.10'"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,6 +163,45 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestBrokenEntriesAreNotWrittenBack(t *testing.T) {
+	c := config(t, "sources:\n  bad: {repo: 'git@github.com:a/bad.git', branch: main}\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
+	data := "schema: ctxtra/lock/v1\nsources:\n" +
+		"  bad: {repo: 'git@github.com:a/bad.git', branch: main, commit: " + commitA + ", accepted: today}\n" +
+		"  ok: {repo: 'git@github.com:a/ok.git', branch: main, commit: " + commitB + "}\n"
+	l := Parse([]byte(data))
+	if l.Entry("bad") != nil {
+		t.Fatal("a broken entry is used")
+	}
+	if _, err := Format(l.Entries, c); err == nil || !strings.Contains(err.Error(), "lock entry bad") ||
+		!strings.Contains(err.Error(), "replace or remove it") {
+		t.Fatalf("Format = %v, want an error that names the broken entry", err)
+	}
+
+	// Replaced by a new entry, as source update does, the lock is written
+	// and reads back the same.
+	entries := []*Entry{{Name: "bad", Repo: "git@github.com:a/bad.git", Ref: cfg.Ref{Kind: cfg.Branch, Name: "main"}, Commit: commitB}}
+	entries = append(entries, l.Entry("ok"))
+	out, err := Format(entries, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := Parse(out)
+	if len(again.Errors) > 0 || again.Entry("bad").Commit != commitB || again.Entry("ok").Commit != commitB {
+		t.Fatalf("read back %s: %v", out, again.Errors)
+	}
+	if out2, _ := Format(again.Entries, c); string(out2) != string(out) {
+		t.Errorf("written twice differently:\n%s\n%s", out, out2)
+	}
+
+	t.Run("a broken entry of a removed source", func(t *testing.T) {
+		c := config(t, "sources:\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
+		out, err := Format(l.Entries, c)
+		if err != nil || strings.Contains(string(out), "bad") {
+			t.Errorf("Format = %s, %v; want the entry dropped", out, err)
+		}
+	})
+}
+
 func TestCompare(t *testing.T) {
 	locked := &Entry{Name: "iam-team", Repo: "git@github.com:acme/iam-ctx.git", Ref: cfg.Ref{Kind: cfg.Branch, Name: "main"},
 		Subdir: "teams/billing", Commit: commitA}
@@ -171,6 +212,7 @@ func TestCompare(t *testing.T) {
 	}{
 		{"the same source", "{repo: 'git@github.com:acme/iam-ctx.git', branch: main, subdir: teams/billing}", Changes{}},
 		{"from ssh to https", "{repo: 'https://github.com/acme/iam-ctx', branch: main, subdir: teams/billing}", Changes{}},
+		{".git in upper case", "{repo: 'git@github.com:Acme/iam-ctx.GIT', branch: main, subdir: teams/billing}", Changes{}},
 		{"another form of the folder", "{repo: 'git@github.com:acme/iam-ctx.git', branch: main, subdir: ./teams/billing/}", Changes{}},
 		{"the user switches branch", "{repo: 'git@github.com:acme/iam-ctx.git', branch: next, subdir: teams/billing}", Changes{Ref: true}},
 		{"a tag instead of the branch", "{repo: 'git@github.com:acme/iam-ctx.git', tag: main, subdir: teams/billing}", Changes{Ref: true}},

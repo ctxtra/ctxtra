@@ -77,6 +77,7 @@ func TestEntries(t *testing.T) {
 		{name: "a home path", body: "{instructions: [~/x.md, docs/a.md]}", want: "relative to the top of this source", out: yamlx.OutEntry},
 		{name: "a path that leaves the source", body: "{skills: [../x, skills/*]}", want: "the path leaves its source", out: yamlx.OutEntry},
 		{name: "a path that stays in the source", body: "{skills: [skills/../other/x]}"},
+		{name: "an empty source name", body: "{instructions: [':x.md', docs/a.md]}", want: "a manifest references only files in its own source", out: yamlx.OutEntry},
 		{name: "a path that starts with ./", body: "{instructions: ['./draft:notes.md']}"},
 		{name: "unquoted on its own line", body: "\n    instructions:\n      - docs/*.md\n      - !docs/draft-*.md",
 			want: "'!docs/draft-*.md'", out: yamlx.OutPart},
@@ -114,13 +115,13 @@ func TestRepoSets(t *testing.T) {
 		if len(m.Errors) != 1 || !strings.Contains(m.Errors[0].Error(), "a set lists repositories only") || m.Errors[0].Out() != yamlx.OutEntry {
 			t.Fatalf("errors %v", m.Errors)
 		}
-		if s := m.RepoSet("services"); s.Broken() || len(s.Entries) != 1 || s.Entries[0].Repo != "github.com/acme/iam-api" {
-			t.Errorf("the other entries don't apply: %+v", s)
+		if s := m.RepoSet("services"); s.Broken() || len(s.Entries) != 2 || s.Entries[0].Err != nil || s.Entries[1].Err == nil {
+			t.Errorf("the other entries don't apply, or the broken one isn't kept with its error: %+v", s)
 		}
 	})
 	t.Run("! on the repo of an entry with subdirs", func(t *testing.T) {
 		m := parse("repo-sets:\n  s: [{repo: '!github.com/acme/mono', subdirs: [x/**]}, github.com/acme/api]\n")
-		if len(m.Errors) != 1 || m.Errors[0].Out() != yamlx.OutEntry || len(m.RepoSet("s").Entries) != 1 {
+		if s := m.RepoSet("s"); len(m.Errors) != 1 || m.Errors[0].Out() != yamlx.OutEntry || s.Broken() || s.Entries[0].Err == nil || s.Entries[1].Err != nil {
 			t.Fatalf("errors %v, set %+v", m.Errors, m.RepoSet("s"))
 		}
 	})

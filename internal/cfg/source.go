@@ -60,11 +60,24 @@ type Ref struct {
 
 func (r Ref) String() string { return string(r.Kind) + " " + r.Name }
 
-var reRev = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+var reRev = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
-// IsFullCommitID reports whether s is a full commit ID: 40 hex characters,
-// or 64 in a SHA-256 repository.
+// IsFullCommitID reports whether s is a full commit ID as git writes it: 40
+// lower-case hex characters, or 64 in a SHA-256 repository. One form per
+// commit lets the lock compare commit IDs as text.
 func IsFullCommitID(s string) bool { return reRev.MatchString(s) }
+
+// CommitIDError says what keeps s from being a full commit ID, "" when
+// nothing; key names the value.
+func CommitIDError(key, s string) string {
+	switch {
+	case IsFullCommitID(s):
+		return ""
+	case IsFullCommitID(strings.ToLower(s)):
+		return fmt.Sprintf("%s %s has upper-case letters; write it in lower case: %s", key, s, strings.ToLower(s))
+	}
+	return fmt.Sprintf("%s %s is not a full commit ID: 40 hex characters, or 64 in a SHA-256 repository", key, s)
+}
 
 var reSCP = regexp.MustCompile(`^[^@/\s]+@[^:/\s]+:\S+$`)
 
@@ -97,7 +110,7 @@ func IsLocalRepo(repo string) bool {
 // case; for a local path, its full real path.
 func RepoID(repo string) string {
 	if !IsLocalRepo(repo) {
-		return gitrepo.NormalizeRemote(repo)
+		return gitrepo.NormalizeRemote(strings.ToLower(repo))
 	}
 	p := filepath.Clean(paths.Expand(repo))
 	if real, err := filepath.EvalSymlinks(p); err == nil {
@@ -181,8 +194,10 @@ func decodeSource(d *yamlx.Doc, p yamlx.Pair) *Source {
 				r.Fail(f["repo"], "%s", msg)
 			}
 		}
-		if s.Ref.Kind == Rev && s.Ref.Name != "" && !IsFullCommitID(s.Ref.Name) {
-			r.Fail(f["rev"], "rev %s is not a full commit ID: rev is 40 hex characters, or 64 in a SHA-256 repository; ctxtra source add --rev writes it from any revision", s.Ref.Name)
+		if s.Ref.Kind == Rev && s.Ref.Name != "" {
+			if msg := CommitIDError("rev", s.Ref.Name); msg != "" {
+				r.Fail(f["rev"], "%s; ctxtra source add --rev writes it from any revision", msg)
+			}
 		}
 		if s.Subdir != "" {
 			if strings.HasPrefix(s.Subdir, "/") || strings.HasPrefix(s.Subdir, "~") || leaves(s.Subdir) {

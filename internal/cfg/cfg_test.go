@@ -139,6 +139,8 @@ func TestSources(t *testing.T) {
 		{name: "a name of 65 characters", body: strings.Repeat("a", 65) + ": {dir: ~/notes}", want: []string{"longer than 64"}},
 		{name: "a short rev", body: "s: {repo: 'git@github.com:acme/x.git', rev: 9f8e7d6}",
 			want: []string{"rev 9f8e7d6 is not a full commit ID", "40 hex characters, or 64"}},
+		{name: "a rev in upper case", body: "s: {repo: 'git@github.com:acme/x.git', rev: 9F8E7D6C5B4A39281706F5E4D3C2B1A098765432}",
+			want: []string{"has upper-case letters; write it in lower case: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"}},
 		{name: "a rev of a SHA-256 repository", body: "s: {repo: 'git@github.com:acme/x.git', rev: " + strings.Repeat("ab", 32) + "}"},
 		{name: "branch and tag together", body: "s: {repo: 'git@github.com:acme/x.git', branch: main, tag: v1.4.0}",
 			want: []string{"not branch and tag"}},
@@ -203,6 +205,9 @@ func TestRepoID(t *testing.T) {
 			if got := RepoID(f); got != "github.com/acme/iam-ctx" {
 				t.Errorf("RepoID(%s) = %s", f, got)
 			}
+		}
+		if RepoID("git@github.com:Acme/IAM-ctx.GIT") != RepoID(forms[0]) {
+			t.Error(".git in upper case makes another repository")
 		}
 		if RepoID("git@github.com:other/iam-ctx.git") == RepoID(forms[0]) {
 			t.Error("another repository is the same")
@@ -301,6 +306,20 @@ func TestBindings(t *testing.T) {
 					t.Errorf("%+v", got)
 				}
 			}},
+		{name: "an empty source name in a content list", body: "instructions: [':notes.md', a.md]", out: yamlx.OutEntry,
+			want: []string{"the source name before : is empty"}, check: func(t *testing.T, b *Binding) {
+				if e := b.Instructions[0]; !e.InSource || e.Source != "" || e.Err == nil {
+					t.Errorf("%+v", e)
+				}
+			}},
+		{name: "an empty source name in repo-sets", body: "location: {repo-sets: [':acme']}\n    skills: [a]", out: yamlx.OutNothing,
+			want: []string{"the source name before : is empty", "the entry matches nothing"}, check: func(t *testing.T, b *Binding) {
+				if e := b.Location.RepoSets[0]; !e.InSource || e.Value != "acme" || e.Err == nil {
+					t.Errorf("%+v", e)
+				}
+			}},
+		{name: "an empty source name in an excluded repo set", body: "location: {repo-sets: ['!:acme']}\n    skills: [a]", out: yamlx.OutPart,
+			want: []string{"the source name before : is empty"}},
 		{name: "a raw file from a source", body: "instructions: ['iam-team:instructions/*.md']", check: func(t *testing.T, b *Binding) {
 			if e := b.Instructions[0]; e.Source != "iam-team" || e.Value != "instructions/*.md" {
 				t.Errorf("%+v", e)
@@ -426,6 +445,8 @@ func TestServers(t *testing.T) {
 		{"a local key on a remote server", "s: {url: 'https://x.example', env: {A: b}}", "env doesn't apply to a remote server"},
 		{"a variable set twice", "s: {command: [x], env: {A: b}, pass-env: [A]}", "the variable A is set twice"},
 		{"a number in env", "s: {command: [x], env: {PORT: 8080}}", "quote it: env.PORT: '8080'"},
+		{"true as a variable name", "s: {command: [x], env: {true: x}}", "YAML reads true as true or false, not text; quote it: 'true'"},
+		{"a number as a header name", "s: {url: 'https://x.example', headers: {1: x}}", "YAML reads 1 as a number, not text; quote it: '1'"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -463,10 +484,42 @@ func TestConfigCollectionsAndRepoSets(t *testing.T) {
 		if err.Out() != yamlx.OutEntry {
 			t.Errorf("error %v leaves out %d", err, err.Out())
 		}
-		if s := c.RepoSet("acme"); s.Broken() || len(s.Entries) != 2 {
+		s := c.RepoSet("acme")
+		if s.Broken() || len(s.Entries) != 3 || s.Entries[0].Err != nil || s.Entries[2].Err != nil {
 			t.Errorf("the other entries don't apply: %+v", s)
 		}
+		if e := s.Entries[1]; e.Err != err || e.Text != "~/work/**" || e.Pos.Line != 3 {
+			t.Errorf("the broken entry isn't kept as written, with its error: %+v", e)
+		}
 	})
+	for _, tt := range []struct{ name, item, want string }{
+		{"a list in a set", "[]", "a repos entry is a repository, or a map with repo and subdirs"},
+		{"a map without repo in a set", "{subdirs: [x/**]}", "needs repo"},
+		{"an empty subdirs in a set", "{repo: github.com/acme/mono, subdirs: []}", "subdirs is empty"},
+		{"a broken subdirs entry in a set", "{repo: github.com/acme/mono, subdirs: [../x]}", "leaves the repository"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+", github.com/acme/web]\n")
+			err := only(t, c, tt.want)
+			s := c.RepoSet("acme")
+			if err.Out() != yamlx.OutEntry || s.Broken() || len(s.Entries) != 3 || s.Entries[1].Err != err ||
+				s.Entries[0].Err != nil || s.Entries[2].Err != nil {
+				t.Errorf("error %v leaves out %d; set %+v", err, err.Out(), s)
+			}
+		})
+	}
+	for _, tt := range []struct{ name, item string }{
+		{"a tag in a set", "!x y"},
+		{"a number in a set", "1.10"},
+		{"an unknown key in a set entry", "{repo: github.com/acme/mono, path: x}"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+"]\n  ok: [github.com/acme/web]\n")
+			if len(c.Errors) != 1 || !c.RepoSet("acme").Broken() || c.RepoSet("ok").Broken() {
+				t.Errorf("errors %v: the set should be left out, and only it", c.Errors)
+			}
+		})
+	}
 	t.Run("an empty repo set", func(t *testing.T) {
 		c := parse(t, "repo-sets:\n  acme: []\n")
 		err := only(t, c, "matches nothing")

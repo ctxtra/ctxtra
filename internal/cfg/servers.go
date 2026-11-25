@@ -188,11 +188,15 @@ func textMap(r *yamlx.Reader, n *yaml.Node, key string, re *regexp.Regexp) map[s
 	out := map[string]string{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
-		if !re.MatchString(k.Value) {
-			r.Fail(k, "%s: %q is not a valid name", key, k.Value)
+		name, ok := r.Text(k, key+" entry")
+		if !ok {
 			continue
 		}
-		if text, ok := r.Text(v, key+"."+k.Value); ok {
+		if !re.MatchString(name) {
+			r.Fail(k, "%s: %q is not a valid name", key, name)
+			continue
+		}
+		if text, ok := r.Text(v, key+"."+name); ok {
 			out[k.Value] = text
 		}
 	}
