@@ -162,8 +162,8 @@ ctxtra source validate . --json
 ```
 
 Validation reads that one manifest and the files its collections name, without user config, credentials
-or network. It reports what a session would get wrong: a deleted file, a cycle, a missing nested collection.
-Repo sets are not usable yet.
+or network. It reports what a session would get wrong: a deleted file, a cycle, a missing nested collection,
+a repo set entry that isn't a repository.
 
 ## Agent-specific content
 

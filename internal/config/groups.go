@@ -225,13 +225,25 @@ func decodeRepoEntry(r *yamlx.Reader, n *yaml.Node, inSet bool) (RepoEntry, bool
 	if e.Err != nil {
 		return e, true
 	}
-	if msg := checkRepoPattern(e.Repo); msg != "" {
-		if inSet && (strings.HasPrefix(e.Repo, "/") || strings.HasPrefix(e.Repo, "~")) {
-			msg = fmt.Sprintf("%s is a folder; a set lists repositories only", e.Repo)
-		}
+	msg := checkRepoPattern(e.Repo)
+	switch {
+	case !inSet:
+	case strings.HasPrefix(e.Repo, "/") || strings.HasPrefix(e.Repo, "~"):
+		msg = fmt.Sprintf("%s is a folder; a set lists repositories only", e.Repo)
+	case isSetReference(e.Repo):
+		msg = fmt.Sprintf("%s is not a repository: a set lists repositories, such as github.com/acme/api, not other sets", e.Repo)
+	}
+	if msg != "" {
 		e.Err = r.EntryError(repoNode, entryErr(e.Not), "%s%s", msg, matchesNothing(inSet, e.Not))
 	}
 	return e, true
+}
+
+// isSetReference reports whether v reads as SOURCE:SET rather than as a
+// repository: a name, a colon, and a name without a path.
+func isSetReference(v string) bool {
+	src, name, ok := strings.Cut(v, ":")
+	return ok && CheckName(src) == nil && !strings.Contains(src, ".") && CheckName(name) == nil
 }
 
 // decodeSubdirs reads the subdirs of e. In a set, a broken subdirs entry,

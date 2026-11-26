@@ -459,14 +459,38 @@ func (c *Catalog) keepManifest(s *Source, file string, data []byte, err error) (
 	return s.manifest, s.manifestErrs
 }
 
-// errNotImplemented is the error of what this version parses but doesn't
-// read yet.
-type errNotImplemented string
-
-func (e errNotImplemented) Error() string { return string(e) + " are not implemented yet" }
-
-// RepoSet is the repo set that entry e of location.repo-sets names. Repo
-// sets are not implemented yet: it is always an error.
+// RepoSet is the repo set that entry e of location.repo-sets names: the
+// config's own for a bare name, a source's for SOURCE:SET. A set with
+// errors that leave it out can't be read; one whose entries have errors
+// is the rest of its entries. The error of a set of a source whose content
+// can't be used is an *Unavailable.
 func (c *Catalog) RepoSet(e config.Entry) (*config.RepoSet, error) {
-	return nil, errNotImplemented("repo sets")
+	var s *config.RepoSet
+	where := "the config"
+	if e.InSource {
+		src := c.sources[e.Source]
+		switch {
+		case src == nil:
+			return nil, fmt.Errorf("the config has no source %s", e.Source)
+		case src.State != Active:
+			return nil, &Unavailable{src}
+		}
+		m, _, err := c.ManifestWithin(src, nil)
+		switch {
+		case err != nil:
+			return nil, err
+		case m == nil:
+			return nil, fmt.Errorf("source %s has no %s, which declares its repo sets", src.Name, manifest.FileName)
+		}
+		s, where = m.RepoSet(e.Value), "source "+src.Name
+	} else {
+		s = c.conf.RepoSet(e.Value)
+	}
+	switch {
+	case s == nil:
+		return nil, fmt.Errorf("%s has no repo set %s", where, e.Value)
+	case s.Broken():
+		return nil, fmt.Errorf("the repo set %s of %s has errors", e.Value, where)
+	}
+	return s, nil
 }

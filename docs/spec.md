@@ -238,9 +238,7 @@ mcp-servers:
 A manifest can declare `mcp-servers`, `collections` and `repo-sets`. It cannot declare sources or bindings.
 Manifest paths refer only to files under that source; they cannot name another source or the user's disk.
 A bare name in a collection's `collections` or `mcp-servers` is a collection or server of the same manifest.
-See [Collections](#collections).
-
-Repo sets parse, but using them currently reports "not implemented yet".
+See [Collections](#collections) and [Repo sets](#repo-sets).
 
 ### Check a source repository
 
@@ -491,7 +489,8 @@ A binding without conditions applies to every session. Empty conditions are erro
 
 ### Location
 
-Location has a folder check (`dirs`) and a repository check (`repos`). Either can make it hold.
+Location has a folder check (`dirs`) and a repository check (`repos` and `repo-sets` together). Either
+check can make it hold.
 An exclusion affects only its own check. A list with only exclusions holds everywhere but those places.
 A bad positive entry matches nothing; a bad exclusion leaves out the binding so it cannot apply wider.
 
@@ -509,6 +508,52 @@ Patterns use doublestar globs: `*` stays in one segment, `**` crosses segments, 
 and `{a,b}` selects alternatives. Without `/**`, a folder pattern matches only that folder.
 For submodules the main checkout is the submodule. With `git init --separate-git-dir`, it is unknown,
 so dirs checks only the session folder. If git does not answer within 3 seconds, the folder counts as outside git.
+
+### Repo sets
+
+A repo set is a named list of repositories, in the form of `location.repos`: patterns,
+`{repo, subdirs}` and quoted `!` entries. A team's manifest and the config can both have a `repo-sets`
+map. A binding links to a set in `location.repo-sets`: `SOURCE:SET` for a source's set, a bare name for
+the config's own.
+
+```yaml
+# ctxtra-source.yaml of iam-team
+schema: ctxtra/source/v1
+repo-sets:
+  services:
+    - github.com/acme/iam-*
+    - '!github.com/acme/iam-sandbox'
+    - {repo: github.com/acme/mono, subdirs: [services/iam/**]}
+```
+
+```yaml
+# the config
+repo-sets:
+  clients: [github.com/acme/client-*]
+bindings:
+  - name: iam-repos
+    location:
+      repo-sets: ['iam-team:services']
+      repos: [github.com/me/iam-playground, '!github.com/acme/iam-legacy']
+    collections: ['iam-team:base']
+  - name: tracker
+    location: {repo-sets: ['!clients']}
+    mcp-servers: [linear]
+```
+
+- A set matches a repository when one of its positive entries matches and none of its `!` entries does.
+  A set's own `!` entries only say which repositories are in it.
+- `repos` and `repo-sets` are one check: a `!` entry in `repos` removes a repository that a set adds, and
+  `'!SOURCE:SET'` leaves out every repository of the set. Moving entries into a set never changes the result.
+- The set is linked, not copied: when the team adds a repository to it, sessions there get the binding
+  after `source update` accepts the commit, with no change to the config.
+- A set lists repositories only. A folder, a `SOURCE:SET` reference or a bad pattern is an error, and the
+  set's other entries apply, also in a set that a binding excludes. A set without entries matches nothing.
+- A set that can't be read is an error: it doesn't exist, it has an error that leaves it out (an unknown
+  key, for example), or its source can't be used. In a positive entry it matches nothing. In a `!` entry it
+  leaves out the binding, so the binding never reaches the repositories it excludes, also on a new machine
+  before `source download`. A set of a source that is not on this machine does the same, without an error.
+- `context explain` names the set and the set entry that matched or left out the session.
 
 ### Profiles and agents
 
@@ -1256,6 +1301,8 @@ and `doctor`. Doctor exits 1. A bad entry leaves out the smallest usable part:
 | Missing file, unmatched pattern, unknown source or path leaving a source | That entry. |
 | Broken positive location entry | It remains and matches nothing. |
 | Broken negative location entry | The binding. |
+| Repo set that can't be read | In a positive entry, nothing: it matches nothing. In a `!` entry, the binding. |
+| Repo set entry that isn't a repository, or a bad pattern | That entry; the rest of the set applies. |
 | Untrusted file or unsafe symlink | The file. |
 | Manifest containing sources or bindings | The whole manifest. |
 | Unapproved repo-source MCP server | The server. |
@@ -1349,15 +1396,14 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | `check-releases` | Release checks; default true. |
 | `session-message.max-instructions`, `session-message.max-skills` | Per-source list limits; default 30, 0 hides the list. |
 | `collections` | The config's own collections; see [Collections](#collections). |
-| `repo-sets` | Parsed; use is not implemented yet. |
+| `repo-sets` | The config's own repo sets; see [Repo sets](#repo-sets). |
 
 | Binding key | Meaning |
 |---|---|
 | `name` | Required, unique in the config. |
-| `location.dirs`, `location.repos` | Folder or repository conditions. |
+| `location.dirs`, `location.repos`, `location.repo-sets` | Folder or repository conditions. |
 | `profiles`, `agents` | Additional conditions, AND with location. |
 | `collections`, `instructions`, `skills`, `mcp-servers` | Content to add; at least one content list must add something. |
-| `location.repo-sets` | Use is not implemented yet. |
 
 The session folder is the hook input's `cwd`, then Cursor's first `workspace_roots` entry,
 then Antigravity's first `workspacePaths` entry, then the hook's working folder.
