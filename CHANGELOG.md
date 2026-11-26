@@ -70,6 +70,8 @@
   name. Of two skills with one name, Claude Code's slash commands offer the second as `/SOURCE-NAME`.
 - `doctor` checks a session once for each agent that setup set up, so bindings with `agents` are checked too. Each
   error names the agents that have it. `doctor --json` lists each agent's files and skills in `sessions`.
+- Over capacity and over `max-ctx-chars` are also reported by `mcp status`, and the session message names the
+  bindings of the dropped files. In `--json`, a file dropped over `max-ctx-chars` is an error, not a warning.
 
 ## v0.6.0
 

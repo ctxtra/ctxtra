@@ -81,11 +81,7 @@ func errorTexts(errs []*catalog.Error) []string {
 func sessionDiagnostics(res *resolve.Result) []diagnostic {
 	d := diagnostics("error", errorTexts(res.Errors))
 	for _, h := range res.Dropped {
-		severity := "error"
-		if h.Over == "max-ctx-chars" {
-			severity = "warning"
-		}
-		d = append(d, diagnostic{severity, fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
+		d = append(d, diagnostic{"error", fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
 	}
 	return append(d, diagnostics("notice", oneLine(res.Notices))...)
 }

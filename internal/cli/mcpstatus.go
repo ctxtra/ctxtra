@@ -17,6 +17,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/term"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 func (a *app) mcpStatusCmd() *cobra.Command {
@@ -55,10 +56,17 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
 	env := loadEnv()
 	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName})
+	// A session of a known agent gets what fits in it.
+	if ag, ok := registry.Get(agentName); ok {
+		ag.Delivery().Fit(res)
+	}
 	for _, e := range res.Errors {
-		if e.Err.Part.Kind == "MCP server" {
+		if e.Err.Part.Kind == "MCP server" || e.Err.Mistake == yamlx.OverCapacity {
 			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
 		}
+	}
+	for _, e := range (report{IO: a.IO, agent: agentName}).capacityErrors(res) {
+		fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
 	}
 	for _, t := range res.Trace {
 		if !t.Matched {

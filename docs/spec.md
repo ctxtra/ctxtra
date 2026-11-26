@@ -713,14 +713,16 @@ Two distinct skills with the same name both reach the session and produce a noti
 `max-ctx-chars` is a guard against adding too much text, not a trimming setting. It counts Unicode code
 points, headers included. Zero or missing means no configured limit. Going over it is an error.
 The session still starts with whole files dropped from the end until the text fits; the skill list stays.
-The session message, log, `context explain` and `doctor` name the dropped files. Doctor exits 1.
+The session message, log, `context explain`, `doctor` and `mcp status` report it as an error that names the
+bindings of the dropped files, and all but `mcp status` name the files too. Doctor exits 1. In `--json`, each
+dropped file is a diagnostic of severity `error`.
 
 ## Capacity
 
 Each agent gets a limited amount of text in full, its capacity. Above it, whole files are dropped from the
 end, the same way as with `max-ctx-chars`; with both, the lower limit applies. The skill list is never
-dropped. The message at session start (in the agents that show one), the log, `context explain` and `doctor` name
-the dropped files.
+dropped. Going over it is an error, reported as for `max-ctx-chars`. `mcp status --agent ID` reports that
+agent's capacity; without `--agent`, every agent that wouldn't get all of the text.
 
 | Agent | Capacity | How the text gets there |
 |---|---|---|

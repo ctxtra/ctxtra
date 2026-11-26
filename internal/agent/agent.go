@@ -520,15 +520,26 @@ func mcpList(servers []resolve.MCPServer, max int) (string, bool) {
 // b.md (over max-ctx-chars)".
 func dropped(hits []resolve.Hit, name func(resolve.Hit) string) []string {
 	var out, over []string
-	names := map[string][]string{}
+	names, bindings := map[string][]string{}, map[string][]string{}
 	for _, h := range hits {
 		if _, ok := names[h.Over]; !ok {
 			over = append(over, h.Over)
 		}
 		names[h.Over] = append(names[h.Over], plain(name(h)))
+		if h.Origin != "" && !slices.Contains(bindings[h.Over], h.Origin) {
+			bindings[h.Over] = append(bindings[h.Over], h.Origin)
+		}
 	}
 	for _, o := range over {
-		out = append(out, fmt.Sprintf("dropped %s (over %s)", Names(names[o]), o))
+		of := ""
+		switch b := bindings[o]; len(b) {
+		case 0:
+		case 1:
+			of = " of binding " + b[0]
+		default:
+			of = " of bindings " + Names(b)
+		}
+		out = append(out, fmt.Sprintf("dropped %s%s (over %s)", Names(names[o]), of, o))
 	}
 	return out
 }
