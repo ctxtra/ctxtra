@@ -26,7 +26,7 @@ The hook, MCP proxy and background checks use the same folders. `ctxtra doctor` 
 |---|---|---|---|
 | Config | `~/.config/ctxtra` | `XDG_CONFIG_HOME` | `config.yaml`, `ctxtra.lock` |
 | Data | `~/.local/share/ctxtra` | `XDG_DATA_HOME` | accepted source content and installed skills |
-| State | `~/.local/state/ctxtra` | `XDG_STATE_HOME` | write locks, setup records, backups, MCP approvals and credentials, update results, hook slots and logs |
+| State | `~/.local/state/ctxtra` | `XDG_STATE_HOME` | write locks, setup records, backups, MCP approvals and credentials, update results, the stored profile selection, session records, hook slots and logs |
 | Cache | `~/.cache/ctxtra` | `XDG_CACHE_HOME` | git clones for fetching and review |
 
 Each variable supplies the parent folder; ctxtra appends `ctxtra`. Relative and empty values use the default.
@@ -583,9 +583,64 @@ otherwise each agent's are listed under its name. With no agent set up, it check
 bindings with agents don't apply. `doctor --json` has the list in `sessions`, each with its `agent`, `files` and
 `skills`.
 
-`profiles` uses case-sensitive names and the same positive and negative rule. Profile selection and
-profile commands are not available yet. Sessions currently resolve with no active profiles, so a positive
-profile condition does not hold and an exclusion-only profile condition holds.
+`profiles: [iam]` holds when `iam` is active; `profiles: ['!oncall']` holds when `oncall` is not. Names
+are case-sensitive.
+
+### Active profiles
+
+A new session's active profiles come from, in this order:
+
+1. `CTXTRA_PROFILES`, when it is set, even to an empty value: a comma-separated list of names. Spaces around
+   names and empty entries are ignored, and a name given twice counts once. An invalid name is an error and is
+   left out; the other names apply.
+2. The stored selection, `profiles.json` in the state folder: on this machine, outside the config. A file that
+   can't be read is an error, and no profile comes from it. Commands that change it are not available yet.
+3. Otherwise, no profile is active.
+
+An active profile that no binding uses, a `!` entry included, is an error: likely a typo. The other profiles
+still apply.
+
+`context files`, `context show`, `context explain`, `doctor`, `mcp status` and the MCP proxy use the profiles a
+new session would get. The `context` commands take `--profile NAME`, repeatable, to show a session with only
+those profiles active; nothing is stored.
+
+### A session keeps its profiles
+
+A session keeps the profiles it started with, also when the variable or the stored selection changes while it
+runs. ctxtra keeps one record per session in `sessions/` in the state folder, named by a hash of the agent and
+the session ID, readable by the user only. It holds only the profile names and their origin: files stay live.
+
+| Hook event | Profiles |
+|---|---|
+| Session start, `/clear` | The current ones; they replace the record. |
+| Subagent start | The parent session's record. |
+| Compaction, resume | The session's record. |
+| No session ID, or no record | The current ones; recorded when there is a session ID. |
+
+When a record can't be read or written, the event gets the current profiles, the session starts, and the
+log has the error. Session IDs are the agent's own; ctxtra never guesses them. Claude Code and Codex keep
+profiles for subagents and compaction: their subagent start carries the parent's session ID. Other agents
+take the current profiles at every hook event for now. With hook slots, the slot that resolves the session
+start chooses the profiles, and the other slots share its text.
+
+A record no hook event used for 30 days is deleted. Sessions start that cleanup in the background at most once
+a day (`ctxtra hook --clean-sessions`); a hook never waits for it.
+
+The session message names the active profiles and their origin when a profile is active or has an error, and
+lists the profile errors. The log records `profiles`, `profiles_from` and, when they come from the session's
+record, `profiles_kept` for every hook event. `context explain`, `doctor` and `mcp status` print `profiles:` at
+the top; `context files` and `context show` print it on stderr when a profile is active or has an error. Their
+`--json` output has `profiles` with `active` and `from`.
+
+Where a session's profiles can differ from what you expect:
+
+- The MCP proxy can't tell which session it belongs to: it uses the current profiles when it starts. On resume,
+  its servers can follow a newer profile than the instructions. After a switch and `/clear`, it keeps the
+  servers of the profiles it started with until the session restarts.
+- An agent started from another terminal (for example by Orca, Rex or Herdr) uses the current selection unless
+  started with `CTXTRA_PROFILES`.
+- Agents that don't pass the shell environment to hooks (Muse, IDE agents started from the Dock) see only the
+  stored selection.
 
 ## Instructions and skills
 
@@ -1346,6 +1401,9 @@ and `doctor`. Doctor exits 1. A bad entry leaves out the smallest usable part:
 | Manifest containing sources or bindings | The whole manifest. |
 | Unapproved repo-source MCP server | The server. |
 | Over capacity | The session gets what fits and reports the error. |
+| Invalid name in `CTXTRA_PROFILES` | That name. |
+| Stored profile selection that can't be read | The stored selection. |
+| Active profile that no binding uses | Nothing: the other profiles apply. |
 
 Text values must be YAML strings; a number or boolean where text is needed is an error that says to quote it.
 YAML 1.2 words such as `on` and `no` are strings. Quote entries starting with `!`; YAML tags are errors.
@@ -1447,4 +1505,4 @@ SHA-1 with collision detection, which catches the known collision attacks.
 The session folder is the hook input's `cwd`, then Cursor's first `workspace_roots` entry,
 then Antigravity's first `workspacePaths` entry, then the hook's working folder.
 DSH's home is `$DSH_HOME` or `~/.dsh`. Muse records all four XDG values during setup.
-`CTXTRA_LOG` overrides the log path.
+`CTXTRA_LOG` overrides the log path. `CTXTRA_PROFILES` sets the active profiles for one launch.

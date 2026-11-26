@@ -22,6 +22,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 )
 
@@ -30,6 +31,7 @@ type Agent struct{}
 
 var (
 	_ agent.Agent    = Agent{}
+	_ agent.Sessions = Agent{}
 	_ agent.Missing  = Agent{}
 	_ agent.Retrust  = Agent{}
 	_ agent.Native   = Agent{}
@@ -222,4 +224,9 @@ func trustRecords(path string) []string {
 		}
 	}
 	return out
+}
+
+// SessionEvent: see agent.HookSession.
+func (Agent) SessionEvent(event string, raw []byte) profile.Event {
+	return agent.HookSession(event, raw)
 }

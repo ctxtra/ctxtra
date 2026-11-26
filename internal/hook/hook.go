@@ -18,6 +18,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/jsonorder"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/skill"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -129,6 +130,11 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 		}
 	}
 	input := agent.Input{CursorVersion: p.CursorVersion, Slot: max(slot, -1), Slots: slots, Plugin: p.Plugin}
+	ev := profile.Event{Agent: a.Name()}
+	if s, ok := a.(agent.Sessions); ok {
+		ev = s.SessionEvent(event, raw)
+		ev.Agent = a.Name()
+	}
 	// Before anything slow: an agent that doesn't wait for its hooks may run
 	// this one, and all slots of it.
 	if s, ok := a.(agent.Skipper); ok {
@@ -159,10 +165,10 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 			fmt.Fprintln(out, empty)
 			return 0
 		}
-		runSlot(a, sl, d, args.Version, slot, ts, event, p, input, dir, out, errOut)
+		runSlot(a, sl, d, args.Version, slot, ts, event, p, ev, input, dir, out, errOut)
 		return 0
 	}
-	res, e := session(a, d, args.Version, ts, event, p, dir)
+	res, e := session(a, d, args.Version, ts, event, p, ev, dir)
 	if pluginEvent {
 		// The plugin adds no text: the agent's hooks add the files.
 		e.Files, e.Dropped, e.Chars = nil, nil, 0
@@ -196,15 +202,16 @@ func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, er
 	return d.WithSlots(in.Slots), nil
 }
 
-// session resolves what a session in dir gets, with the files that d
-// doesn't get in full dropped, and its log entry. The user gets a notice
-// about a newer release of ctxtra (at version) that an earlier check found,
-// and a due check starts in the background.
-func session(a agent.Agent, d agent.Delivery, version, ts, event string, p payload, dir string) (*resolve.Result, Entry) {
+// session resolves what a session in dir gets at hook event ev, with the
+// files that d doesn't get in full dropped, and its log entry. The user
+// gets a notice about a newer release of ctxtra (at version) that an
+// earlier check found, and a due check starts in the background.
+func session(a agent.Agent, d agent.Delivery, version, ts, event string, p payload, ev profile.Event, dir string) (*resolve.Result, Entry) {
 	// Before resolving: the session lists the skills as they are on disk.
 	skillErr := skill.Refresh()
+	active, profileErr := profile.ForEvent(ev)
 	env := resolve.Load(paths.ConfigPath(), registry.Names())
-	res := env.Resolve(resolve.Input{Dir: dir, Agent: a.Name()})
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: a.Name(), Profiles: active})
 	checks := update.FromConfig(env.Config, env.Lock)
 	if n := update.ReleaseNotice(checks, state.Load(), version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
@@ -217,6 +224,9 @@ func session(a agent.Agent, d agent.Delivery, version, ts, event string, p paylo
 	}
 	if checkErr != nil {
 		e.Errors = append(slices.Clip(e.Errors), "can't start the update check: "+checkErr.Error())
+	}
+	if profileErr != nil {
+		e.Errors = append(slices.Clip(e.Errors), profileErr.Error())
 	}
 	return res, e
 }

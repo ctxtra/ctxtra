@@ -28,6 +28,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/detach"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
@@ -63,7 +64,7 @@ var (
 	resultWait = 10 * time.Second
 	now        = time.Now
 	// spawn starts ctxtra with args without waiting for it.
-	spawn = start
+	spawn = func(args []string) error { return detach.Start(executable(), args) }
 )
 
 // reRelease is a release version, or a release candidate (v0.6.0-rc.1):
@@ -356,16 +357,8 @@ func inCellar(path, formula string) bool {
 	return strings.Contains(path, sep+"Cellar"+sep+formula+sep)
 }
 
-// executable is the path this ctxtra was started by, as the hook command
-// names it (a symlink stays a symlink), else the running binary. A
-// variable for tests.
-var executable = func() string {
-	if filepath.IsAbs(os.Args[0]) {
-		return os.Args[0]
-	}
-	exe, _ := os.Executable()
-	return exe
-}
+// executable is detach.Executable; a variable for tests.
+var executable = detach.Executable
 
 // Result is what one check found.
 type Result struct {

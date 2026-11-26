@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Profiles: `CTXTRA_PROFILES=iam,oncall` sets the active profiles for one launch, else the selection stored
+  in `profiles.json` in the state folder applies. A session keeps the profiles it started with for its
+  subagents and compaction in Claude Code and Codex; `/clear` takes them anew. The session message, the log,
+  `context explain`, `doctor` and `mcp status` show the active profiles and where they came from; a name no
+  binding uses is reported as a likely typo. `context` commands take `--profile NAME` to preview others.
 - Agent IDs are now `claude-code`, `github-copilot` and `hermes-agent`; the earlier names are not aliases.
   Run `ctxtra setup` again after upgrading. This release starts the setup contract over: earlier hooks and
   proxies add nothing. Setup replaces them, and `doctor` lists each repair command. Once every agent is

@@ -1,0 +1,104 @@
+# The context commands, doctor, mcp status and the MCP proxy use the
+# profiles a new session would get: CTXTRA_PROFILES, else the stored
+# selection. --profile previews other profiles.
+
+mkdir dev/app
+
+# Stored selection.
+exec ctxtra context explain dev/app
+stdout '^profiles: iam \(from stored selection\)$'
+stdout '^\+ iam: profiles: active: iam$'
+stdout '^- obs: profiles: needs observability; active: iam$'
+
+# Preview another profile: the stored selection is unchanged.
+exec ctxtra context explain dev/app --profile observability
+stdout '^profiles: observability \(from --profile\)$'
+stdout '^- iam: '
+stdout '^\+ obs: '
+cmp .local/state/ctxtra/profiles.json stored.json
+exec ctxtra context files dev/app --profile observability --profile iam
+stdout 'obs.md'
+stdout 'iam.md'
+stderr '^profiles: observability, iam \(from --profile\)$'
+exec ctxtra context show dev/app --profile observability
+stdout 'OBS-RULES'
+! stdout 'IAM-RULES'
+stderr '^profiles: observability \(from --profile\)$'
+exec ctxtra context explain --json dev/app --profile observability
+stdout '"profiles": \{\s+"active": \[\s+"observability"\s+\],\s+"from": "--profile"\s+\}'
+! exec ctxtra context explain dev/app --profile 'on call'
+stderr '^ctxtra context explain: --profile "on call": '
+
+# A stored selection that can't be read: no profile comes from it.
+cp broken.json .local/state/ctxtra/profiles.json
+! exec ctxtra context explain dev/app
+stdout '^profiles: none$'
+stdout '~/.local/state/ctxtra/profiles.json is not a valid profile selection: .*; nothing in the file is used'
+cp stored.json .local/state/ctxtra/profiles.json
+
+# CTXTRA_PROFILES replaces the stored selection.
+env CTXTRA_PROFILES=observability
+exec ctxtra context explain dev/app
+stdout '^profiles: observability \(from CTXTRA_PROFILES\)$'
+stdout '^\+ obs: '
+exec ctxtra doctor dev/app
+stdout '^profiles: observability \(from CTXTRA_PROFILES\)$'
+stdout 'file: .*/obs.md'
+exec ctxtra mcp status dev/app
+stdout '^profiles: observability \(from CTXTRA_PROFILES\)$'
+stdout '^  obsdb  local'
+! stdout iamdb
+
+# The variable reaches the MCP proxy.
+mcp dev/app
+stdout '^tool obsdb__echo'
+! stdout '^tool iamdb__'
+
+# Set to an empty value, no profile is active.
+env CTXTRA_PROFILES=
+exec ctxtra context explain dev/app
+stdout '^profiles: none \(from CTXTRA_PROFILES\)$'
+
+# An active profile that no binding uses is a likely typo: an error that
+# doesn't stop the other profiles. An invalid name is left out.
+env CTXTRA_PROFILES='obsrvability, iam,on call'
+! exec ctxtra context explain dev/app
+stdout '^profiles: obsrvability, iam \(from CTXTRA_PROFILES\)$'
+stdout '^\+ iam: '
+stdout '^  profile obsrvability: no binding uses it; check the name for a typo$'
+stdout '^  CTXTRA_PROFILES: "on call" is not a valid profile name: .*; the entry is left out$'
+! exec ctxtra doctor dev/app
+stdout 'ERROR: profile obsrvability: no binding uses it; check the name for a typo'
+! exec ctxtra context show dev/app
+stdout 'IAM-RULES'
+stderr '^error: profile obsrvability: no binding uses it'
+
+# The cleanup that sessions start deletes records unused for 30 days.
+exec ctxtra hook --clean-sessions
+! stdout .
+! stderr .
+
+-- stored.json --
+{"profiles":["iam"]}
+-- .local/state/ctxtra/profiles.json --
+{"profiles":["iam"]}
+-- broken.json --
+{"profiles": "iam"}
+-- iam.md --
+IAM-RULES
+-- obs.md --
+OBS-RULES
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+mcp-servers:
+  iamdb: {command: [mcptest]}
+  obsdb: {command: [mcptest]}
+bindings:
+  - name: iam
+    profiles: [iam]
+    instructions: [~/iam.md]
+    mcp-servers: [iamdb]
+  - name: obs
+    profiles: [observability]
+    instructions: [~/obs.md]
+    mcp-servers: [obsdb]

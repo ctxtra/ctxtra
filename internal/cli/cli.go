@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/hook"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/term"
 )
@@ -198,6 +199,13 @@ func writeJSON(w io.Writer, data any, diags []diagnostic) {
 // runHook reads an entry of the current setup contract. It never fails a
 // session, and ignores unknown flags within that contract.
 func runHook(args []string, stdio IO, version string) int {
+	if slices.Equal(args, profile.CleanArgs[1:]) {
+		if err := profile.Clean(); err != nil {
+			fmt.Fprintf(stdio.Err, "ctxtra: can't delete old session records: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(args) == 0 || !slices.Contains(args, agent.SetupVersionArg) {
 		fmt.Fprintln(stdio.Out, "{}")
 		return 0

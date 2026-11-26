@@ -20,7 +20,7 @@ func TestReportReleaseNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	r := report{IO{Out: &out, Err: &errOut}, "v0.2.3", ""}
+	r := report{IO: IO{Out: &out, Err: &errOut}, version: "v0.2.3"}
 	if code := r.files(h, false); code != 0 {
 		t.Errorf("exit %d", code)
 	}

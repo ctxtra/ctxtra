@@ -335,8 +335,8 @@ func Summary(res *resolve.Result) string {
 		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
-	signIn := slices.Concat(inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), needSignIn(res.MCPServers))
-	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 {
+	signIn := slices.Concat(profileErrors(res.Errors), inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), needSignIn(res.MCPServers))
+	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 && !res.Profiles.Shown() {
 		return ""
 	}
 	s := "ctxtra added nothing"
@@ -349,6 +349,9 @@ func Summary(res *resolve.Result) string {
 	}
 	if len(issues) > 0 {
 		s += "; " + strings.Join(issues, ", ") + " (run ctxtra doctor)"
+	}
+	if res.Profiles.Shown() {
+		s += "\nProfiles: " + res.Profiles.String()
 	}
 	for _, list := range lists {
 		s += "\n" + list
@@ -365,6 +368,20 @@ func Summary(res *resolve.Result) string {
 		}
 	}
 	return s
+}
+
+// profileErrors are the errors of the active profiles: an invalid name in
+// CTXTRA_PROFILES, a stored selection that can't be read, a profile no
+// binding uses.
+func profileErrors(errs []*catalog.Error) []string {
+	var out []string
+	for _, e := range errs {
+		switch e.Err.Mistake {
+		case yamlx.BadProfileName, yamlx.SelectionUnreadable, yamlx.UnusedProfile:
+			out = append(out, e.Error())
+		}
+	}
+	return out
 }
 
 // inactiveSources are the sources that can't be read, each with what

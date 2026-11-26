@@ -364,9 +364,39 @@ A binding can have `agents: [claude-code, codex]`, with or without location. Eve
 hold. `agents: ['!cursor']` means every agent except Cursor. Preview with
 `ctxtra context explain DIR --agent codex`; without an agent argument, agent-specific bindings do not apply.
 
-`profiles` is another condition, with case-sensitive names. Profile selection and commands are not
-available yet; sessions currently have no active profiles. Positive profile conditions therefore add
-nothing.
+`profiles` is another condition, with case-sensitive names. A binding with `profiles: [iam]` applies only
+while `iam` is active:
+
+```yaml
+bindings:
+  - name: iam-work
+    profiles: [iam]
+    instructions: [~/agent-context/iam.md]
+```
+
+Choose the profiles for one launch with `CTXTRA_PROFILES`:
+
+```bash
+CTXTRA_PROFILES=iam claude            # iam
+CTXTRA_PROFILES=iam,oncall codex      # several profiles
+CTXTRA_PROFILES= claude               # none, whatever is stored
+ctxtra context explain --profile iam  # preview, without switching
+```
+
+Without the variable, a session uses the selection stored on this machine, in
+`~/.local/state/ctxtra/profiles.json`. Commands that change it are not available yet. The session message
+names the active profiles and where they came from. A name that no binding uses is reported as a likely typo.
+
+A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.
+Claude Code and Codex subagents and compaction get the profiles of the session's start; other agents take
+the current profiles at every hook event for now. The profiles can also differ from what you expect here:
+
+- An agent started from another terminal (for example by Orca, Rex or Herdr) uses the stored selection
+  unless started with `CTXTRA_PROFILES`.
+- The MCP proxy uses the profiles of when it started: on resume they can be newer than the instructions',
+  and after `/clear` it keeps the old servers until the session restarts.
+- Muse, and IDE agents started from the Dock, don't pass your shell's variables to hooks: they see only the
+  stored selection.
 
 Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 

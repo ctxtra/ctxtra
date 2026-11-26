@@ -13,6 +13,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -128,6 +129,8 @@ type Result struct {
 	// RepoErr is why git couldn't tell the session's repository, when a
 	// binding needed it.
 	RepoErr error
+	// Profiles are the active profiles; their errors are in Errors.
+	Profiles profile.Active
 }
 
 // Chars is the length of s in characters (Unicode code points), the unit of

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/proxy"
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 )
 
@@ -57,7 +58,7 @@ func runProxy(args []string, stdio IO, version string) int {
 		}}
 	var notices []string
 	o.Servers = func(dir string) ([]upstream.Server, []string) {
-		res := loadEnv().Resolve(resolve.Input{Dir: dir, Agent: agent})
+		res := loadEnv().Resolve(resolve.Input{Dir: dir, Agent: agent, Profiles: profile.Current()})
 		for _, c := range res.MCPConflicts {
 			notices = append(notices, c.Notice())
 		}

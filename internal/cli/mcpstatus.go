@@ -15,6 +15,7 @@ import (
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/term"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
@@ -55,7 +56,9 @@ agent: without it, bindings with agents don't apply. Reads local files only.`,
 func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
 	env := loadEnv()
-	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName})
+	active := profile.Current()
+	fmt.Fprintf(out, "profiles: %s\n", active)
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName, Profiles: active})
 	// A session of a known agent gets what fits in it.
 	if ag, ok := registry.Get(agentName); ok {
 		ag.Delivery().Fit(res)
@@ -67,7 +70,7 @@ func (a *app) mcpStatus(dir, agentName string) int {
 			shown++
 		}
 	}
-	capacity := (report{IO: a.IO, agent: agentName}).capacityErrors(res)
+	capacity := (report{IO: a.IO, agent: agentName, profiles: active}).capacityErrors(res)
 	for _, e := range capacity {
 		fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
 	}
