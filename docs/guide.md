@@ -111,7 +111,7 @@ At most once an hour, a session checks in the background for a new ctxtra releas
 tells you when there is one, with the command that upgrades it. The check sends your IP address and ctxtra
 version to GitHub. To turn it off, add `check-releases: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
 one environment, such as CI, if the hook inherits it. Muse clears that variable: turn release checks off in
-its config and checks off on each pinned source instead. See [Update checks](spec.md#update-checks).
+its config and checks off on each repo source instead. See [Update checks](spec.md#update-checks).
 
 To get release candidates before each release, install the `ctxtra-rc` formula instead:
 `brew uninstall ctxtra && brew install atelpis/tap/ctxtra-rc`. A release candidate, such as
@@ -172,13 +172,16 @@ ctxtra's other skills that you installed. Antigravity asks before it reads the s
 ## Configure
 
 ctxtra reads one config: `~/.config/ctxtra/config.yaml`, or `$XDG_CONFIG_HOME/ctxtra/config.yaml` when
-the variable is absolute. Its accepted commits are in `ctxtra.lock` next to the config's real file.
+the variable is absolute. Its accepted commits are in `ctxtra.lock` next to the config's real file. Only
+ctxtra writes the lock: keep it with the config, for example in your dotfiles.
 There is no `--config` flag or `CTXTRA_CONFIG` override, and bindings cannot be included from other files.
 
 On Linux and macOS, accepted source content and installed skills live in `~/.local/share/ctxtra`, state
 and backups in `~/.local/state/ctxtra`, and git clones in `~/.cache/ctxtra`. Absolute `XDG_DATA_HOME`,
 `XDG_STATE_HOME` and `XDG_CACHE_HOME` values replace those parent folders. Relative or empty values use the
 defaults. `ctxtra doctor` shows all four folders. Clearing the cache leaves session content available.
+Deleting the state folder forgets your profile selection, trusted folders, server approvals and sign-ins;
+the session message says what to run again.
 Codex passes these variables to its MCP proxy; Muse records their values during setup.
 
 Start with your own files:
@@ -199,6 +202,8 @@ No location means every session. `location.dirs` selects folders; `location.repo
 in any clone or worktree. Either can match when both are present. To select parts of a repository, use
 `repos: [{repo: github.com/acme/mono, subdirs: ['services/billing/**']}]`.
 Quoted `!` entries exclude places from their own list. `~/work/**` includes `~/work` itself.
+Names of bindings, sources, collections, repo sets and profiles are 1 to 64 letters, digits, `.`, `_` and `-`,
+starting with a letter; case counts.
 
 The command for the work binding is:
 
@@ -227,7 +232,7 @@ writing. The same binding again changes nothing; a different binding with that n
 
 ### Your live folder
 
-Files in repositories with remotes are refused until the user explicitly trusts them for live reading:
+Files in repositories with remotes are refused until you trust them for live reading:
 
 ```bash
 ctxtra source add --dir ~/dev/dotfiles
@@ -572,7 +577,7 @@ to run `ctxtra setup --agent claude-code` until you do.
 ctxtra gives your sessions MCP servers by folder, like instructions and skills, through one MCP server named
 `ctxtra-proxy`. Setup supports Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity.
 Setup adds the proxy even when you have no servers yet. Servers you bind later reach the next session
-without another setup. No experimental environment variable is needed.
+without another setup.
 [spec.md](spec.md#mcp-servers) describes the format and limits.
 
 For a server you declare yourself:
@@ -580,7 +585,6 @@ For a server you declare yourself:
 ```bash
 ctxtra mcp add linear https://mcp.linear.app/mcp --notes 'Choose the work workspace'
 ctxtra binding add work-linear --dir '~/work/**' --mcp-server linear
-ctxtra setup
 ```
 
 Run add in your own terminal. It authorizes in your browser if needed; then start a new matching agent session.
@@ -612,7 +616,8 @@ ctxtra binding add tracker --repo 'github.com/acme/**' --mcp-server work:linear
 
 Sources do not define bindings or select other sources' servers.
 
-Pinned definitions need your separate terminal approval before even an unauthenticated request or command startup:
+A server of a repo source needs your approval in your terminal before ctxtra contacts or starts it, also one
+without sign-in:
 
 ```bash
 ctxtra mcp approve work:linear   # inspect and consent; connects to nothing
@@ -699,7 +704,7 @@ ctxtra mcp logout linear_work               # deletes the sign-in on this machin
   to end it there. `mcp remove` cannot edit package definitions. Source removal keeps credentials and prints explicit
   cleanup commands. Removing credentials also cancels pending logins for that
   identity, including logins started by another process. A small, secret-free cancellation marker remains locally.
-- On another machine, restore source content, approve pinned servers there, sign in and run setup. Config and source
+- On another machine, restore source content, approve repo-source servers there, sign in and run setup. Config and source
   copies do not transfer credentials or machine-local approval. Source names and origins are part of the credential binding;
   renaming a source or changing its origin requires a new sign-in, not copied refresh tokens.
 

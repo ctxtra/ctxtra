@@ -115,7 +115,7 @@ ctxtra source trust live
 ctxtra binding add live-preview --instruction live:services-overview.md
 ```
 
-These are separate sources. Reviewed references stay pinned while live references read disk.
+These are separate sources. The repo source reads accepted commits; the dir source reads the disk.
 Remove a temporary live binding before pulling changes you have not reviewed.
 
 ## Another machine
@@ -144,12 +144,32 @@ Removing a source removes its lock entry and reports bindings that still referen
 It does not remove those bindings or source credentials. Use the cleanup commands it prints.
 `ctxtra setup --remove` removes ctxtra's agent setup while keeping other hooks and settings.
 
+## A team's README
+
+A team can give everyone the same two lines, whatever each person names the source:
+
+```bash
+ctxtra source add --repo git@github.com:acme/iam-ctx.git
+ctxtra binding add iam --source git@github.com:acme/iam-ctx.git --repo-set services --collection essentials
+```
+
+The binding follows the team's repo set `services` and collection `essentials`. When the team adds a
+repository or moves files, your sessions follow after you accept the commit, with no config change.
+
 ## Maintain a source
 
-A source can be only Markdown and skill folders. Its optional `ctxtra-source.yaml` declares MCP servers:
+A source can be only Markdown and skill folders. Its optional `ctxtra-source.yaml` names collections,
+repo sets and MCP servers:
 
 ```yaml
 schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    skills: [skills/*]
+    mcp-servers: [jira]
+repo-sets:
+  services: [github.com/acme/iam-*]
 mcp-servers:
   jira:
     url: https://mcp.atlassian.com/v1/mcp
@@ -179,5 +199,19 @@ ctxtra context explain --agent codex
 ctxtra mcp status --agent codex
 ```
 
-All present conditions must hold. Without an agent argument, previews do not apply agent conditions.
-Profile conditions parse, but selection and profile commands are not available yet.
+All present conditions must hold. Without `--agent`, previews leave out bindings that have `agents`.
+
+## Profiles
+
+A profile is a name you switch on for a kind of work. A binding with `profiles: [iam]` applies only
+while `iam` is active:
+
+```bash
+ctxtra binding add iam --profile iam --collection iam-team:essentials
+ctxtra profile set iam               # stored on this machine
+CTXTRA_PROFILES=oncall claude         # for one launch
+ctxtra context explain --profile iam  # preview, without switching
+```
+
+A session keeps its profiles until it ends or you run `/clear`. See the guide's
+[Profiles and agents](guide.md#profiles-and-agents) for the cases where they can differ.
