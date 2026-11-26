@@ -97,12 +97,34 @@ func TestSummaryKeepsTheRepair(t *testing.T) {
 	res := &resolve.Result{Errors: []*catalog.Error{
 		inactive(strings.Repeat("x", 300) + "; run `ctxtra source update team` to review it"),
 		inactive("run `ctxtra source trust team`; or `ctxtra source add --repo ~/" + strings.Repeat("d", 300) + "`"),
-	}, MCPServers: []resolve.MCPServer{{Server: upstream.Server{ID: id}, Unapproved: "new"}}}
+	}, MCPServers: []resolve.MCPServer{{Server: upstream.Server{ID: id, Command: []string{"srv"}}, Unapproved: "new"}}}
 	_, got, _ := strings.Cut(Summary(res), "\n\n")
 	lines := strings.Split(got, "\n")
 	for i, end := range []string{"x… run ctxtra source update team to review it", "d… (run ctxtra source trust team)", " needs approval: run ctxtra mcp approve " + id} {
 		if i >= len(lines) || !strings.HasSuffix(lines[i], end) || utf8.RuneCountInString(lines[i]) > 2+maxErrorLine {
 			t.Errorf("line %d: want a short line ending with %q in\n%s", i, end, got)
+		}
+	}
+}
+
+// An unapproved server that may need sign-in once approved, a remote one or
+// one with secret values, says to sign in after approval; a local one
+// without secrets only to approve it.
+func TestSummaryApprovalThenSignIn(t *testing.T) {
+	testenv.Home(t)
+	res := &resolve.Result{MCPServers: []resolve.MCPServer{
+		{Server: upstream.Server{ID: "team:jira", URL: "https://mcp.example.com"}, Unapproved: "new"},
+		{Server: upstream.Server{ID: "team:db", Command: []string{"db"}, SecretEnv: []string{"PASSWORD"}}, Unapproved: "new"},
+		{Server: upstream.Server{ID: "team:echo", Command: []string{"echo"}}, Unapproved: "new"},
+	}}
+	got := Summary(res)
+	for _, want := range []string{
+		"\n⚠ team:jira needs approval and may need sign-in: run ctxtra mcp approve team:jira, then ctxtra mcp login team:jira\n",
+		"\n⚠ team:db needs approval and may need sign-in: run ctxtra mcp approve team:db, then ctxtra mcp login team:db\n",
+		"\n⚠ team:echo needs approval: run ctxtra mcp approve team:echo",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in\n%s", want, got)
 		}
 	}
 }

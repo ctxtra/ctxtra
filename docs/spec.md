@@ -1143,7 +1143,13 @@ the [notices](#notices):
 ```
 
 The hook reads only the state files: no key, no keychain, no network. A server that no session has tried yet
-has no state, and no line.
+has no state, and no line. A server that needs approval has its approval line instead. For a remote server, or
+one with `secret-env`, that line also says to sign in, since only a request tells whether it uses OAuth; deleting
+the state folder removes both approval and sign-in:
+
+```text
+⚠ iam-team:jira needs approval and may need sign-in: run ctxtra mcp approve iam-team:jira, then ctxtra mcp login iam-team:jira
+```
 
 The proxy records, per session folder, what the last session started there got from each bound server: its
 tools in the first tool list, later (too slow for it, or signed in during the session; Codex and Muse don't

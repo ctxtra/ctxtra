@@ -22,6 +22,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/term"
@@ -506,6 +507,9 @@ func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 		switch {
 		case m.Unapproved == creds.Declined:
 			continue
+		case m.Unapproved != "" && mayNeedSignIn(m.Server):
+			approval = append(approval, diagnostic(m.ID, " needs approval and may need sign-in: run ctxtra mcp approve "+m.ID+", then ctxtra mcp login "+m.ID))
+			continue
 		case m.Unapproved != "":
 			approval = append(approval, diagnostic(m.ID, " needs approval: run ctxtra mcp approve "+m.ID))
 			continue
@@ -515,6 +519,13 @@ func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 		}
 	}
 	return approval, signIn
+}
+
+// mayNeedSignIn reports whether s may need sign-in or secret values once
+// approved, from its definition alone: a remote server may answer with an
+// OAuth challenge, which only a request tells.
+func mayNeedSignIn(s upstream.Server) bool {
+	return !s.Local() || len(s.SecretEnv) > 0
 }
 
 // Summary lines: a group per source under each list title, its entries
