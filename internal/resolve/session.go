@@ -215,6 +215,12 @@ func values(list []config.Entry) string {
 
 // agents checks the agents condition: names compare without regard to
 // case. Without an agent, no binding with agents applies.
+// ForAgent reports whether a binding with the agents condition list, nil
+// for none, applies in a session of agent.
+func ForAgent(list []config.Entry, agent string) bool {
+	return list == nil || agents(list, agent).Held
+}
+
 func agents(list []config.Entry, agent string) Condition {
 	c := Condition{Key: "agents"}
 	pos, not := split(list)

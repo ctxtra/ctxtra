@@ -62,7 +62,8 @@ func TestAppliesIn(t *testing.T) {
 		{"agents: ['!cursor']\n    profiles: [iam, obs, '!oncall']\n    skills: [a]",
 			"every session of every agent but cursor, with iam or obs active and without oncall"},
 		{"location: {dirs: [~/dev/**]}\n    agents: [codex]\n    profiles: [go]\n    skills: [a]",
-			"sessions of codex where its location matches, with go active"},
+			"sessions of codex, where its location matches, with go active"},
+		{"agents: [codex, cursor, '!cursor']\n    skills: [a]", "every session of codex or cursor, but not of cursor"},
 	}
 	for _, tt := range tests {
 		c := config.Parse([]byte(config.NewFile+"bindings:\n  - name: b\n    "+tt.binding+"\n"), config.Options{Agents: []string{"claude-code", "codex", "cursor"}})

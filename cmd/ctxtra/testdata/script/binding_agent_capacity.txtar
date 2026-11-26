@@ -1,0 +1,41 @@
+# binding add refuses a binding whose files don't fit an agent it applies
+# to. Which agents it applies to follows the agents condition: names in any
+# case, positive entries, then ! entries.
+exec sh -c 'head -c 150000 /dev/zero | tr "\0" x > big.md'
+
+# Through flags.
+! exec ctxtra binding add test --agent github-copilot --instruction big.md
+stderr 'over Copilot''s limit of 140,000 bytes, github-copilot sessions don''t get big.md'
+! exec ctxtra binding add test --agent GITHUB-COPILOT --instruction big.md
+stderr 'over Copilot''s limit of 140,000 bytes, github-copilot sessions don''t get big.md'
+! exec ctxtra binding add test --agent '!cursor' --instruction big.md
+stderr 'over Copilot''s limit of 140,000 bytes, github-copilot sessions don''t get big.md'
+cmp .config/ctxtra/config.yaml before.yaml
+exec ctxtra binding add test --agent github-copilot --agent codex --agent '!github-copilot' --instruction big.md
+stdout '^it applies in every session of github-copilot or codex, but not of github-copilot$'
+
+# Through --file.
+cp before.yaml .config/ctxtra/config.yaml
+! exec ctxtra binding add test --file upper.yaml
+stderr 'over Copilot''s limit of 140,000 bytes, github-copilot sessions don''t get big.md'
+! exec ctxtra binding add test --file not-cursor.yaml
+stderr 'over Copilot''s limit of 140,000 bytes, github-copilot sessions don''t get big.md'
+cmp .config/ctxtra/config.yaml before.yaml
+exec ctxtra binding add test --file codex-only.yaml
+stdout '^it applies in every session of github-copilot or codex, but not of github-copilot$'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+max-ctx-chars: 2000000
+-- before.yaml --
+schema: ctxtra/config/v1
+max-ctx-chars: 2000000
+-- upper.yaml --
+agents: [GITHUB-COPILOT]
+instructions: [../../big.md]
+-- not-cursor.yaml --
+agents: ['!cursor']
+instructions: [../../big.md]
+-- codex-only.yaml --
+agents: [github-copilot, codex, '!github-copilot']
+instructions: [../../big.md]

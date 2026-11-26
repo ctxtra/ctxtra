@@ -371,7 +371,7 @@ func hitName(h resolve.Hit) string {
 }
 
 // appliesIn says in which sessions binding b applies, such as "sessions of
-// claude-code where its location matches, with iam active".
+// claude-code, where its location matches, with iam active".
 func appliesIn(b *config.Binding) string {
 	split := func(list []config.Entry) (pos, not []string) {
 		for _, e := range list {
@@ -384,31 +384,32 @@ func appliesIn(b *config.Binding) string {
 		return pos, not
 	}
 	or := func(names []string) string { return strings.Join(names, " or ") }
+	var parts []string
+	switch pos, not := split(b.Agents); {
+	case len(pos) > 0 && len(not) > 0:
+		parts = append(parts, "of "+or(pos)+", but not of "+or(not))
+	case len(pos) > 0:
+		parts = append(parts, "of "+or(pos))
+	case len(not) > 0:
+		parts = append(parts, "of every agent but "+or(not))
+	}
 	where := "every session"
 	if b.Location != nil {
 		where = "sessions"
+		parts = append(parts, "where its location matches")
 	}
-	if pos, not := split(b.Agents); len(pos) > 0 {
-		where += " of " + or(pos)
-	} else if len(not) > 0 {
-		where += " of every agent but " + or(not)
-	}
-	if b.Location != nil {
-		where += " where its location matches"
-	}
-	pos, not := split(b.Profiles)
-	switch {
+	switch pos, not := split(b.Profiles); {
 	case len(pos) > 0 && len(not) > 0:
-		where += fmt.Sprintf(", with %s active and without %s", or(pos), or(not))
+		parts = append(parts, fmt.Sprintf("with %s active and without %s", or(pos), or(not)))
 	case len(pos) > 0:
-		where += fmt.Sprintf(", with %s active", or(pos))
+		parts = append(parts, fmt.Sprintf("with %s active", or(pos)))
 	case len(not) > 0:
-		where += fmt.Sprintf(", without %s active", or(not))
+		parts = append(parts, fmt.Sprintf("without %s active", or(not)))
 	}
-	if b.Location == nil && len(b.Agents) == 0 {
-		where = strings.Replace(where, ", ", " ", 1)
+	if len(parts) == 0 {
+		return where
 	}
-	return where
+	return where + " " + strings.Join(parts, ", ")
 }
 
 // warnNewFiles prints the content warnings of the files and skills of repo
@@ -483,10 +484,9 @@ func checkBinding(file string, data []byte, name string) (*resolve.Env, *resolve
 			problems = append(problems, "source "+u+": "+env.Catalog.Source(u).Why)
 		}
 	}
-	// The capacity of each agent the binding reaches: all of them without
-	// an agents condition.
+	// The capacity of each agent the binding reaches.
 	for _, a := range registry.All() {
-		if len(b.Agents) > 0 && !slices.ContainsFunc(b.Agents, func(e config.Entry) bool { return !e.Not && e.Value == a.Name() }) {
+		if !resolve.ForAgent(b.Agents, a.Name()) {
 			continue
 		}
 		problems = append(problems, report{agent: a.Name()}.capacityErrors(res)...)
