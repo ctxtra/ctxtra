@@ -86,7 +86,7 @@ func TestContent(t *testing.T) {
 		env := h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - name: me\n    instructions:\n" +
 			"      - ~/agent-context/me.md\n      - '!dotfiles:agents/draft-*.md'\n      - 'dotfiles:agents/*.md'\n      - '!~/agent-context/gone.md'\n")
 		res := start(env, h.dir, "")
-		noErrors(t, res)
+		oneError(t, res, "!~/agent-context/gone.md excludes nothing")
 		eq(t, "files", bases(res.Files), "me.md", "a.md")
 		if ex := trace(t, res, "me").Excluded; len(ex) != 1 || ex[0] != (Exclusion{"!dotfiles:agents/draft-*.md", "dotfiles:agents/draft-b.md"}) {
 			t.Errorf("excluded %+v", ex)

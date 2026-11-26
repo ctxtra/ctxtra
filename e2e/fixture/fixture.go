@@ -36,7 +36,7 @@ func New(t testing.TB, bin, dir string) *Fixture {
 	}
 	f := &Fixture{t: t, Home: home, Bin: bin}
 	f.mkdir("tmp")
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/config/v1\ncheck-releases: false\n")
 	t.Cleanup(func() {
 		if _, err := os.Stat(f.Path(".local/state/ctxtra/state.json")); !os.IsNotExist(err) {
 			t.Errorf("fixture created update-check state: %v", err)
@@ -124,11 +124,9 @@ func (f *Fixture) Clean(rels ...string) {
 	}
 }
 
-// Config writes the ctxtra config, which includes one binding file with
-// the given content.
+// Config writes the ctxtra config with release checks disabled.
 func (f *Fixture) Config(bindings string) {
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\ninclude: [bindings.yaml]\n")
-	f.Write(".config/ctxtra/bindings.yaml", bindings)
+	f.Write(".config/ctxtra/config.yaml", strings.Replace(bindings, "schema: ctxtra/config/v1\n", "schema: ctxtra/config/v1\ncheck-releases: false\n", 1))
 }
 
 // Env is the minimal environment for every process in the fixture: no
@@ -171,8 +169,7 @@ func (f *Fixture) Ctxtra(args ...string) string {
 type LogEntry struct {
 	Harness, Event, Dir, Repo, Source, Error string
 	AgentType                                string `json:"agent_type"`
-	Files, Skills, Missing, Dropped          []string
-	Problems                                 []string
+	Files, Skills, Dropped, Errors           []string
 }
 
 // Log is ctxtra's hook log in the home folder.

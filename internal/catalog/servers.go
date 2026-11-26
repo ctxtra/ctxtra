@@ -7,7 +7,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -27,14 +27,14 @@ type Server struct {
 // only that name. A source's server is served under the config's new name
 // for it, if the config gives one. A source whose content can't be used
 // gives *Unavailable.
-func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
+func (c *Catalog) Servers(e config.Entry) ([]Server, []error) {
 	if e.InSource {
 		return c.sourceServers(e.Source, e.Value, e.Text)
 	}
 	var out []Server
 	var errs []error
 	matched := false
-	for _, s := range c.config.MCPServers {
+	for _, s := range c.conf.MCPServers {
 		if !nameMatch(e.Value, s.Name) {
 			continue
 		}
@@ -52,8 +52,11 @@ func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
 		out = append(out, found...)
 		errs = append(errs, ferrs...)
 	}
-	if !matched {
+	switch {
+	case !matched:
 		return nil, []error{fmt.Errorf("the config has no MCP server %s", e.Value)}
+	case len(out) == 0 && len(errs) == 0 && !hasMeta(e.Value):
+		return nil, []error{fmt.Errorf("the config's MCP server %s has errors", e.Value)}
 	}
 	return out, errs
 }
@@ -61,12 +64,12 @@ func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
 // ManifestSources are the sources whose manifests positive entry e of an
 // mcp-servers list reads: its own source, or the sources of the config's
 // new names it matches.
-func (c *Catalog) ManifestSources(e cfg.Entry) []string {
+func (c *Catalog) ManifestSources(e config.Entry) []string {
 	if e.InSource {
 		return []string{e.Source}
 	}
 	var out []string
-	for _, s := range c.config.MCPServers {
+	for _, s := range c.conf.MCPServers {
 		if s.Use() != "" && !s.Broken() && nameMatch(e.Value, s.Name) && !slices.Contains(out, s.UseSource) {
 			out = append(out, s.UseSource)
 		}
@@ -84,7 +87,10 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) 
 	case s.State != Active:
 		return nil, []error{&Unavailable{s}}
 	}
-	m, _ := c.Manifest(s)
+	m, _, err := c.ManifestWithin(s, nil)
+	if err != nil {
+		return nil, []error{fmt.Errorf("%s: %w", text, err)}
+	}
 	if m == nil {
 		return nil, []error{fmt.Errorf("%s: source %s has no %s, which declares a source's MCP servers", text, name, manifest.FileName)}
 	}
@@ -109,8 +115,11 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) 
 		u.ID, u.Source, u.Origin, u.Pinned = ref, name, origin(s), !s.Live()
 		out = append(out, Server{Server: u, Refs: refs})
 	}
-	if !matched {
+	switch {
+	case !matched:
 		return nil, []error{fmt.Errorf("%s: source %s declares no MCP server %s", text, name, pattern)}
+	case len(out) == 0 && !hasMeta(pattern):
+		return nil, []error{fmt.Errorf("%s: the MCP server of source %s has errors", text, name)}
 	}
 	return out, nil
 }
@@ -130,19 +139,27 @@ func origin(s *Source) string {
 	if s.Live() {
 		return "dir:" + paths.Real(paths.Expand(s.Dir))
 	}
-	o := "repo:" + cfg.RepoID(s.Repo)
-	if sub := cfg.CleanSubdir(s.Subdir); sub != "" {
+	o := "repo:" + config.RepoID(s.Repo)
+	if sub := config.CleanSubdir(s.Subdir); sub != "" {
 		o += "//" + sub
 	}
 	return o
 }
 
-// define is the definition of d, served as name.
-func define(d *cfg.Server, name string) upstream.Server {
+// define is the definition of d, served as name. A local server's program
+// is the one config.CheckProgram gives: ~/ names a program in the home
+// folder, never one in the session's folder.
+func define(d *config.Server, name string) upstream.Server {
+	command := slices.Clone(d.Command)
+	if len(command) > 0 {
+		if p, err := config.CheckProgram(command[0]); err == nil {
+			command[0] = p
+		}
+	}
 	return upstream.Server{
 		Name:          name,
 		URL:           d.URL,
-		Command:       d.Command,
+		Command:       command,
 		Env:           d.Env,
 		EnvPass:       d.PassEnv,
 		SecretEnv:     d.SecretEnv,
@@ -152,4 +169,62 @@ func define(d *cfg.Server, name string) upstream.Server {
 		Scopes:        d.Scopes,
 		Notes:         strings.TrimSpace(d.Notes),
 	}
+}
+
+// SourceServers are every server that the manifest of source name
+// declares, without broken ones, served under the config's new names; the
+// errors are the manifest's. A source whose content can't be used has
+// none.
+func (c *Catalog) SourceServers(name string) ([]Server, []*Error) {
+	s := c.sources[name]
+	if s == nil || s.State != Active {
+		return nil, nil
+	}
+	m, errs := c.Manifest(s)
+	if m == nil {
+		return nil, errs
+	}
+	found, _ := c.sourceServers(name, "*", name+":*")
+	return found, errs
+}
+
+// AllServers are the config's own servers and every server of the
+// manifests of the sources this machine can read, in config order: what
+// commands that list, sign in to or approve servers know. The errors are
+// those of the manifests read.
+func (c *Catalog) AllServers() ([]Server, []*Error) {
+	var out []Server
+	for _, s := range c.conf.MCPServers {
+		if s.Broken() || s.Use() != "" {
+			continue
+		}
+		d := define(s, s.Name)
+		d.ID = s.Name
+		out = append(out, Server{Server: d, Refs: []string{s.Name}})
+	}
+	var errs []*Error
+	for _, src := range c.order {
+		found, e := c.SourceServers(src.Name)
+		out = append(out, found...)
+		errs = append(errs, e...)
+	}
+	return out, errs
+}
+
+// Server is the server that ref names: a config server's name, the
+// config's new name for a source's server, or SOURCE:SERVER. ok is false
+// when no usable server has that name.
+func (c *Catalog) Server(ref string) (Server, bool) {
+	if hasMeta(ref) {
+		return Server{}, false
+	}
+	e := config.Entry{Text: ref, Value: ref}
+	if source, name, found := strings.Cut(ref, ":"); found {
+		e.InSource, e.Source, e.Value = true, source, name
+	}
+	found, errs := c.Servers(e)
+	if len(found) != 1 || len(errs) > 0 {
+		return Server{}, false
+	}
+	return found[0], true
 }

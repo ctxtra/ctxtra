@@ -96,10 +96,37 @@ func (a *app) run(f func(cmd *cobra.Command, args []string) error) func(*cobra.C
 	}
 }
 
-// global applies the global flags before a command runs.
-func (a *app) global(_ *cobra.Command, _ []string) error {
+// global applies the global flags before a command runs, and fails a
+// command that reads the config when the config or its lock can't be used
+// as a whole: before the command does anything.
+func (a *app) global(cmd *cobra.Command, _ []string) error {
 	source.NoPrompt = !a.prompts()
+	if !readsConfig(cmd) {
+		return nil
+	}
+	if err := loadEnv().Fatal(); err != nil {
+		a.ran = cmd
+		asJSON := false
+		if f := cmd.Flags().Lookup("json"); f != nil {
+			asJSON = f.Changed
+		}
+		return exitCode(failEnv(a.IO, strings.TrimPrefix(cmd.CommandPath(), "ctxtra "), asJSON, err))
+	}
 	return nil
+}
+
+// ownErrors are the commands that don't need the config, or that report
+// a config they can't use in their own output: help and the version, a
+// manifest's check, and the reports of what sessions get, which are how a
+// broken config is found. check-updates fails on its own, and stays quiet
+// in the background.
+var ownErrors = []string{"ctxtra", "ctxtra version", "ctxtra help", "ctxtra source validate", "ctxtra skill show",
+	"ctxtra doctor", "ctxtra context files", "ctxtra context show", "ctxtra context explain", "ctxtra check-updates"}
+
+// readsConfig reports whether cmd reads the config.
+func readsConfig(cmd *cobra.Command) bool {
+	p := cmd.CommandPath()
+	return !slices.Contains(ownErrors, p) && !strings.HasPrefix(p, "ctxtra completion") && !strings.HasPrefix(p, "ctxtra __complete")
 }
 
 // Interactive reports whether answers can be asked: stdin and stdout are

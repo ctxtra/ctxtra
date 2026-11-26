@@ -11,12 +11,12 @@ func TestConfigDisablesUpdateChecks(t *testing.T) {
 	check := func() {
 		t.Helper()
 		b, err := os.ReadFile(f.Path(".config/ctxtra/config.yaml"))
-		if err != nil || !strings.Contains(string(b), "check-updates: false\n") {
+		if err != nil || !strings.Contains(string(b), "check-releases: false\n") {
 			t.Fatalf("config permits update checks when an agent clears its environment: %s, %v", b, err)
 		}
 	}
 	check()
-	f.Config("schema: ctxtra/v1\nbindings: []\n")
+	f.Config("schema: ctxtra/config/v1\nbindings: []\n")
 	check()
 }
 

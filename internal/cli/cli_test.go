@@ -9,7 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
+	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/setup"
+	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -23,28 +28,27 @@ func TestCommands(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
 	testenv.Write(t, filepath.Join(h, "a.md"), "A")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/a.md, ~/gone.md]
 `)
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
 
-	if code, out, errOut := run("context", "files", r); code != 1 || out != filepath.Join(h, "a.md")+"\n" || !strings.Contains(errOut, "missing: "+filepath.Join(h, "gone.md")) {
+	if code, out, errOut := run("context", "files", r); code != 1 || out != filepath.Join(h, "a.md")+"\n" || !strings.Contains(errOut, "error: ") || !strings.Contains(errOut, "~/gone.md is not a file") {
 		t.Errorf("files: %d %q %q", code, out, errOut)
 	}
 	if code, out, _ := run("context", "show", r); code != 1 || !strings.Contains(out, "Contents of "+filepath.Join(h, "a.md")) {
 		t.Errorf("show: %d %q", code, out)
 	}
-	if code, out, _ := run("context", "explain", h); code != 0 || !strings.Contains(out, "- svc (~/.config/ctxtra/b.yaml): repos: not in a git repository") {
+	if code, out, _ := run("context", "explain", h); code != 0 || !strings.Contains(out, "- svc: location: repos: not in a git repository") {
 		t.Errorf("explain outside git: %d\n%s", code, out)
 	}
-	if code, out, _ := run("context", "explain", r); code != 1 || !strings.Contains(out, "+ svc (~/.config/ctxtra/b.yaml): repos remote github.com/acme/svc") ||
-		!strings.Contains(out, "MISSING  "+filepath.Join(h, "gone.md")) {
+	if code, out, _ := run("context", "explain", r); code != 1 || !strings.Contains(out, "+ svc: location: repos github.com/acme/svc matches github.com/acme/svc") ||
+		!strings.Contains(out, "    error    ") || !strings.Contains(out, "~/gone.md is not a file") {
 		t.Errorf("explain: %d\n%s", code, out)
 	}
-	if code, out, _ := run("doctor", r); code != 1 || !strings.Contains(out, "claude-code: not set up") || !strings.Contains(out, "MISSING") {
+	if code, out, _ := run("doctor", r); code != 1 || !strings.Contains(out, "claude-code: not set up") || !strings.Contains(out, "ERROR") {
 		t.Errorf("doctor: %d\n%s", code, out)
 	}
 	if code, out, _ := run("hook", "claude-code", "SessionStart", "--slot", "0"); code != 0 || out != "{}\n" {
@@ -52,19 +56,20 @@ bindings:
 	}
 	for _, args := range [][]string{
 		{"nope"}, {"context", "files", "a", "b"}, {"setup", "--agent"}, {"setup", "extra"}, {"source", "nope"},
-		{"source", "add", "git"}, {"binding", "add"}, {"skill", "show"}, {"--config", "x.yaml", "setup"},
+		{"source", "add", "git"}, {"source", "add"}, {"source", "add", "--repo", "x", "--dir", "y"}, {"binding", "add"},
+		{"context", "files", "--agent", "nope"}, {"skill", "show"}, {"--config", "x.yaml", "setup"},
 		{"source", "update", "--json"}, {"context", "show", "--part", "x"}, {"version", "x"}, {"help", "nope"},
 	} {
 		if code, _, _ := run(args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
 		}
 	}
-	if _, _, e := run("source", "add", "git"); !strings.Contains(e, "ctxtra source add git: expected URL or DIR\nUsage: ctxtra source add git (URL | DIR) [flags]\n") {
+	if _, _, e := run("source", "add"); !strings.Contains(e, "ctxtra source add: give --repo URL or --dir DIR\nUsage: ctxtra source add (--repo URL | --dir DIR) [flags]\n") {
 		t.Errorf("usage error: %q", e)
 	}
 	binary = func() (string, []string, error) { return "/opt/homebrew/bin/ctxtra", nil, nil }
 	t.Cleanup(func() { binary = setup.Binary })
-	for _, args := range [][]string{{"setup", "-h"}, {"context", "files", "--help"}, {"help"}, {"help", "source", "add", "git"}, {"source"}, {}, {"--version"}} {
+	for _, args := range [][]string{{"setup", "-h"}, {"context", "files", "--help"}, {"help"}, {"help", "source", "add"}, {"source"}, {}, {"--version"}} {
 		if code, out, _ := run(args...); code != 0 || out == "" {
 			t.Errorf("%v: exit %d, want 0 and output", args, code)
 		}
@@ -79,9 +84,7 @@ bindings:
 // estimated tokens, the others characters.
 func TestSizeWarnings(t *testing.T) {
 	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: me, match: {global: true}, instructions: [~/a.md, ~/b.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: me, instructions: [~/a.md, ~/b.md]}\n")
 	testenv.Write(t, filepath.Join(h, "a.md"), "small")
 	for _, tc := range []struct {
 		content string
@@ -100,7 +103,7 @@ func TestSizeWarnings(t *testing.T) {
 				t.Errorf("%d bytes: %s warned %v:\n%s", len(tc.content), a, warned, out)
 			}
 		}
-		if slices.Contains(tc.warn, "claude-code") && !strings.Contains(out, "warning: over Claude Code's limit of 360,000 characters, claude-code sessions don't get b.md\n") {
+		if slices.Contains(tc.warn, "claude-code") && !strings.Contains(out, "error: over Claude Code's limit of 360,000 characters, claude-code sessions don't get b.md\n") {
 			t.Errorf("warning:\n%s", out)
 		}
 	}
@@ -133,7 +136,7 @@ func TestSetupNextSteps(t *testing.T) {
 		t.Errorf("skill installed, a file to import:\n%s", next)
 	}
 	testenv.Write(t, filepath.Join(h, "notes.md"), "mine\n")
-	if code, _, e := run("binding", "add", "notes", "--global", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
+	if code, _, e := run("binding", "add", "notes", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
 		t.Fatalf("binding add: %s", e)
 	}
 	if code, _, e := run("skill", "install", "ctxtra-follow"); code != 0 {
@@ -209,4 +212,33 @@ func TestAsk(t *testing.T) {
 			t.Errorf("%q: %v %v", c.in, yes, err)
 		}
 	}
+}
+
+// serverIn is the server ref of the config at path, as sessions read it.
+func serverIn(t *testing.T, path, ref string) (upstream.Server, bool) {
+	t.Helper()
+	s, ok := resolve.Load(path, registry.Names()).Catalog.Server(ref)
+	return s.Server, ok
+}
+
+// lockedSource puts files into ctxtra's store at a commit of the
+// repository url, as source download would, and returns the lock entry
+// of source name accepted on branch main at it.
+func lockedSource(t *testing.T, name, url string, files map[string]string) string {
+	t.Helper()
+	commit := strings.Repeat("a", 40)
+	gen := source.GenDir(url, commit)
+	if err := os.MkdirAll(gen, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for p, content := range files {
+		testenv.Write(t, filepath.Join(gen, filepath.FromSlash(p)), content)
+	}
+	return "  " + name + ":\n    repo: " + url + "\n    branch: main\n    commit: " + commit + "\n"
+}
+
+// writeLock writes the lock of the config at path with entries.
+func writeLock(t *testing.T, path string, entries ...string) {
+	t.Helper()
+	testenv.Write(t, lock.Path(path), "schema: ctxtra/lock/v1\nsources:\n"+strings.Join(entries, ""))
 }

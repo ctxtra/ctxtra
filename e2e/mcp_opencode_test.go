@@ -30,16 +30,16 @@ func TestMCPOpenCodeService(t *testing.T) {
 		}
 		probe := probeBinary(t)
 		s := mcpSession(t, a, func(s *Session) string {
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   alpha: {command: [` + probe + `, mcp, -log, ` + s.Path("alpha.jsonl") + `]}
   beta: {command: [` + probe + `, mcp, -log, ` + s.Path("beta.jsonl") + `]}
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     mcp-servers: [alpha]
   - name: billing
-    match: {repos: [{remote: github.com/acme/mono, subpath: services/billing/**}]}
+    location: {repos: [{repo: github.com/acme/mono, subdirs: [services/billing/**]}]}
     mcp-servers: [beta]
 `
 		})

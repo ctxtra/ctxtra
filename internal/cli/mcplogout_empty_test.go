@@ -19,7 +19,7 @@ func TestMCPLogoutWithoutCredentialsDoesNotBlockAdd(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}
-			cfg := "schema: ctxtra/v1\n"
+			cfg := "schema: ctxtra/config/v1\n"
 			if declared {
 				cfg += "mcp-servers:\n  shared: {url: " + srv.URL + "}\n"
 			}
@@ -43,7 +43,7 @@ func TestMCPLogoutWithoutCredentialsDoesNotBlockAdd(t *testing.T) {
 			if _, err := store.SaveSignIn(srv, generation, "issuer", creds.Client{}, creds.Token{Access: "late"}); !errors.Is(err, creds.ErrSignInChanged) {
 				t.Fatalf("empty logout did not cancel first sign-in: %v", err)
 			}
-			testenv.Config(t, h, "schema: ctxtra/v1\n")
+			testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			output.Reset()
 			if n := Run([]string{"mcp", "add", "shared", srv.URL, "--no-login"}, stdio, "test"); n != 0 || strings.Contains(output.String(), "reusing") {
 				t.Fatalf("empty logout blocked or falsely reused credentials: %d, %s", n, &output)

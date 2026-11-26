@@ -57,7 +57,7 @@ var GitLocationVars = []string{
 }
 
 // Write creates path with content, and its parent folders.
-func Write(t *testing.T, path, content string) {
+func Write(t testing.TB, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func Repo(t *testing.T, dir, remote string) string {
 }
 
 // Config writes the config file and returns its path.
-func Config(t *testing.T, home, yaml string) string {
+func Config(t testing.TB, home, yaml string) string {
 	t.Helper()
 	p := filepath.Join(home, ".config", "ctxtra", "config.yaml")
 	Write(t, p, yaml)

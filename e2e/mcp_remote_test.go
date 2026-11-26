@@ -125,12 +125,12 @@ func TestMCPRemoteCredential(t *testing.T) {
 		web := newAPIServer(t, key)
 		s := mcpSession(t, a, func(s *Session) string {
 			fileKey(t, s)
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   web: {url: '` + web.URL + `/mcp', secret-headers: [X-Api-Key]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     mcp-servers: [web]
 `
 		})
@@ -171,12 +171,12 @@ func TestMCPSignInDuringSession(t *testing.T) {
 		web := newAPIServer(t, key)
 		s := mcpSession(t, a, func(s *Session) string {
 			fileKey(t, s)
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   web: {url: '` + web.URL + `/mcp', secret-headers: [X-Api-Key]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     mcp-servers: [web]
 `
 		})

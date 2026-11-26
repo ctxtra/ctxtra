@@ -97,11 +97,9 @@ exec ctxtra setup --remove --agent claude-code
 cmp elsewhere/hooks.json other.json
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: everywhere
-    match:
-      global: true
     skills: [~/skills/deploy]
 -- skills/deploy/SKILL.md --
 ---

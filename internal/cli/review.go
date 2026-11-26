@@ -2,87 +2,133 @@ package cli
 
 import (
 	"fmt"
-	"reflect"
+	"path"
 	"slices"
 	"strings"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
 )
 
-// used is what the config takes from one generation of a source: files and
-// skill folders, relative to the generation, slash-separated.
+// used is what the config takes from one commit of a source: files and
+// skill folders, relative to the source's top, slash-separated.
 type used struct {
 	files map[string]bool
 	dirs  []string
+	// errors are the errors of the entries that read the source.
+	errors []string
 }
 
 func (u *used) has(p string) bool {
 	return u.files[p] || slices.ContainsFunc(u.dirs, func(d string) bool { return d == "." || strings.HasPrefix(p, d+"/") })
 }
 
-// add adds what cfg takes from gen: binding files there, and every file and
-// skill folder of every binding, under any match block.
-func (u *used) add(cfg *config.Config, gen string) {
-	for _, b := range cfg.Bindings {
-		for _, f := range append([]string{b.Source}, b.Instructions...) {
-			if r, ok := paths.Rel(gen, f); ok {
-				u.files[r] = true
+// usedFrom is what the bindings of env take from source name in cat, under
+// any conditions: its manifest, and every file and skill folder that the
+// session would get from it, with the bindings' ! entries applied, as the
+// resolver adds a binding alone.
+func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
+	u := &used{files: map[string]bool{manifest.FileName: true}}
+	alone := *env
+	alone.Catalog = cat
+	for _, b := range env.Config.Bindings {
+		if b.Broken() {
+			continue
+		}
+		res := alone.Alone(b, resolve.Input{Dir: paths.Home()})
+		for _, h := range slices.Concat(res.Files, res.Dropped) {
+			if h.Source == name {
+				u.files[h.SourcePath] = true
 			}
 		}
-		// A skill folder can be the source's top: then every file is used.
-		for _, d := range b.Skills {
-			if r, ok := paths.Rel(gen, d); ok {
-				u.dirs = append(u.dirs, r)
+		for _, h := range res.Skills {
+			if h.Source == name {
+				u.dirs = append(u.dirs, path.Dir(h.SourcePath))
 			}
 		}
+		u.errors = append(u.errors, entryErrors(b, cat, name, res)...)
 	}
-	for _, f := range cfg.BindingFiles {
-		if r, ok := paths.Rel(gen, f); ok {
-			u.files[r] = true
-		}
-	}
+	return u
 }
 
-// review shows what changes in src from its accepted commit, or from
-// nothing for a source without one, to commit: files the config uses (with
-// the accepted commit or the new one) in full, every other changed file by
-// name, warnings for changed match blocks and broken references, and
-// content warnings for the added lines shown. With full, every changed file
-// in full. Both commits must be in the store.
-func (s *sources) review(r *source.Repo, src config.Source, commit string, full bool) error {
-	old := src.Commit
-	if old == "" {
-		old = emptyTree(commit)
+// entryErrors are the errors of b's entries that read source name: what
+// a positive entry can't find, and a ! entry that excludes nothing.
+func entryErrors(b *config.Binding, cat *catalog.Catalog, name string, res *resolve.Result) []string {
+	var out []string
+	for _, k := range []struct {
+		list []config.Entry
+		kind catalog.Kind
+	}{{b.Instructions, catalog.Files}, {b.Skills, catalog.Skills}} {
+		for _, e := range k.list {
+			if e.Err != nil || !e.InSource || e.Source != name {
+				continue
+			}
+			if e.Not {
+				if len(res.Trace) == 1 && !slices.ContainsFunc(res.Trace[0].Excluded, func(x resolve.Exclusion) bool { return x.Entry == e.Text }) {
+					out = append(out, fmt.Sprintf("binding %s: %s excludes nothing", b.Name, e.Text))
+				}
+				continue
+			}
+			_, errs := cat.Paths(e, k.kind)
+			for _, err := range errs {
+				out = append(out, fmt.Sprintf("binding %s: %s: %v", b.Name, e.Text, err))
+			}
+		}
 	}
-	changes, err := r.Changes(s.ctx, old, commit)
+	return out
+}
+
+// review shows what changes in source cs from its accepted commit old, or
+// from nothing when old is "", to commit: files the config uses (with the
+// accepted commit or the new one) in full, every other changed file by
+// name, new errors of the entries that use the source, its MCP servers,
+// and content warnings for the added lines shown. With s.full, every
+// changed file in full. Both commits must be in the store.
+func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, old, commit string) error {
+	name := cs.Name
+	base := old
+	if base == "" {
+		base = emptyTree(commit)
+	}
+	changes, err := r.Changes(s.ctx, base, commit)
 	if err != nil {
 		return err
 	}
-	oldGen, newGen := src.Gen(), source.GenDir(src.Remote(), commit)
-	before := config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), src.Name, src.Commit)
-	after := config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), src.Name, commit)
-	before.LoadMCPSource(src.Name)
-	after.LoadMCPSource(src.Name)
-	u := &used{files: map[string]bool{config.MCPManifest: true}}
-	u.add(before, oldGen)
-	u.add(after, newGen)
-
-	s.selectorWarnings(src, before, after, oldGen, newGen)
-	s.mcpDefinitionWarnings(src.Name, before, after)
-	s.mcpWarnings(before, after, oldGen, newGen)
-	// Problems introduced by the proposed source version.
-	for _, p := range after.Problems {
-		if (strings.Contains(p, paths.Tilde(newGen)) || strings.Contains(p, config.Scheme+src.Name+"/")) && !slices.Contains(before.Problems, strings.ReplaceAll(p, paths.Tilde(newGen), paths.Tilde(oldGen))) {
-			fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(strings.ReplaceAll(p, paths.Tilde(newGen)+"/", config.Scheme+src.Name+"/")))
+	newTop := source.GenDir(r.URL, commit)
+	after := env.Catalog.WithTop(name, newTop)
+	u := usedFrom(env, after, name)
+	var before *catalog.Catalog
+	oldTop := ""
+	if old != "" {
+		oldTop = source.GenDir(r.URL, old)
+		if e := env.Lock.Entry(name); e != nil && e.Commit == old {
+			oldTop = catalog.CommitDir(e)
+		}
+		before = env.Catalog.WithTop(name, oldTop)
+		bu := usedFrom(env, before, name)
+		for f := range bu.files {
+			u.files[f] = true
+		}
+		u.dirs = append(u.dirs, bu.dirs...)
+		for _, e := range u.errors {
+			if !slices.Contains(bu.errors, strings.ReplaceAll(e, paths.Tilde(newTop), paths.Tilde(oldTop))) {
+				fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(strings.ReplaceAll(e, paths.Tilde(newTop)+"/", name+":")))
+			}
+		}
+	} else {
+		for _, e := range u.errors {
+			fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(strings.ReplaceAll(e, paths.Tilde(newTop)+"/", name+":")))
 		}
 	}
+	s.mcpDefinitionWarnings(name, before, after)
 
 	var shown, other []source.Change
 	for _, c := range changes {
-		if full || u.has(c.Path) {
+		if s.full || u.has(c.Path) {
 			shown = append(shown, c)
 		} else {
 			other = append(other, c)
@@ -93,7 +139,7 @@ func (s *sources) review(r *source.Repo, src config.Source, commit string, full 
 	}
 	// Content warnings for the regular files shown. URLs that the accepted
 	// commit has in the files used or shown are not new.
-	cc := s.contentCheck(src.Name)
+	cc := s.contentCheck(name)
 	check := map[string]bool{}
 	for _, c := range shown {
 		cc.newExecutable(s.Out, c, true)
@@ -102,12 +148,12 @@ func (s *sources) review(r *source.Repo, src config.Source, commit string, full 
 	for _, c := range other {
 		cc.newExecutable(s.Out, c, false)
 	}
-	if src.Commit != "" {
+	if old != "" {
 		inShown := map[string]bool{}
 		for _, c := range shown {
 			inShown[c.Path] = true
 		}
-		cc.known(oldGen, func(p string) bool { return u.has(p) || inShown[p] })
+		cc.known(oldTop, func(p string) bool { return u.has(p) || inShown[p] })
 	}
 	// In batches, so that a large skill doesn't run git once per file.
 	for batch := range slices.Chunk(shown, 100) {
@@ -115,11 +161,11 @@ func (s *sources) review(r *source.Repo, src config.Source, commit string, full 
 		for _, c := range batch {
 			ps = append(ps, c.Path)
 		}
-		d, err := r.Diff(s.ctx, old, commit, ps...)
+		d, err := r.Diff(s.ctx, base, commit, ps...)
 		if err != nil {
 			return err
 		}
-		cc.printDiff(s.Out, d, newGen, check)
+		cc.printDiff(s.Out, d, newTop, check)
 	}
 	if len(other) > 0 {
 		fmt.Fprintln(s.Out, "also changed, not used by you:")
@@ -174,78 +220,4 @@ func describeChange(c source.Change) string {
 		return "mode     " + c.Path + "  " + note
 	}
 	return strings.TrimSpace("changed  " + c.Path + "  " + note)
-}
-
-// selectorWarnings warns about bindings in the source's binding files whose
-// match block changes, and about new ones: they decide which sessions get
-// the source's files.
-func (s *sources) selectorWarnings(src config.Source, before, after *config.Config, oldGen, newGen string) {
-	type key struct{ file, name string }
-	selectors := func(cfg *config.Config, gen string) map[key]config.Selector {
-		m := map[key]config.Selector{}
-		for _, b := range cfg.Bindings {
-			if r, ok := paths.Rel(gen, b.Source); ok {
-				m[key{r, b.Name}] = b.Selector
-			}
-		}
-		return m
-	}
-	old, now := selectors(before, oldGen), selectors(after, newGen)
-	var keys []key
-	for k := range now {
-		keys = append(keys, k)
-	}
-	slices.SortFunc(keys, func(a, b key) int { return strings.Compare(a.file+"\x00"+a.name, b.file+"\x00"+b.name) })
-	for _, k := range keys {
-		sel := now[k]
-		prev, ok := old[k]
-		switch {
-		case !ok:
-			fmt.Fprintf(s.Out, "warning: new binding %s in %s, for %s\n", k.name, k.file, sel)
-		case reflect.DeepEqual(prev, sel):
-		case sel.Global:
-			fmt.Fprintf(s.Out, "warning: binding %s in %s now applies to every session (was: %s)\n", k.name, k.file, prev)
-		default:
-			fmt.Fprintf(s.Out, "warning: binding %s in %s: match changed from %s to %s\n", k.name, k.file, prev, sel)
-		}
-	}
-}
-
-// mcpWarnings lists the MCP servers that the source's bindings name, and
-// warns about each added reference to a package server.
-func (s *sources) mcpWarnings(before, after *config.Config, oldGen, newGen string) {
-	type key struct{ file, name string }
-	listed := func(cfg *config.Config, gen string) (map[key][]string, []key) {
-		m := map[key][]string{}
-		var keys []key
-		for _, b := range cfg.Bindings {
-			if r, ok := paths.Rel(gen, b.Source); ok && len(b.MCPListed) > 0 {
-				k := key{r, b.Name}
-				m[k] = b.MCPListed
-				keys = append(keys, k)
-			}
-		}
-		return m, keys
-	}
-	old, _ := listed(before, oldGen)
-	now, keys := listed(after, newGen)
-	sel := map[key]config.Selector{}
-	for _, b := range after.Bindings {
-		if r, ok := paths.Rel(newGen, b.Source); ok {
-			sel[key{r, b.Name}] = b.Selector
-		}
-	}
-	for _, k := range keys {
-		fmt.Fprintf(s.Out, "MCP servers: binding %s in %s names %s\n", k.name, k.file, strings.Join(now[k], ", "))
-		for _, name := range now[k] {
-			if slices.Contains(old[k], name) {
-				continue
-			}
-			where := "for " + sel[k].String()
-			if sel[k].Global {
-				where = "in every session"
-			}
-			fmt.Fprintf(s.Out, "warning: binding %s in %s adds the MCP server %s: that package server would be %s\n", k.name, k.file, name, where)
-		}
-	}
 }

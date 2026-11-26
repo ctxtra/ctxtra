@@ -1,0 +1,146 @@
+package cli
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxtra/ctxtra/internal/testenv"
+)
+
+// An instruction over an agent's capacity fails doctor and context
+// explain, also in JSON, and context files --agent shows what that agent's
+// sessions get.
+func TestCapacityErrors(t *testing.T) {
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "big.md"), strings.Repeat("x", 400000))
+	testenv.Write(t, filepath.Join(h, "small.md"), "small")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: all, instructions: [~/small.md, ~/big.md]}\n")
+	for _, args := range [][]string{
+		{"doctor", h},
+		{"context", "explain", h},
+		{"context", "explain", h, "--agent", "claude-code"},
+	} {
+		if code, out, _ := run(args...); code != 1 || !strings.Contains(out, "limit of") {
+			t.Errorf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	for _, args := range [][]string{{"doctor", h, "--json"}, {"context", "explain", h, "--json"}, {"context", "files", h, "--agent", "claude-code", "--json"}} {
+		code, out, _ := run(args...)
+		var doc struct {
+			Diagnostics []struct{ Severity, Message string }
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		found := false
+		for _, d := range doc.Diagnostics {
+			found = found || d.Severity == "error" && strings.Contains(d.Message, "big.md")
+		}
+		if code != 1 || !found {
+			t.Errorf("%v: exit %d, diagnostics %+v", args, code, doc.Diagnostics)
+		}
+	}
+	code, out, _ := run("context", "files", h, "--agent", "claude-code")
+	if code != 1 || strings.Contains(out, "big.md") || !strings.Contains(out, "small.md") {
+		t.Errorf("files --agent: exit %d\n%s", code, out)
+	}
+	if code, out, _ := run("context", "files", h); code != 0 || !strings.Contains(out, "big.md") {
+		t.Errorf("files without an agent: exit %d\n%s", code, out)
+	}
+}
+
+// A binding's trace names a file by the path its hit has: a file reached
+// through a symlink is added or dropped under one name.
+func TestTraceUsesRealPaths(t *testing.T) {
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "real.md"), strings.Repeat("x", 600))
+	if err := os.Symlink(filepath.Join(h, "real.md"), filepath.Join(h, "alias.md")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ max, status string }{{"", "added"}, {"max-ctx-chars: 30\n", "dropped"}} {
+		testenv.Config(t, h, "schema: ctxtra/config/v1\n"+c.max+"bindings:\n  - {name: b, instructions: [~/alias.md]}\n")
+		_, out, _ := run("context", "explain", h, "--json")
+		var doc struct {
+			Data struct {
+				Bindings []struct {
+					Files []struct {
+						Path, Status string
+						Chars        int
+					}
+				}
+			}
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil || len(doc.Data.Bindings) != 1 || len(doc.Data.Bindings[0].Files) != 1 {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		f := doc.Data.Bindings[0].Files[0]
+		if f.Status != c.status || c.status == "added" && f.Chars != 600 || filepath.Base(f.Path) != "real.md" {
+			t.Errorf("%q: %+v", c.max, f)
+		}
+	}
+}
+
+// Skills alone over an agent's capacity fail doctor and explain too,
+// although no instruction file can be dropped.
+func TestCapacityErrorsFromSkills(t *testing.T) {
+	h := testenv.Home(t)
+	for i := range 300 {
+		testenv.Skill(t, filepath.Join(h, "skills", fmt.Sprintf("s%03d", i)), fmt.Sprintf("name: s%03d\ndescription: %s", i, strings.Repeat("d", 2000)))
+	}
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: many, skills: ['~/skills/*']}\n")
+	for _, args := range [][]string{{"doctor", h, "--json"}, {"context", "explain", h, "--json"}, {"context", "explain", h, "--agent", "claude-code", "--json"}} {
+		code, out, _ := run(args...)
+		var doc struct {
+			Diagnostics []struct{ Severity, Message string }
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		found := false
+		for _, d := range doc.Diagnostics {
+			found = found || d.Severity == "error" && strings.Contains(d.Message, "even without instruction files") && strings.Contains(d.Message, "bindings many")
+		}
+		if code != 1 || !found {
+			t.Errorf("%v: exit %d, diagnostics %+v", args, code, doc.Diagnostics)
+		}
+	}
+	if code, out, _ := run("doctor", h); code != 1 || !strings.Contains(out, "even without instruction files") {
+		t.Errorf("doctor: exit %d\n%s", code, out)
+	}
+}
+
+// binding add refuses content that an agent the binding reaches can't
+// get, also with --dry-run, and changes nothing.
+func TestBindingAddOverCapacity(t *testing.T) {
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "big.md"), strings.Repeat("x", 400000))
+	for i := range 300 {
+		testenv.Skill(t, filepath.Join(h, "skills", fmt.Sprintf("s%03d", i)), fmt.Sprintf("name: s%03d\ndescription: %s", i, strings.Repeat("d", 2000)))
+	}
+	file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--instruction", "~/big.md"}, "sessions don't get big.md"},
+		{[]string{"--skill", "~/skills/*"}, "even without instruction files"},
+	} {
+		for _, dry := range []bool{true, false} {
+			args := append([]string{"binding", "add", "big"}, c.args...)
+			if dry {
+				args = append(args, "--dry-run")
+			}
+			code, out, errOut := run(args...)
+			if code != 1 || !strings.Contains(errOut, c.want) || !strings.Contains(errOut, "claude-code") {
+				t.Errorf("%v: exit %d\n%s%s", args, code, out, errOut)
+			}
+			if b, _ := os.ReadFile(file); string(b) != "schema: ctxtra/config/v1\n" {
+				t.Errorf("%v: the config changed:\n%s", args, b)
+			}
+		}
+	}
+}

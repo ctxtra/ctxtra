@@ -103,7 +103,7 @@ func CheckBranch(b string) error {
 }
 
 // ID names a source's data in the store. It comes from the source's remote:
-// the git URL, or the absolute path of a clone for a local-git source. A
+// the git URL, or the absolute path of a clone on this machine. A
 // source whose remote changes never uses data of the old one.
 func ID(remote string) string {
 	kind := "git"
@@ -130,7 +130,7 @@ func Has(url, commit string) bool {
 
 // Repo is the bare repository of one source.
 type Repo struct {
-	URL    string // a git URL, or the absolute path of a clone (local-git)
+	URL    string // a git URL, or the absolute path of a clone
 	dir    string
 	fileOK bool // the file transport is allowed, for a fetch from a clone
 }
@@ -141,7 +141,7 @@ func Open(remote string) *Repo {
 	return &Repo{URL: remote, dir: filepath.Join(GitDir(), ID(remote)+".git")}
 }
 
-// local reports whether the source follows a clone on this disk.
+// local reports whether the repository is a clone on this disk.
 func (r *Repo) local() bool { return filepath.IsAbs(r.URL) }
 
 // options keep git from running anything from the repository or the
@@ -274,17 +274,13 @@ func (r *Repo) DefaultBranch(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("%s has no default branch; choose one with --branch", r.URL)
 }
 
-// Head is the commit that branch points to on the remote, or, for a
-// local-git source, the commit HEAD points to in the clone. It reads only
-// refs: nothing is fetched or stored.
+// Head is the commit that branch points to in the repository, a remote or
+// a clone on this disk. It reads only refs: nothing is fetched or stored.
 func (r *Repo) Head(ctx context.Context, branch string) (string, error) {
-	ref := "HEAD"
-	if !r.local() {
-		if err := CheckBranch(branch); err != nil {
-			return "", err
-		}
-		ref = "refs/heads/" + branch
+	if err := CheckBranch(branch); err != nil {
+		return "", err
 	}
+	ref := "refs/heads/" + branch
 	out, err := r.git(ctx, false, nil, "ls-remote", "--", r.URL, ref)
 	if err != nil {
 		return "", err
@@ -295,10 +291,7 @@ func (r *Repo) Head(ctx context.Context, branch string) (string, error) {
 			return id, nil
 		}
 	}
-	if r.local() {
-		return "", fmt.Errorf("%s has no commit at HEAD", r.URL)
-	}
-	return "", fmt.Errorf("the branch %s is not on the remote", branch)
+	return "", fmt.Errorf("the branch %s is not in %s", branch, r.URL)
 }
 
 // ensure creates the bare repository with the object format of from, the
@@ -683,8 +676,14 @@ func CheckPath(p string) error {
 // generation's folder. The files are written into a new private folder,
 // which is renamed into place only when complete.
 func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
-	dst := GenDir(r.URL, commit)
-	if Has(r.URL, commit) {
+	return r.MaterializeAs(ctx, commit, r.URL)
+}
+
+// MaterializeAs is Materialize into the store folder of address store, an
+// equivalent spelling of the repository: where the lock's address has it.
+func (r *Repo) MaterializeAs(ctx context.Context, commit, store string) (string, error) {
+	dst := GenDir(store, commit)
+	if Has(store, commit) {
 		if err := Touch(dst, TouchWait); err != nil { // a fresh time keeps Clean away until the config names it
 			return "", err
 		}
@@ -708,7 +707,7 @@ func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
 	if err := r.writeFiles(ctx, tmp, entries); err != nil {
 		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
 	}
-	if err := os.Rename(tmp, dst); err != nil && !Has(r.URL, commit) {
+	if err := os.Rename(tmp, dst); err != nil && !Has(store, commit) {
 		return "", err
 	}
 	if err := Touch(dst, TouchWait); err != nil {
@@ -791,6 +790,8 @@ type Clone struct {
 	Remotes  map[string]string // name: URL
 	Upstream string            // the remote of the current branch's upstream, "" when none
 	Branch   string            // the upstream's branch on that remote
+	// Current is the branch checked out, "" when HEAD is detached.
+	Current string
 }
 
 // InspectClone reads the clone that dir is in. It runs git in the clone
@@ -827,6 +828,7 @@ func InspectClone(ctx context.Context, dir string) (Clone, error) {
 		}
 	}
 	if b, err := run("symbolic-ref", "-q", "--short", "HEAD"); err == nil && b != "" {
+		c.Current = b
 		up, _ := run("for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", "--", "refs/heads/"+b)
 		if remote, ref, ok := strings.Cut(up, "\x00"); ok && remote != "" {
 			c.Upstream, c.Branch = remote, strings.TrimPrefix(ref, "refs/heads/")

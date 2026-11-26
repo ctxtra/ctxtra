@@ -1,0 +1,40 @@
+# The update review takes what the bindings use after their ! entries: an
+# excluded file is listed by name only, and its URLs don't make a URL in a
+# used file known.
+
+gitrepo srv/team
+exec ctxtra source add --repo $GITSRV/team
+exec ctxtra binding add team --instruction 'team:*.md'
+expand excluded.yaml .config/ctxtra/config.yaml
+exec ctxtra context files notes
+stdout 'a.md'
+! stdout 'b.md'
+
+cp v2/a.md srv/team/a.md
+cp v2/b.md srv/team/b.md
+gitcommit srv/team
+exec ctxtra source update --dry-run
+stdout '^\+See https://known.example/u\nwarning: line 2: new URL: https://known.example/u$'
+stdout '^  changed  b.md$'
+! stdout 'B_CHANGED'
+
+-- excluded.yaml --
+schema: ctxtra/config/v1
+sources:
+  team:
+    repo: $GITSRV/team
+    branch: main
+bindings:
+  - name: team
+    instructions: ['team:*.md', '!team:b.md']
+-- notes/.keep --
+-- srv/team/a.md --
+A
+-- srv/team/b.md --
+See https://known.example/u
+-- v2/a.md --
+A
+See https://known.example/u
+-- v2/b.md --
+See https://known.example/u
+B_CHANGED

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -15,9 +15,9 @@ const (
 	commitB = "4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e"
 )
 
-func config(t *testing.T, body string) *cfg.Config {
+func parseConfig(t *testing.T, body string) *config.Config {
 	t.Helper()
-	c := cfg.Parse([]byte("schema: ctxtra/config/v1\n"+body), cfg.Options{})
+	c := config.Parse([]byte("schema: ctxtra/config/v1\n"+body), config.Options{})
 	if len(c.Errors) > 0 {
 		t.Fatalf("config: %v", c.Errors)
 	}
@@ -36,7 +36,7 @@ func TestDemoLock(t *testing.T) {
 	if len(l.Entries) != 6 {
 		t.Fatalf("entries %d", len(l.Entries))
 	}
-	if e := l.Entry("billing-ctx"); e.Repo != "git@github.com:acme/agent-context.git" || e.Ref != (cfg.Ref{Kind: cfg.Branch, Name: "main"}) ||
+	if e := l.Entry("billing-ctx"); e.Repo != "git@github.com:acme/agent-context.git" || e.Ref != (config.Ref{Kind: config.Branch, Name: "main"}) ||
 		e.Subdir != "teams/billing" || e.Commit != "5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f" {
 		t.Errorf("billing-ctx %+v", e)
 	}
@@ -45,11 +45,11 @@ func TestDemoLock(t *testing.T) {
 	}
 
 	t.Run("written in the same form", func(t *testing.T) {
-		demo, err := os.ReadFile("../cfg/testdata/demo.yaml")
+		demo, err := os.ReadFile("../config/testdata/demo.yaml")
 		if err != nil {
 			t.Fatal(err)
 		}
-		c := cfg.Parse(demo, cfg.Options{Agents: []string{"claude-code", "codex", "cursor"}})
+		c := config.Parse(demo, config.Options{Agents: []string{"claude-code", "codex", "cursor"}})
 		got, err := Format(l.Entries, c)
 		if err != nil {
 			t.Fatal(err)
@@ -59,8 +59,8 @@ func TestDemoLock(t *testing.T) {
 		}
 	})
 	t.Run("every entry matches the demo config", func(t *testing.T) {
-		demo, _ := os.ReadFile("../cfg/testdata/demo.yaml")
-		c := cfg.Parse(demo, cfg.Options{})
+		demo, _ := os.ReadFile("../config/testdata/demo.yaml")
+		c := config.Parse(demo, config.Options{})
 		for _, e := range l.Entries {
 			if ch := Compare(e, c.Source(e.Name)); !ch.Same() {
 				t.Errorf("%s: %+v", e.Name, ch)
@@ -70,7 +70,7 @@ func TestDemoLock(t *testing.T) {
 }
 
 func TestARemovedSource(t *testing.T) {
-	c := config(t, "sources:\n  obs-team: {repo: 'https://github.com/acme/obs.git', tag: v1.4.0}\n"+
+	c := parseConfig(t, "sources:\n  obs-team: {repo: 'https://github.com/acme/obs.git', tag: v1.4.0}\n"+
 		"  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n  dotfiles: {dir: ~/dev/dotfiles}\n")
 	l := Parse([]byte("schema: ctxtra/lock/v1\nsources:\n" +
 		"  old: {repo: 'git@github.com:acme/old.git', branch: main, commit: " + commitA + "}\n" +
@@ -79,7 +79,7 @@ func TestARemovedSource(t *testing.T) {
 	if len(l.Errors) > 0 {
 		t.Fatal(l.Errors)
 	}
-	entries := append(l.Entries, &Entry{Name: "iam-team", Repo: "git@github.com:acme/iam-ctx.git", Ref: cfg.Ref{Kind: cfg.Branch, Name: "main"}, Commit: commitA})
+	entries := append(l.Entries, &Entry{Name: "iam-team", Repo: "git@github.com:acme/iam-ctx.git", Ref: config.Ref{Kind: config.Branch, Name: "main"}, Commit: commitA})
 	got, err := Format(entries, c)
 	if err != nil {
 		t.Fatal(err)
@@ -93,9 +93,9 @@ func TestARemovedSource(t *testing.T) {
 }
 
 func TestFormat(t *testing.T) {
-	c := config(t, "sources:\n  s: {repo: 'git@github.com:a/b.git', tag: '1.10'}\n")
+	c := parseConfig(t, "sources:\n  s: {repo: 'git@github.com:a/b.git', tag: '1.10'}\n")
 	t.Run("text that YAML would read as a number", func(t *testing.T) {
-		e := &Entry{Name: "s", Repo: "git@github.com:a/b.git", Ref: cfg.Ref{Kind: cfg.Tag, Name: "1.10"}, Commit: commitA}
+		e := &Entry{Name: "s", Repo: "git@github.com:a/b.git", Ref: config.Ref{Kind: config.Tag, Name: "1.10"}, Commit: commitA}
 		data, err := Format([]*Entry{e}, c)
 		if err != nil {
 			t.Fatal(err)
@@ -110,9 +110,9 @@ func TestFormat(t *testing.T) {
 		entry Entry
 		want  string
 	}{
-		{"a short commit", Entry{Name: "s", Repo: "x", Ref: cfg.Ref{Kind: cfg.Tag, Name: "v1"}, Commit: "1a2b3c"}, "not a full commit ID"},
+		{"a short commit", Entry{Name: "s", Repo: "x", Ref: config.Ref{Kind: config.Tag, Name: "v1"}, Commit: "1a2b3c"}, "not a full commit ID"},
 		{"no ref", Entry{Name: "s", Repo: "x", Commit: commitA}, "branch, tag or rev is missing"},
-		{"no repo", Entry{Name: "s", Ref: cfg.Ref{Kind: cfg.Tag, Name: "v1"}, Commit: commitA}, "repo is missing"},
+		{"no repo", Entry{Name: "s", Ref: config.Ref{Kind: config.Tag, Name: "v1"}, Commit: commitA}, "repo is missing"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := Format([]*Entry{&tt.entry}, c); err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -164,7 +164,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestBrokenEntriesAreNotWrittenBack(t *testing.T) {
-	c := config(t, "sources:\n  bad: {repo: 'git@github.com:a/bad.git', branch: main}\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
+	c := parseConfig(t, "sources:\n  bad: {repo: 'git@github.com:a/bad.git', branch: main}\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
 	data := "schema: ctxtra/lock/v1\nsources:\n" +
 		"  bad: {repo: 'git@github.com:a/bad.git', branch: main, commit: " + commitA + ", accepted: today}\n" +
 		"  ok: {repo: 'git@github.com:a/ok.git', branch: main, commit: " + commitB + "}\n"
@@ -179,7 +179,7 @@ func TestBrokenEntriesAreNotWrittenBack(t *testing.T) {
 
 	// Replaced by a new entry, as source update does, the lock is written
 	// and reads back the same.
-	entries := []*Entry{{Name: "bad", Repo: "git@github.com:a/bad.git", Ref: cfg.Ref{Kind: cfg.Branch, Name: "main"}, Commit: commitB}}
+	entries := []*Entry{{Name: "bad", Repo: "git@github.com:a/bad.git", Ref: config.Ref{Kind: config.Branch, Name: "main"}, Commit: commitB}}
 	entries = append(entries, l.Entry("ok"))
 	out, err := Format(entries, c)
 	if err != nil {
@@ -194,7 +194,7 @@ func TestBrokenEntriesAreNotWrittenBack(t *testing.T) {
 	}
 
 	t.Run("a broken entry of a removed source", func(t *testing.T) {
-		c := config(t, "sources:\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
+		c := parseConfig(t, "sources:\n  ok: {repo: 'git@github.com:a/ok.git', branch: main}\n")
 		out, err := Format(l.Entries, c)
 		if err != nil || strings.Contains(string(out), "bad") {
 			t.Errorf("Format = %s, %v; want the entry dropped", out, err)
@@ -203,7 +203,7 @@ func TestBrokenEntriesAreNotWrittenBack(t *testing.T) {
 }
 
 func TestCompare(t *testing.T) {
-	locked := &Entry{Name: "iam-team", Repo: "git@github.com:acme/iam-ctx.git", Ref: cfg.Ref{Kind: cfg.Branch, Name: "main"},
+	locked := &Entry{Name: "iam-team", Repo: "git@github.com:acme/iam-ctx.git", Ref: config.Ref{Kind: config.Branch, Name: "main"},
 		Subdir: "teams/billing", Commit: commitA}
 	tests := []struct {
 		name   string
@@ -221,7 +221,7 @@ func TestCompare(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := config(t, "sources:\n  iam-team: "+tt.source+"\n")
+			c := parseConfig(t, "sources:\n  iam-team: "+tt.source+"\n")
 			got := Compare(locked, c.Source("iam-team"))
 			if got != tt.want {
 				t.Errorf("Compare = %+v, want %+v", got, tt.want)

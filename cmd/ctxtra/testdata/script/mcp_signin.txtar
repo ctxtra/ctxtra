@@ -31,7 +31,7 @@ stderr 'already signed in to https://127.0.0.1:[0-9]+ as linear_work'
 stderr 'private window'
 
 # The proxy calls the tool with the stored token.
-exec ctxtra binding add work --dir '~/dev/**' --mcp linear_work
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server linear_work
 mkdir dev/app
 mcp dev/app linear_work__list_issues_073b9f
 stdout '^tool linear_work__list_issues_[0-9a-f]{6}:'

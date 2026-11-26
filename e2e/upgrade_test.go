@@ -87,7 +87,7 @@ func upgraded(t *testing.T, a Agent, c fixture.Client, carry int, shares []int, 
 			continue
 		}
 		dropped = dropped || slices.ContainsFunc(e.Dropped, func(p string) bool { return strings.HasSuffix(p, "/ctx/"+last) })
-		told = told || slices.ContainsFunc(e.Problems, func(p string) bool { return strings.Contains(p, "run ctxtra setup") })
+		told = told || slices.ContainsFunc(e.Errors, func(p string) bool { return strings.Contains(p, "run ctxtra setup") })
 	}
 	if dropped != over || told != notice {
 		t.Errorf("ctxtra's log: %s dropped %v, want %v; told to run setup %v, want %v: %+v", last, dropped, over, told, notice, s.Log())

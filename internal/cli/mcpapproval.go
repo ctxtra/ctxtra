@@ -5,30 +5,34 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
-	"github.com/ctxtra/ctxtra/internal/paths"
 )
 
 func (a *app) removeMCPLeftover(ref string, dryRun bool) error {
-	if err := config.CheckMCPRef(ref); err != nil {
+	if err := checkServerRef(ref); err != nil {
 		return err
 	}
-	return config.WithLock(func() error {
-		cfg := config.Load(paths.ConfigPath(), newReader())
-		if cfg.MCPDeclared(ref) {
-			return fmt.Errorf("%s is a package definition; change its bindings or remove the source instead", ref)
+	return withLock(func() error {
+		env := loadEnv()
+		scope, server, _ := strings.Cut(ref, ":")
+		src := env.Catalog.Source(scope)
+		if src != nil {
+			m, errs := env.Catalog.Manifest(src)
+			switch {
+			case src.State != catalog.Active || len(errs) > 0:
+				return fmt.Errorf("cannot establish that %s is undeclared while source %s can't be read or its manifest has errors; fix it before cleanup", ref, scope)
+			case m != nil && m.MCPServer(server) != nil:
+				return fmt.Errorf("%s is declared by the source %s; change its bindings or remove the source instead", ref, scope)
+			}
 		}
-		scope, _, _ := strings.Cut(ref, "/")
-		manifest := config.Scheme + scope + "/" + config.MCPManifest
-		if cfg.Ignored() || slices.ContainsFunc(cfg.Problems, func(p string) bool { return strings.Contains(p, manifest) }) {
-			return fmt.Errorf("cannot establish that %s is undeclared while its config or manifest has errors; fix it before cleanup", ref)
+		if env.Fatal() != nil {
+			return fmt.Errorf("cannot establish that %s is undeclared while the config has errors; fix it before cleanup", ref)
 		}
 		if dryRun {
 			fmt.Fprintf(a.Out, "would delete leftover credentials of %s; nothing changed (--dry-run)\n", ref)
@@ -91,8 +95,8 @@ func (a *app) approveMCP(s upstream.Server) error {
 	if err != nil {
 		return err
 	}
-	if err := config.WithLock(func() error {
-		cur, ok := config.Load(paths.ConfigPath(), newReader()).MCPServer(s.ID)
+	if err := withLock(func() error {
+		cur, ok := findServer(s.ID)
 		if !ok || creds.Fingerprint(cur) != creds.Fingerprint(s) {
 			return fmt.Errorf("%s changed while you considered approval; nothing saved", s.ID)
 		}
@@ -116,26 +120,25 @@ func (a *app) requireMCPApproval(s upstream.Server) error {
 }
 
 func (a *app) mcpApprovalCmd(revoke bool) *cobra.Command {
-	verb, short := "approve", "Approve a pinned source's MCP definition without connecting"
+	verb, short := "approve", "Approve a repo source's MCP server definition without connecting"
 	if revoke {
 		verb, short = "revoke", "Withdraw approval without deleting credentials or provider grants"
 	}
 	return &cobra.Command{
 		Use: verb + " REF", Short: short, Args: exactly("REF"),
-		Example: "  ctxtra mcp " + verb + " team/build",
+		Example: "  ctxtra mcp " + verb + " team:build",
 		RunE: a.run(func(_ *cobra.Command, args []string) (result error) {
 			defer func() {
 				if result != nil {
 					result = exitCode(newSources(a.IO).fail("mcp "+verb, result))
 				}
 			}()
-			cfg := config.Load(paths.ConfigPath(), newReader())
-			s, ok := cfg.MCPServer(args[0])
+			s, ok := findServer(args[0])
 			if !ok {
 				return fmt.Errorf("no MCP server %q", args[0])
 			}
 			if !s.Pinned {
-				return fmt.Errorf("%s is config or trusted-path configuration: it needs no separate MCP approval", s.ID)
+				return fmt.Errorf("%s is a server of the config or of a dir source: it needs no approval", s.ID)
 			}
 			if !revoke {
 				if err := a.approveMCP(s); err != nil {

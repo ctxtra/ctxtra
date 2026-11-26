@@ -160,64 +160,6 @@ bindings:
 max-ctx-chars: 400000
 `
 
-// poc is the inlined config in the POC's format, for the session in
-// ~/work/mono/services/billing: bindings that apply only with another
-// profile or agent match no folder.
-func poc() string {
-	c := `schema: ctxtra/v1
-sources:
-  iam-team: {git: 'git@github.com:acme/iam-ctx.git', branch: main, commit: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b'}
-  obs-team: {git: 'https://github.com/acme/observability-ctx.git', branch: main, commit: '4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e'}
-  security: {git: 'git@github.com:acme/security-guidelines.git', branch: main, commit: '9f8e7d6c5b4a39281706f5e4d3c2b1a098765432'}
-  go-style: {git: 'https://github.com/someone/go-agent-guides.git', branch: main, commit: '0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c', check-updates: false}
-  billing-ctx: {git: 'git@github.com:acme/agent-context.git', branch: main, commit: '5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f'}
-  dotfiles: {trusted-path: ~/dev/dotfiles}
-mcp-servers:
-  linear: {url: 'https://mcp.linear.app/mcp'}
-bindings:
-  - name: me
-    match: {global: true}
-    instructions: [~/agent-context/me.md, '~/dev/dotfiles/agents/*.md', '!~/dev/dotfiles/agents/draft-*.md']
-    skills: ['~/dev/dotfiles/skills/*']
-  - name: iam
-    match: {dirs: [/nowhere/**]}
-    instructions: ['ctxtra://iam-team/docs/conventions/*.md', 'ctxtra://iam-team/docs/*.md', '!ctxtra://iam-team/docs/draft-*.md', '!ctxtra://iam-team/docs/testing.md']
-    skills: ['ctxtra://iam-team/skills/*']
-    mcp-servers: [iam-team/jira]
-  - name: iam-repos
-    match:
-      repos: [github.com/acme/iam-*, {remote: github.com/acme/mono, subpath: services/iam/**}, github.com/me/iam-playground]
-    instructions: ['ctxtra://iam-team/docs/conventions/*.md']
-  - name: obs
-    match: {repos: [github.com/acme/**]}
-    instructions: ['ctxtra://obs-team/docs/conventions/*.md', 'ctxtra://obs-team/runbooks/*.md']
-  - name: billing
-    match: {repos: [{remote: github.com/acme/mono, subpath: services/billing/**}]}
-    instructions: ['ctxtra://iam-team/services/billing.md']
-    skills: ['ctxtra://billing-ctx/teams/billing/skills/*']
-  - name: security
-    match: {dirs: [~/work/**], repos: [github.com/acme/**]}
-    instructions: ['ctxtra://security/guidelines/*.md']
-  - name: review
-    match: {global: true}
-    skills: ['~/dev/dotfiles/skills/review/*']
-  - name: go
-    match: {dirs: [/nowhere/**]}
-    instructions: [go-notes.md, 'ctxtra://go-style/go/*.md']
-    skills: ['~/dev/dotfiles/skills/go-*']
-  - name: go-work
-    match: {repos: [github.com/acme/**]}
-    instructions: [go-notes.md, 'ctxtra://go-style/go/*.md']
-    skills: ['~/dev/dotfiles/skills/go-*']
-  - name: tracker
-    match: {dirs: [~/work/**]}
-    mcp-servers: [linear]
-budget:
-  max-chars: 400000
-`
-	return c
-}
-
 var demoProfiles = []string{"observability"}
 
 // contentChars counts the text of the files and skills of res.
@@ -231,7 +173,7 @@ func contentChars(res *Result) int {
 
 func TestDemoConfig(t *testing.T) {
 	d := newDemo(t)
-	demoFile, err := os.ReadFile("../cfg/testdata/demo.yaml")
+	demoFile, err := os.ReadFile("../config/testdata/demo.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,34 +181,37 @@ func TestDemoConfig(t *testing.T) {
 	t.Run("the demo as written", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "tracker")
-		// Repo sets and collections come later: the repo-sets entries of
-		// iam-repos and go-work are errors that match nothing, and no
-		// binding with collections applies.
-		if len(res.Errors) != 2 || !strings.Contains(res.Errors[0].Error(), "binding iam-repos: repo-sets iam-team:services can't be read: repo sets are not implemented yet") ||
-			!strings.Contains(res.Errors[1].Error(), "binding go-work: repo-sets acme") {
-			t.Errorf("errors %v", res.Errors)
+		// Repo sets, collections, tag, rev and subdir are not implemented
+		// yet: the sources obs-team, security and billing-ctx are errors
+		// and add nothing, the repo-sets entries of iam-repos and go-work
+		// are errors that match nothing, and no binding with collections
+		// applies.
+		var errs []string
+		for _, e := range res.Errors {
+			errs = append(errs, e.Err.Msg)
 		}
-		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md",
-			"alerts.md", "capacity.md", "errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md")
-		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
+		eq(t, "errors", errs, "tag is not implemented yet; follow a branch", "rev is not implemented yet; follow a branch",
+			"subdir is not implemented yet", "repo-sets iam-team:services can't be read: repo sets are not implemented yet; the entry matches nothing",
+			"repo-sets acme can't be read: repo sets are not implemented yet; the entry matches nothing")
+		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "billing.md")
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "go", "sql")
 		eq(t, "servers", served(res), "linear")
 		if s := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
 			t.Errorf("iam-dev: %s", s.Why)
 		}
 	})
 
-	t.Run("inlined, the same files as the POC", func(t *testing.T) {
+	t.Run("inlined", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", inlined), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
-		noErrors(t, res)
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "go-work", "tracker")
-		old, _ := Session(d.session, d.config(t, "poc.yaml", poc()))
-		for _, p := range old.Problems {
-			t.Errorf("POC: %s", p)
+		// The sources with tag, rev and subdir add nothing yet.
+		if errs := errorsOf(res, yamlx.BrokenSource); len(errs) != 3 || len(res.Errors) != 3 {
+			t.Errorf("errors %v", res.Errors)
 		}
-		eq(t, "files", bases(res.Files), bases(old.Files)...)
-		eq(t, "skills", skillNames(res), skillNames(old)...)
-		if n, o := contentChars(res), contentChars(old); n != o || n < 40000 {
-			t.Errorf("%d characters, the POC %d", n, o)
+		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "billing.md", "go-notes.md", "style.md", "testing.md")
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "go", "sql")
+		if n := contentChars(res); n < 20000 {
+			t.Errorf("%d characters", n)
 		}
 		if errs := errorsOf(res, yamlx.OverCapacity); len(errs) != 0 {
 			t.Errorf("over capacity: %v", errs)
@@ -280,7 +225,7 @@ func TestDemoConfig(t *testing.T) {
 // git-only measures alone; repository-known leaves it out.
 func BenchmarkResolve(b *testing.B) {
 	d := newDemo(b)
-	demoFile, err := os.ReadFile("../cfg/testdata/demo.yaml")
+	demoFile, err := os.ReadFile("../config/testdata/demo.yaml")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -309,14 +254,6 @@ func BenchmarkResolve(b *testing.B) {
 	b.Run("git-only", func(b *testing.B) {
 		for b.Loop() {
 			gitrepo.Identify(d.session)
-		}
-	})
-	b.Run("poc", func(b *testing.B) {
-		path := d.config(b, "poc.yaml", poc())
-		for b.Loop() {
-			if res, _ := Session(d.session, path); len(res.Files) == 0 {
-				b.Fatal("no files")
-			}
 		}
 	})
 }

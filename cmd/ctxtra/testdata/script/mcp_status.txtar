@@ -21,11 +21,11 @@ exec ctxtra mcp status other
 stdout 'no MCP servers are bound to ~/other'
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [mcptest, -delay, 3s]}
   fast: {command: [mcptest]}
 bindings:
   - name: app
-    match: {dirs: ['~/dev/**']}
+    location: {dirs: ['~/dev/**']}
     mcp-servers: [pg, fast]

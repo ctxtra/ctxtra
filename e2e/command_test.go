@@ -10,13 +10,13 @@ import (
 	"github.com/ctxtra/ctxtra/e2e/mock"
 )
 
-const commandConfig = `schema: ctxtra/v1
+const commandConfig = `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     skills: [~/skills/deploy, ~/skills/review]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     skills: [~/skills/other]
 `
 

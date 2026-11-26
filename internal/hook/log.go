@@ -21,9 +21,8 @@ type Entry struct {
 	Repo      string   `json:"repo,omitempty"`
 	Files     []string `json:"files,omitempty"`
 	Skills    []string `json:"skills,omitempty"`
-	Missing   []string `json:"missing,omitempty"`
 	Dropped   []string `json:"dropped,omitempty"`
-	Problems  []string `json:"problems,omitempty"`
+	Errors    []string `json:"errors,omitempty"`
 	Chars     int      `json:"chars"`
 	Source    string   `json:"source,omitempty"`
 	AgentType string   `json:"agent_type,omitempty"`
@@ -36,8 +35,10 @@ type Entry struct {
 }
 
 func newEntry(ts, harness, event string, p payload, res *resolve.Result, chars int) Entry {
-	e := Entry{Ts: ts, Harness: harness, Event: event, Dir: res.Dir, Missing: res.Missing,
-		Problems: res.Problems, Chars: chars, Source: p.Source, AgentType: p.AgentType}
+	e := Entry{Ts: ts, Harness: harness, Event: event, Dir: res.Dir, Chars: chars, Source: p.Source, AgentType: p.AgentType}
+	for _, err := range res.Errors {
+		e.Errors = append(e.Errors, err.Error())
+	}
 	if res.Repo != nil {
 		e.Repo = res.Repo.Root
 	}
@@ -67,7 +68,9 @@ func LastRuns(dir, repo string) []Entry {
 			if e.Kind != "" {
 				return
 			}
-			if (repo != "" && e.Repo == repo) || (repo == "" && e.Dir == dir) {
+			// A session finds its repository only when a binding needs
+			// it, so a run in the same folder counts too.
+			if (repo != "" && e.Repo == repo) || e.Dir == dir {
 				last[e.Harness+" "+e.Event] = e
 			}
 		})

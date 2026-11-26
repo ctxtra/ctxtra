@@ -3,13 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/update"
@@ -28,8 +28,8 @@ func (a *app) checkUpdatesCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "check-updates",
 		Short: "Check for a new ctxtra release and new commits of sources",
-		Long: `Check for a new ctxtra release (unless the config has check-updates: false),
-and for new commits of every pinned source unless it has check-updates: false, and save
+		Long: `Check for a new ctxtra release (unless the config has check-releases: false),
+and for new commits of every repo source unless it has check-updates: false, and save
 the results for sessions. It reads only version numbers and commit IDs: it
 fetches no files, accepts nothing, and git never asks for credentials. Sessions
 run this check in the background at most once an hour; run it to check now. It exits
@@ -39,14 +39,14 @@ with 1 when a check fails.`,
 		GroupID: "inspect",
 		RunE: a.run(func(*cobra.Command, []string) error {
 			source.NoPrompt = true
-			cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+			env := loadEnv()
 			if background {
 				ctx, cancel := context.WithTimeout(context.Background(), backgroundTimeout)
 				defer cancel()
-				_, _ = update.Run(ctx, cfg, a.version, &sel)
+				_, _ = update.Run(ctx, update.FromConfig(env.Config), a.version, &sel)
 				return nil
 			}
-			return code(a.checkUpdates(cfg))
+			return code(a.checkUpdates(env))
 		}),
 	}
 	// What the session that started the check claimed.
@@ -60,19 +60,20 @@ with 1 when a check fails.`,
 	return c
 }
 
-func (a *app) checkUpdates(cfg *config.Config) int {
-	for _, p := range cfg.Problems {
-		fmt.Fprintf(a.Err, "warning: %s\n", p)
+func (a *app) checkUpdates(env *resolve.Env) int {
+	if err := env.Fatal(); err != nil {
+		return failEnv(a.IO, "check-updates", false, err)
 	}
+	for _, e := range env.Errors {
+		fmt.Fprintf(a.Err, "warning: %s\n", e)
+	}
+	checks := update.FromConfig(env.Config)
 	switch {
-	case cfg.Ignored():
-		fmt.Fprintln(a.Out, "nothing checked: the config can't be used (see the warning above)")
-		return 1
-	case !cfg.CheckCtxtra && len(update.Sources(cfg)) == 0:
-		fmt.Fprintln(a.Out, "nothing to check: the config has check-updates: false, and no source has update checks enabled")
+	case !checks.Releases && len(checks.Sources) == 0:
+		fmt.Fprintln(a.Out, "nothing to check: the config has check-releases: false, and no repo source has update checks on")
 		return 0
 	}
-	results, werr := update.Run(context.Background(), cfg, a.version, nil)
+	results, werr := update.Run(context.Background(), checks, a.version, nil)
 	n := 0
 	if werr != nil {
 		fmt.Fprintf(a.Err, "ctxtra check-updates: can't save the results in %s, so sessions won't show them: %v\n", paths.Tilde(state.Path()), werr)
@@ -92,13 +93,18 @@ func (a *app) checkUpdates(cfg *config.Config) int {
 		}
 		if r.Release {
 			st.Ctxtra = state.Release{Check: state.Check{Checked: r.At}, Latest: r.Latest}
-			fmt.Fprintf(a.Out, "ctxtra %s: %s\n", a.version, releaseStatus(cfg, st, a.version))
+			fmt.Fprintf(a.Out, "ctxtra %s: %s\n", a.version, releaseStatus(checks, st, a.version))
 			continue
 		}
-		src, _ := cfg.Source(r.Name)
-		e := st.Get(source.ID(src.Remote()), src.Remote(), src.Branch)
+		i := slices.IndexFunc(checks.Sources, func(s update.Source) bool { return s.Name == r.Name })
+		src := checks.Sources[i]
+		e := st.Get(source.ID(src.Remote), src.Remote, src.Branch)
 		e.Head, e.Checked, e.Error = r.Latest, r.At, ""
-		fmt.Fprintf(a.Out, "%s: %s\n", src.Name, checkStatus(src, e))
+		accepted := ""
+		if le := env.Lock.Entry(src.Name); le != nil {
+			accepted = le.Commit
+		}
+		fmt.Fprintf(a.Out, "%s: %s\n", src.Name, checkStatus(src.Name, accepted, e))
 	}
 	return n
 }
@@ -116,11 +122,11 @@ func lastWorked(c state.Check, found string) string {
 const timeFormat = "2006-01-02 15:04"
 
 // releaseStatus says what doctor knows about ctxtra's releases.
-func releaseStatus(cfg *config.Config, st state.State, version string) string {
+func releaseStatus(cfg update.Config, st state.State, version string) string {
 	r := st.Ctxtra
 	switch {
-	case !cfg.CheckCtxtra:
-		return "release check off (check-updates: false)"
+	case !cfg.Releases:
+		return "release check off (check-releases: false)"
 	case r.Error != "":
 		return "the last check for a new release failed: " + r.Error + lastWorked(r.Check, "latest release "+r.Latest)
 	case r.Checked.IsZero() && !update.IsRelease(version):
@@ -143,8 +149,8 @@ func releaseStatus(cfg *config.Config, st state.State, version string) string {
 }
 
 // releaseInfo is what doctor --json knows about ctxtra's releases.
-func releaseInfo(cfg *config.Config, st state.State, version string) map[string]any {
-	m := map[string]any{"version": version, "check_updates": cfg.CheckCtxtra}
+func releaseInfo(cfg update.Config, st state.State, version string) map[string]any {
+	m := map[string]any{"version": version, "check_releases": cfg.Releases}
 	r := st.Ctxtra
 	if r.Latest != "" {
 		m["latest"] = r.Latest
@@ -158,14 +164,14 @@ func releaseInfo(cfg *config.Config, st state.State, version string) map[string]
 	return m
 }
 
-// checkStatus says what the update checks know about the pinned source
-// src, which has check-updates on.
-func checkStatus(src config.Source, e state.Source) string {
+// checkStatus says what the update checks know about the repo source
+// name, with the accepted commit accepted, which has check-updates on.
+func checkStatus(name, accepted string, e state.Source) string {
 	switch {
 	case e.Error != "":
 		found := "no new commits"
 		switch e.Head {
-		case src.Commit:
+		case accepted:
 		case e.Dismissed:
 			found = "the dismissed commit"
 		default:
@@ -177,10 +183,10 @@ func checkStatus(src config.Source, e state.Source) string {
 	}
 	checked := " (checked " + e.Checked.Format(timeFormat) + ")"
 	switch e.Head {
-	case src.Commit:
+	case accepted:
 		return "no new commits" + checked
 	case e.Dismissed:
 		return "no new commits but the dismissed one" + checked
 	}
-	return fmt.Sprintf("new commits%s; run `ctxtra source update %s` to review them", checked, src.Name)
+	return fmt.Sprintf("new commits%s; run `ctxtra source update %s` to review them", checked, name)
 }

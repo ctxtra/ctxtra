@@ -52,12 +52,14 @@ func TestMuseBackgroundConfig(t *testing.T) {
 	}
 	chosen, head := repo("chosen")
 	other, otherHead := repo("other")
-	cfg := func(repo, commit string) []byte {
-		return []byte(fmt.Sprintf("schema: ctxtra/v1\ncheck-updates: false\nsources:\n  team: {local-git: %q, commit: %q}\n", repo, commit))
+	cfg := func(repo string) []byte {
+		return []byte(fmt.Sprintf("schema: ctxtra/config/v1\ncheck-releases: false\nsources:\n  team: {repo: %q, branch: main}\n", repo))
 	}
 	custom := filepath.Join(home, "custom", "ctxtra", "config.yaml")
-	write(custom, cfg(chosen, head))
-	write(filepath.Join(home, ".config/ctxtra/config.yaml"), cfg(other, otherHead))
+	write(custom, cfg(chosen))
+	write(filepath.Join(home, ".config/ctxtra/config.yaml"), cfg(other))
+	write(filepath.Join(home, "custom/ctxtra/ctxtra.lock"), []byte(fmt.Sprintf("schema: ctxtra/lock/v1\nsources:\n  team:\n    repo: %q\n    branch: main\n    commit: %s\n", chosen, head)))
+	write(filepath.Join(home, ".config/ctxtra/ctxtra.lock"), []byte(fmt.Sprintf("schema: ctxtra/lock/v1\nsources:\n  team:\n    repo: %q\n    branch: main\n    commit: %s\n", other, otherHead)))
 	write(filepath.Join(home, "tmp", ".keep"), nil)
 	env = append(env, "XDG_CONFIG_HOME="+filepath.Join(home, "custom"))
 	run(home, ctxtraBin, "setup", "--agent", "muse")

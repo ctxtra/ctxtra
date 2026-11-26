@@ -24,7 +24,7 @@ exec ctxtra setup --remove --agent antigravity
 grep '"other"' .gemini/config/mcp_config.json
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [pg-mcp]}
 -- original.json --

@@ -23,9 +23,8 @@ func TestOutputPerAgent(t *testing.T) {
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "")
 	testenv.Write(t, filepath.Join(h, "a.md"), "Rule A <&>")
 	testenv.Skill(t, filepath.Join(h, "s", "deploy"), "description: Deploy it.")
-	good := "schema: ctxtra/v1\ninclude: [b.yaml]\n"
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/a.md], skills: [~/s/deploy]}\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/a.md], skills: [~/s/deploy]}\n"
+	good := "schema: ctxtra/config/v1\n" + bindingsYAML
 	testenv.Config(t, h, good)
 
 	// As set up: Claude's hooks have slots, which other agents ignore.
@@ -83,7 +82,7 @@ func TestOutputPerAgent(t *testing.T) {
 	// A broken config adds nothing, tells the user, and still answers with
 	// valid JSON.
 	testenv.Config(t, h, "schema: [")
-	if m := run("codex", "SessionStart", input); len(m) != 1 || !strings.Contains(m["systemMessage"].(string), "1 problem (run ctxtra doctor)") {
+	if m := run("codex", "SessionStart", input); len(m) != 1 || !strings.Contains(m["systemMessage"].(string), "1 error (run ctxtra doctor)") {
 		t.Errorf("broken config: %v", m)
 	}
 	// Malformed input adds nothing, even with a working config.
@@ -112,9 +111,8 @@ func TestClaudeHookUnderDevin(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "")
 	testenv.Write(t, filepath.Join(h, "a.md"), "Rule A")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/a.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/a.md]}\n"
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n"+bindingsYAML)
 	d, _ := registry.Get("devin")
 	m, _ := d.(agent.Missing)
 	cmd, _ := json.Marshal(agent.Command("/bin/ctxtra", "devin", "SessionStart", m))
@@ -149,9 +147,8 @@ func TestClaudeHookUnderCursor(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "")
 	testenv.Write(t, filepath.Join(h, "a.md"), "Rule A")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/a.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/a.md]}\n"
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n"+bindingsYAML)
 	cmd, _ := json.Marshal(agent.Command("/bin/ctxtra", "cursor", "sessionStart", nil))
 	testenv.Write(t, filepath.Join(h, ".cursor", "hooks.json"),
 		`{"version": 1, "hooks": {"sessionStart": [{"command": `+string(cmd)+`}]}}`)
@@ -234,9 +231,8 @@ func TestHermesSlots(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "")
 	testenv.Write(t, filepath.Join(h, "big.md"), strings.Repeat("big line of text\n", 2000))
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/big.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/big.md]}\n"
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n"+bindingsYAML)
 	run := func(extra string) map[string]any {
 		t.Helper()
 		var out bytes.Buffer
@@ -272,7 +268,7 @@ func TestReleaseNotice(t *testing.T) {
 	h := testenv.Home(t)
 	t.Setenv(update.EnvOff, "")
 	testenv.Write(t, filepath.Join(h, "a.md"), "Rule A")
-	testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/a.md]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: a, instructions: [~/a.md]}\n")
 	if err := state.UpdateRelease(func(r *state.Release) { r.Latest = "v9.9.9" }); err != nil {
 		t.Fatal(err)
 	}

@@ -42,8 +42,8 @@ func TestMCPClientContract(t *testing.T) {
 			if !ok {
 				t.Fatalf("no MCP entry of ctxtra's in %s", m.MCP().MCPPath())
 			}
-			testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  pg: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
-				"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [pg]}\n")
+			testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  pg: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
+				"bindings:\n  - {name: all, mcp-servers: [pg]}\n")
 			cmd := exec.Command(argv[0], append(argv[1:], "--from-a-later-version")...)
 			cmd.Dir = h
 			cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",

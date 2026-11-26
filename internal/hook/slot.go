@@ -71,7 +71,6 @@ var endLock = func(unlock func()) {}
 type snapshot struct {
 	Parts   []string  `json:"parts"`
 	Summary string    `json:"summary,omitempty"`
-	Missing []string  `json:"missing,omitempty"`
 	Made    time.Time `json:"made"`
 	Entry   *Entry    `json:"entry,omitempty"`
 }
@@ -87,7 +86,7 @@ type seat struct {
 func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, slot int, ts, event string, p payload, in agent.Input, dir string, out, errOut io.Writer) {
 	resolveNow := func() (snapshot, Entry) {
 		res, e := session(a, d, version, ts, event, p, dir)
-		return snapshot{Parts: d.Chunks(res), Summary: agent.Summary(res), Missing: res.Missing}, e
+		return snapshot{Parts: d.Chunks(res), Summary: agent.Summary(res)}, e
 	}
 	var snap snapshot
 	var resolved *Entry // the log entry, when this slot resolved the session
@@ -133,7 +132,7 @@ func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, 
 		}
 		if slot == 0 {
 			if key != "" {
-				resolved.Problems = append(slices.Clip(resolved.Problems), "the hooks can't share the session's text, each resolved it: "+err.Error())
+				resolved.Errors = append(slices.Clip(resolved.Errors), "the hooks can't share the session's text, each resolved it: "+err.Error())
 			}
 			logEntry(*resolved)
 		}
@@ -144,9 +143,6 @@ func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, 
 	}
 	if slot == 0 {
 		summary = snap.Summary
-		for _, m := range snap.Missing {
-			fmt.Fprintf(errOut, "ctxtra: bound file not found: %s\n", m)
-		}
 	}
 	write(out, sl.SlotAnswer(event, text, summary))
 }

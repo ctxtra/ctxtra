@@ -15,13 +15,12 @@ exec ctxtra setup --remove --agent muse
 ! grep '"ctxtra-proxy":' ctx/muse/settings.json
 
 -- ctx/ctxtra/config.yaml --
-schema: ctxtra/v1
-check-updates: false
+schema: ctxtra/config/v1
+check-releases: false
 mcp-servers:
   pg: {command: [pg-mcp]}
 bindings:
   - name: custom
-    match: {global: true}
     instructions: [custom.md]
 -- ctx/ctxtra/custom.md --
 CUSTOM_CONFIG_MARKER

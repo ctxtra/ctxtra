@@ -27,8 +27,8 @@ stdout 'is already set up for'
 ! exec ctxtra doctor
 stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.codex/config.toml\)'
 
-# A server with a new env-pass name: Codex must pass it too.
-exec ctxtra mcp add db --env-pass DBHOST -- mcptest
+# A server with a new pass-env name: Codex must pass it too.
+exec ctxtra mcp add db --pass-env DBHOST -- mcptest
 stdout 'run ctxtra setup: ctxtra''s MCP proxy in codex needs it'
 ! exec ctxtra doctor
 stdout 'the ctxtra MCP proxy doesn''t pass DBHOST to local servers; run ctxtra setup --agent codex'
@@ -68,9 +68,9 @@ exec ctxtra setup --remove --agent codex
 cmp .codex/config.toml original.toml
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
-  pg: {command: [pg-mcp], env-pass: [PGHOST]}
+  pg: {command: [pg-mcp], pass-env: [PGHOST]}
 -- original.toml --
 model = "gpt-6.1-sol"
 

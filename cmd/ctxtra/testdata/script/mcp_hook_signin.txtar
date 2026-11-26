@@ -22,12 +22,12 @@ runhook claude-code SessionStart other
 ! stdout 'needs sign-in'
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   linear_work: {url: 'https://mcp.example.invalid/mcp'}
 bindings:
   - name: work
-    match: {dirs: ['~/dev/**']}
+    location: {dirs: ['~/dev/**']}
     instructions: [work.md]
     mcp-servers: [linear_work]
 -- .config/ctxtra/work.md --

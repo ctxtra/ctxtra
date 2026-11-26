@@ -45,7 +45,7 @@ so that every agent gets them. Do every step; don't skip the files of an agent.
      wants its rules in every session.
 5. Show the user the new file and, for each old file, which rules moved, which were merged, and which stay.
    Wait for their OK.
-6. Write the file, and bind it to every session: `ctxtra binding add NAME --global --instruction FILE`
+6. Write the file, and bind it to every session: `ctxtra binding add NAME --instruction FILE`
    (rule 1). Check with `ctxtra context files` that a session gets it.
 7. Ask whether to remove the moved rules from the old files. Recommend it, and say why in short: it saves
    tokens, and more importantly the agents don't get two copies that drift apart once the user changes
@@ -61,18 +61,17 @@ so that every agent gets them. Do every step; don't skip the files of an agent.
 
 ## Add or change a binding
 
-1. Run `ctxtra doctor` to find the config and the binding files it includes. A binding can be in the
-   config or in an included binding file. Edit the file where it is.
-2. Choose `match` by what the user means: `global: true` for every session; `repos` for a repository
-   wherever it is cloned, in every worktree; `dirs` for a folder on this computer. Check the pattern
-   rules in `ctxtra help config`: `x/**` also matches `x`, and a pattern without `/**` matches only that
-   folder.
+1. Run `ctxtra doctor` to find the one config. Bindings live only there.
+2. Choose `location` by what the user means: omit it for every session; use `repos` for repositories
+   wherever cloned, including worktrees, or `dirs` for folders. Both are alternatives inside location.
+   `agents` is an additional condition; preview it with `ctxtra context explain DIR --agent ID`.
+   Profile selection, collections and repo sets are not available yet.
 3. List files and skill folders by name or use quoted glob patterns. Use `ctxtra context files` or
    `ctxtra context show` to check the expansion. Local globs include new matching files immediately; pinned-source globs change
    after accepting a commit. A skill folder needs a `SKILL.md` with a `description` in its frontmatter.
    To leave some out, add an entry that starts with `!`, quoted: `'!agents/drafts/**'`.
-4. A new binding in the config: `ctxtra binding add NAME --global --instruction FILE --skill DIR`, with
-   `--dir PATTERN` or `--repo PATTERN` instead of `--global` (the flags can repeat). Quote patterns, or the
+4. A new binding in the config: `ctxtra binding add NAME --instruction FILE --skill DIR`, with
+   `--dir PATTERN` or `--repo PATTERN` to limit its location (the flags can repeat). Quote patterns, or the
    shell expands them. It writes only a
    binding whose files exist and are trusted, and says what is wrong otherwise. For anything else, edit
    the YAML: read `ctxtra help config` first.
@@ -83,20 +82,19 @@ so that every agent gets them. Do every step; don't skip the files of an agent.
 
 1. Give the warning from "Remote repositories" in `SKILL.md`, and offer to read the repository first.
 2. Tell the user that sessions check for new commits by default (`references/updates.md`).
-   With their OK, `ctxtra source add git URL --include PATH`, and `--check-updates=false` if they want checks off.
-   Without `--include`, it lists the source's binding files; nothing reaches sessions until one is
-   included (`ctxtra binding-file add ctxtra://SOURCE/PATH`) or the user's own bindings reference its files.
-3. If the user doesn't want all of the maintainer's binding (a `match` that is too wide, a skill they don't
-   want), they can bind only some files themselves. See case 4 in `ctxtra help scenarios`.
+   With their OK, run `ctxtra source add --repo URL`, with `--check-updates=false` if they want checks off.
+   It writes the source and its accepted commit in `ctxtra.lock`, but adds no binding.
+3. Bind the paths the user wants with `ctxtra binding add NAME --instruction SOURCE:PATH --skill SOURCE:DIR`,
+   plus the required location flags. Source manifests cannot target sessions.
 4. With checks off, tell the user to run `ctxtra source update` in their terminal now and then.
 
 ## A session didn't get a file, or got the wrong one
 
 1. `ctxtra context explain DIR` in the session folder: does the binding match, and why not. Check for
-   dropped files too: `budget.max-chars` drops whole files from the end. `ctxtra context files DIR` lists
+   dropped files too: `max-ctx-chars` drops whole files from the end. `ctxtra context files DIR` lists
    what remains and names dropped files on stderr. Read `ctxtra help config` for the budget rules.
-2. `ctxtra doctor DIR`: problems (missing files, untrusted repositories, pinned commits not in the store),
-   dropped files, hook setup for the agent, and whether the hook ran in that folder. A `PROBLEM:` line that
+2. `ctxtra doctor DIR`: errors (missing files, untrusted repositories, pinned commits not in the store),
+   dropped files, hook setup for the agent, and whether the hook ran in that folder. A `ERROR:` line that
    names a binding can be about a binding that doesn't match DIR.
 3. Check the agent's limits in `ctxtra help agents`: files can also be dropped to fit the agent's
    capacity. The session-start message and hook log name them; `ctxtra doctor DIR` shows recent hook runs.
@@ -108,9 +106,8 @@ so that every agent gets them. Do every step; don't skip the files of an agent.
 
 ## Remove something
 
-- `ctxtra source remove NAME` removes a source and its binding files, and lists the lines of the user's
-  bindings that still use it. Fix those lines with the user.
-- `ctxtra binding-file remove ENTRY` removes one binding file from the config.
+- `ctxtra source remove NAME` removes a source and its lock entry, and reports bindings that still use it.
+  Fix those references with the user.
 - `ctxtra binding remove NAME` removes one binding of the config.
 - To stop ctxtra in all agents: `ctxtra setup --remove`.
 

@@ -5,7 +5,7 @@ Use `ctxtra mcp list --json` for the catalog and `ctxtra mcp status DIR` for a f
 missing tools, and for how long the last session's first tool list took. "waits up to" in its output is the
 agent's deadline, not the time it took. Status reads only local files and has no JSON flag.
 
-Config servers use bare identities; source servers use full references such as `work/linear`. Recovery hints and
+Config servers use bare identities; source servers use full references such as `work:linear`. Recovery hints and
 login/logout use that full reference. Tools retain the short prefix `linear__`. A same-prefix conflict keeps the
 first binding and never falls back to the other account. Check explain and status; do not guess from tool names.
 
@@ -16,9 +16,8 @@ grant connection approval. Show can connect or execute a server; list, status an
 An entry-wide tool permission covers servers bound later. A short-prefix rule can match different source accounts
 in different folders. Setup keeps native provider entries, so both native and ctxtra tools can appear.
 
-Source definitions live in root `mcp-servers.yaml`. Every source binding, including trusted-path, can name only its
-own bare server names. Your config can bind a full source reference without including its package bindings.
-There are no package settings or rename overrides. Do not edit pinned store files or copy tokens between identities.
+Source definitions live in top-level `ctxtra-source.yaml`. The manifest has `schema: ctxtra/source/v1` and an `mcp-servers` map. The user's config selects
+servers as `SOURCE:SERVER`. Source manifests never define bindings.
 
 Declarations with the same identity and target share credentials. Add reuses a matching stored record without
 authorization. It asks only for declared secret names that have no stored value, and adds them to the record. It
@@ -27,7 +26,7 @@ after adding the definition to change shared credentials. Use different names fo
 
 Muse clears the hook and MCP environment. Setup records the four XDG folder values in both entries.
 After changing one, run `ctxtra setup --agent muse`; `doctor` reports stale values. Muse cannot inherit
-shell proxy/certificate settings, Linux keychain variables, or local servers' `env-pass` values.
+shell proxy/certificate settings, Linux keychain variables, or local servers' `pass-env` values.
 Do not copy secrets into its agent config. Use encrypted secret declarations. Start a new Muse session
 after sign-in, as with Codex. CLI diagnostics use the current shell's folders.
 

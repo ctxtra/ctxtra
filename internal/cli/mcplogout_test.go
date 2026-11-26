@@ -7,7 +7,7 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
@@ -15,12 +15,12 @@ import (
 func TestMCPLogoutUndeclaredSourceKeepsOtherConfigRegistration(t *testing.T) {
 	h := testenv.Home(t)
 	keyring.MockInit()
-	testenv.Config(t, h, "schema: ctxtra/v1\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	root := filepath.Join(h, "context")
-	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp}\n")
+	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp}\n")
 	other := filepath.Join(h, "other-config.yaml")
-	testenv.Write(t, other, "schema: ctxtra/v1\nsources:\n  work: {trusted-path: '"+root+"'}\n")
-	srv, ok := config.Load(other, newReader()).MCPServer("work/shared")
+	testenv.Write(t, other, "schema: ctxtra/config/v1\nsources:\n  work: {dir: '"+root+"'}\n")
+	srv, ok := serverIn(t, other, "work:shared")
 	if !ok {
 		t.Fatal("other config did not declare source server")
 	}
@@ -36,7 +36,7 @@ func TestMCPLogoutUndeclaredSourceKeepsOtherConfigRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if n := Run([]string{"mcp", "logout", "work/shared"}, IO{Out: &output, Err: &output}, "test"); n != 0 {
+	if n := Run([]string{"mcp", "logout", "work:shared"}, IO{Out: &output, Err: &output}, "test"); n != 0 {
 		t.Fatalf("logout failed: %s", &output)
 	}
 	r, err := store.Load(srv)

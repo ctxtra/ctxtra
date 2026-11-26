@@ -27,7 +27,8 @@ func setupNotices(w io.Writer) {
 			paths.Tilde(state.SetupsPath()))
 	}
 	bin := running()
-	mcp := setup.LoadMCP()
+	// A config that can't be used is reported where it is read.
+	mcp, _ := setup.LoadMCP()
 	var found []string
 	for _, a := range registry.All() {
 		known := setups.Known(a.Name(), a.ConfigPath())

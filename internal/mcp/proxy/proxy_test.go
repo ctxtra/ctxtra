@@ -276,7 +276,7 @@ func TestInstructions(t *testing.T) {
 		o.NeedsSignIn = func(s upstream.Server) bool { return s.Name == "linear" }
 	}, testServer(t, "pg"), remote)
 	got := s.cs.InitializeResult().Instructions
-	for _, want := range []string{"(pg, linear)", "run `ctxtra mcp status` in the session folder",
+	for _, want := range []string{"(pg, linear)", "run `ctxtra mcp status --agent test` in the session folder",
 		"linear needed sign-in at session start and had no tools then. If tools are still missing, the user runs `ctxtra mcp login linear`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("instructions %q lack %q", got, want)

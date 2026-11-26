@@ -88,7 +88,7 @@ func TestClientContract(t *testing.T) {
 				{"above", []int{50, 30, 30}},
 			} {
 				files := writeFiles(t, h, size.name, d, size.files)
-				res, _ := resolve.Session(dir, paths.ConfigPath())
+				res := loadEnv().Resolve(resolve.Input{Dir: dir})
 				d.Fit(res)
 				if dropped := len(res.Dropped) > 0; dropped != (size.name == "above") {
 					t.Fatalf("%s: %d of %d files over %s", size.name, len(res.Dropped), len(files), d.Over())
@@ -143,9 +143,9 @@ func TestClientContract(t *testing.T) {
 					if !slices.Equal(e.Dropped, dropped) {
 						t.Errorf("%s: log drops %v, want %v", name, e.Dropped, dropped)
 					}
-					told := slices.ContainsFunc(e.Problems, func(p string) bool { return strings.Contains(p, "run ctxtra setup") })
+					told := slices.ContainsFunc(e.Errors, func(p string) bool { return strings.Contains(p, "run ctxtra setup") })
 					if told != notice {
-						t.Errorf("%s: notice to run setup %v, want %v: %v", name, told, notice, e.Problems)
+						t.Errorf("%s: notice to run setup %v, want %v: %v", name, told, notice, e.Errors)
 					}
 				}
 			}
@@ -390,7 +390,7 @@ func writeFiles(t *testing.T, h, name string, d agent.Delivery, shares []int) []
 	if d.ChunkJSON {
 		part = chunk.JSON
 	}
-	cfg := "schema: ctxtra/v1\nbindings:\n  - name: contract\n    match: {global: true}\n    instructions:\n"
+	cfg := "schema: ctxtra/config/v1\nbindings:\n  - name: contract\n    instructions:\n"
 	var out []file
 	for i, share := range shares {
 		f := file{path: filepath.Join(h, "ctx", fmt.Sprintf("%s-%d.md", name, i))}

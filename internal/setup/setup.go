@@ -14,9 +14,9 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/state"
 )
 
@@ -30,18 +30,20 @@ type Options struct {
 
 // MCPConfig is what setup needs from the config about MCP servers.
 type MCPConfig struct {
-	EnvPass []string // every local server's env-pass names
+	EnvPass []string // every local server's pass-env names
 }
 
-// LoadMCP reads the config the way sessions do.
-func LoadMCP() MCPConfig {
-	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	cfg.LoadMCPCatalog()
+// LoadMCP reads the config the way sessions do. The error is the
+// resolve.FatalError of a config or lock that can't be used as a whole:
+// setup then knows nothing of its servers.
+func LoadMCP() (MCPConfig, error) {
+	env := resolve.Load(paths.ConfigPath(), registry.Names())
+	servers, _ := env.Catalog.AllServers()
 	m := MCPConfig{}
-	for _, s := range cfg.MCPServers {
+	for _, s := range servers {
 		m.EnvPass = append(m.EnvPass, s.EnvPass...)
 	}
-	return m
+	return m, env.Fatal()
 }
 
 // MCPKey is the key of an agent's MCP entry in setup.json.

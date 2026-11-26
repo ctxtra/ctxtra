@@ -6,23 +6,28 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
+	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/trust"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // Catalog is what the bindings of one config can reference.
 type Catalog struct {
-	config *cfg.Config
+	conf *config.Config
 	// file is the config file; base the folder of its real file, which
 	// relative paths in the config start from.
 	file, base string
@@ -31,6 +36,51 @@ type Catalog struct {
 	trust      *trust.Policy
 	// renamed is the config's name for a source's server, by SOURCE:SERVER.
 	renamed map[string]string
+	// trusted are the folders trusted with ctxtra source trust, read when
+	// a dir source's repository has remotes.
+	trusted     []state.Trusted
+	trustedErr  error
+	trustedRead bool
+	// store is the use of commits in ctxtra's store, shared by copies of
+	// the catalog.
+	store *storeUse
+}
+
+// storeUse is what a catalog marked as used in ctxtra's store. All marks
+// share one wait for a cleanup of the store; after one failed, every
+// commit not marked yet is refused at once.
+type storeUse struct {
+	marked   map[string]error
+	waitLeft time.Duration
+	busy     error
+}
+
+// touch is source.Touch; a variable for tests.
+var touch = source.Touch
+
+// use marks the accepted commit of s as used, before anything is read from
+// it: cleanup keeps what sessions use. It fails while cleanup owns the
+// store past the wait; the commit must then not be read.
+func (c *Catalog) use(s *Source) error {
+	if s.Live() || s.Top == "" {
+		return nil
+	}
+	gen := s.Top
+	if err, ok := c.store.marked[gen]; ok {
+		return err
+	}
+	err := c.store.busy
+	if err == nil {
+		start := time.Now()
+		err = touch(gen, max(c.store.waitLeft, 0))
+		c.store.waitLeft -= time.Since(start)
+		c.store.busy = err
+	}
+	if err != nil {
+		err = fmt.Errorf("source %s: ctxtra's store is being cleaned (%v); try again", s.Name, err)
+	}
+	c.store.marked[gen] = err
+	return err
 }
 
 // State is whether a source's content can be used on this machine.
@@ -52,7 +102,7 @@ const (
 
 // Source is a source of the config, with what this machine has of it.
 type Source struct {
-	*cfg.Source
+	*config.Source
 	State State
 	// Top is the folder that the source's paths start from, without
 	// symlinks: its accepted commit in ctxtra's store, under subdir, or the
@@ -64,9 +114,14 @@ type Source struct {
 	// there is none, or when the config's own errors say it.
 	Err *Error
 
+	// dir is a dir source's folder as the config names it, ~ expanded:
+	// the way its symlinks are checked on.
+	dir string
+
 	manifest     *manifest.Manifest
 	manifestErrs []*Error
 	manifestRead bool
+	manifestSize int
 }
 
 // Live reports whether the source is a folder read as it is on disk.
@@ -98,23 +153,21 @@ func (u *Unavailable) Error() string { return "source " + u.Source.Name + ": " +
 // New is the catalog of config c with lock l, for the config file at
 // configFile. It checks which sources this machine has, and reads nothing
 // else.
-func New(c *cfg.Config, l *lock.Lock, configFile string) *Catalog {
+func New(c *config.Config, l *lock.Lock, configFile string) *Catalog {
 	cat := &Catalog{
-		config:  c,
+		conf:    c,
 		file:    configFile,
 		base:    filepath.Dir(paths.Real(configFile)),
 		sources: map[string]*Source{},
 		renamed: map[string]string{},
+		store:   &storeUse{marked: map[string]error{}, waitLeft: source.TouchWait},
 	}
-	var roots []trust.Root
 	for _, s := range c.Sources {
 		src := cat.source(s, l)
 		cat.sources[s.Name] = src
 		cat.order = append(cat.order, src)
-		if src.State == Active && src.Live() {
-			roots = append(roots, trust.Root{Name: s.Name, Path: src.Top})
-		}
 	}
+	roots := cat.checkRoutes()
 	// ctxtra's store is read only through SOURCE:PATH, which keeps a
 	// source's files to the accepted commit.
 	cat.trust = trust.New(roots, trust.Root{Name: "ctxtra's store (use SOURCE:PATH)", Path: source.StoreDir()})
@@ -145,7 +198,7 @@ func (c *Catalog) Errors() []*Error {
 }
 
 // source is s with what this machine has of it.
-func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
+func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 	src := &Source{Source: s}
 	fail := func(state State, m yamlx.Mistake, format string, args ...any) *Source {
 		src.State, src.Why = state, fmt.Sprintf(format, args...)
@@ -165,10 +218,20 @@ func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
 			}
 			return fail(Broken, yamlx.BrokenSource, "dir %s %s", s.Dir, why)
 		}
-		src.Top = paths.Real(dir)
+		src.Top, src.dir = paths.Real(dir), dir
+		if why := c.untrusted(src); why != "" {
+			src.Top = ""
+			return fail(Inactive, yamlx.Inactive, "%s", why)
+		}
 		return src
 	}
-	if cfg.IsLocalRepo(s.Repo) {
+	switch {
+	case s.Ref.Kind == config.Tag || s.Ref.Kind == config.Rev:
+		return fail(Broken, yamlx.BrokenSource, "%s is not implemented yet; follow a branch", s.Ref.Kind)
+	case s.Subdir != "":
+		return fail(Broken, yamlx.BrokenSource, "subdir is not implemented yet")
+	}
+	if config.IsLocalRepo(s.Repo) {
 		dir := filepath.Clean(paths.Expand(s.Repo))
 		why := folder(dir)
 		if why == "" && !isRepo(dir) {
@@ -198,8 +261,111 @@ func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
 		return fail(Inactive, yamlx.Inactive, "the accepted commit %s is not downloaded on this machine; run `ctxtra source download`",
 			source.Short(e.Commit))
 	}
-	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(cfg.CleanSubdir(s.Subdir)))
+	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(config.CleanSubdir(s.Subdir)))
 	return src
+}
+
+// untrusted says why dir source s can't be read live, "" when it can: its
+// folder's repository has no remote, or the remotes that ctxtra source
+// trust recorded.
+func (c *Catalog) untrusted(s *Source) string {
+	repo, remotes, err := trust.Remotes(s.Top)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("the remotes of %s can't be read (%v); it is not read until they can be", paths.Tilde(repo), err)
+	case len(remotes) == 0:
+		return ""
+	}
+	if !c.trustedRead {
+		c.trustedRead = true
+		c.trusted, c.trustedErr = state.LoadTrusted()
+	}
+	if c.trustedErr != nil {
+		return c.trustedErr.Error()
+	}
+	was, ok := state.TrustedRemotes(c.trusted, s.Top)
+	switch {
+	case !ok:
+		return fmt.Sprintf("%s is in a repository with the remotes %s, which others can push to; to read it live, run `ctxtra source trust %s`",
+			s.Dir, strings.Join(remotes, ", "), s.Name)
+	case !slices.Equal(was, remotes):
+		return fmt.Sprintf("the remotes of %s changed since you trusted it (now %s); it is not read until you run `ctxtra source trust %s` again",
+			s.Dir, strings.Join(remotes, ", "), s.Name)
+	}
+	return ""
+}
+
+// checkRoutes checks the symlinks on the way to each active dir source,
+// and returns the dir sources that pass, as trusted roots. A link may be
+// trusted because it is in another dir source that passed: those are
+// found step by step, so that no source's trust comes from itself.
+func (c *Catalog) checkRoutes() []trust.Root {
+	passed := map[*Source]bool{}
+	var roots []trust.Root
+	for changed := true; changed; {
+		changed = false
+		others := trust.New(roots)
+		for _, s := range c.order {
+			if s.State == Active && s.Live() && !passed[s] && route(s.Source, s.dir, s.Top, others) == "" {
+				passed[s], changed = true, true
+				roots = append(roots, trust.Root{Name: s.Name, Path: s.Top})
+			}
+		}
+	}
+	others := trust.New(roots)
+	for _, s := range c.order {
+		if s.State == Active && s.Live() && !passed[s] {
+			s.State, s.Why = Inactive, route(s.Source, s.dir, s.Top, others)
+			s.Top = ""
+			s.Err = &Error{File: c.file, Err: &yamlx.Error{Pos: s.Pos, Mistake: yamlx.Inactive, Part: yamlx.Part{Kind: "source", Name: s.Name}, Msg: s.Why}}
+		}
+	}
+	return roots
+}
+
+// Route says why the symlinks on the way to dir source name keep it from
+// being read, "" when they don't, with the other active dir sources as
+// the only trusted folders.
+func (c *Catalog) Route(name string) string {
+	s := c.sources[name]
+	if s == nil || s.Dir == "" {
+		return ""
+	}
+	var roots []trust.Root
+	for _, o := range c.order {
+		if o != s && o.State == Active && o.Live() {
+			roots = append(roots, trust.Root{Name: o.Name, Path: o.Top})
+		}
+	}
+	dir := filepath.Clean(paths.Expand(s.Dir))
+	return route(s.Source, dir, paths.Real(dir), trust.New(roots))
+}
+
+// route says why the symlinks on the way to dir source s keep it from
+// being read, "" when they don't. Each link passes the trust check at its
+// own location: outside git, in a repository without remotes, or in a
+// folder that others trusts. A link elsewhere can be changed by whoever
+// pushes to its repository, and the trust of the folder it leads to
+// doesn't cover it, also in the same repository. top is where dir leads.
+func route(s *config.Source, dir, top string, others *trust.Policy) string {
+	links, err := trust.Links(dir)
+	if err != nil {
+		return fmt.Sprintf("dir %s: %v; it is not read", s.Dir, err)
+	}
+	for _, l := range links {
+		repo, remotes, err := trust.Remotes(filepath.Dir(l))
+		switch {
+		case repo == "" || others.CheckAt(l) == nil:
+			continue
+		case err != nil:
+			return fmt.Sprintf("%s leads through a symlink at %s, in the git repository %s, which ctxtra can't check (%v); it is not read",
+				s.Dir, paths.Tilde(l), paths.Tilde(repo), err)
+		case len(remotes) > 0:
+			return fmt.Sprintf("%s leads through a symlink at %s, in %s, which has the remotes %s and no trusted dir source there; it is not read. To read the folder the link leads to, use dir: %s",
+				s.Dir, paths.Tilde(l), paths.Tilde(repo), strings.Join(remotes, ", "), paths.Tilde(top))
+		}
+	}
+	return ""
 }
 
 // changed names what a config source changed since its lock entry.
@@ -217,12 +383,31 @@ func changed(ch lock.Changes) string {
 	return strings.Join(parts, " and ")
 }
 
-// commitDir is where the accepted commit of a lock entry is on this
+// CommitDir is where the accepted commit of a lock entry is on this
 // machine: ctxtra's store keeps each commit under the address it was
 // downloaded from.
+func CommitDir(e *lock.Entry) string { return commitDir(e) }
+
+// WithTop is the catalog with source name read from top, a folder in
+// ctxtra's store: what the config would use from another commit, for the
+// review of an update.
+func (c *Catalog) WithTop(name, top string) *Catalog {
+	cp := *c
+	cp.sources = map[string]*Source{}
+	cp.order = nil
+	for _, s := range c.order {
+		if s.Name == name {
+			s = &Source{Source: s.Source, State: Active, Top: top}
+		}
+		cp.sources[s.Name] = s
+		cp.order = append(cp.order, s)
+	}
+	return &cp
+}
+
 func commitDir(e *lock.Entry) string {
 	remote := e.Repo
-	if cfg.IsLocalRepo(remote) {
+	if config.IsLocalRepo(remote) {
 		remote = filepath.Clean(paths.Expand(remote))
 	}
 	return source.GenDir(remote, e.Commit)
@@ -261,15 +446,51 @@ func isRepo(dir string) bool {
 func (s *Source) ManifestErrors() []*Error { return s.manifestErrs }
 
 // Manifest is the manifest of active source s, read once; nil when the
-// source has none. The errors are the manifest's.
+// source has none or when it can't be read now. The errors are the
+// manifest's, and why it can't be read: nil with no errors means it has
+// none.
 func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
-	if s.manifestRead || s.State != Active {
-		return s.manifest, s.manifestErrs
+	m, errs, err := c.ManifestWithin(s, nil)
+	if err != nil {
+		errs = append(errs, &Error{File: s.Name + ":" + manifest.FileName, Err: &yamlx.Error{Mistake: yamlx.Unreadable, Msg: err.Error()}})
 	}
-	s.manifestRead = true
-	it := Item{Path: filepath.Join(s.Top, manifest.FileName), Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
+	return m, errs
+}
+
+// ManifestWithin is Manifest read with rd's limits, when it is not read
+// yet; a manifest read before counts its size in rd. err is set when the
+// manifest doesn't fit in what rd has left: it is then not read, and not
+// kept as read.
+func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manifest, []*Error, error) {
+	if s.State != Active {
+		return nil, nil, nil
+	}
+	if err := c.use(s); err != nil {
+		return nil, nil, err
+	}
+	path := filepath.Join(s.Top, manifest.FileName)
+	if s.manifestRead {
+		if rd != nil && s.manifestSize > 0 {
+			if err := rd.Count(path, s.manifestSize); err != nil {
+				return nil, nil, err
+			}
+		}
+		return s.manifest, s.manifestErrs, nil
+	}
+	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
 	file := s.Name + ":" + manifest.FileName
-	data, err := c.read(it, nil)
+	data, err := c.readMax(it, rd, maxManifestBytes)
+	if errors.Is(err, fsutil.ErrTotalLimit) {
+		return nil, nil, err
+	}
+	m, errs := c.keepManifest(s, file, data, err)
+	return m, errs, nil
+}
+
+// keepManifest keeps what reading the manifest of s gave.
+func (c *Catalog) keepManifest(s *Source, file string, data []byte, err error) (*manifest.Manifest, []*Error) {
+	s.manifestRead = true
+	s.manifestSize = len(data)
 	switch {
 	case os.IsNotExist(err):
 		return nil, nil
@@ -292,12 +513,12 @@ func (e errNotImplemented) Error() string { return string(e) + " are not impleme
 
 // Collections are the collections that entry e of a collections list names.
 // Collections are not implemented yet: it is always an error.
-func (c *Catalog) Collections(e cfg.Entry) ([]*cfg.Collection, error) {
+func (c *Catalog) Collections(e config.Entry) ([]*config.Collection, error) {
 	return nil, errNotImplemented("collections")
 }
 
 // RepoSet is the repo set that entry e of location.repo-sets names. Repo
 // sets are not implemented yet: it is always an error.
-func (c *Catalog) RepoSet(e cfg.Entry) (*cfg.RepoSet, error) {
+func (c *Catalog) RepoSet(e config.Entry) (*config.RepoSet, error) {
 	return nil, errNotImplemented("repo sets")
 }

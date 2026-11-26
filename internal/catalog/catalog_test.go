@@ -8,10 +8,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
@@ -21,12 +23,12 @@ var commitA = strings.Repeat("a", 40)
 
 // catalog writes the config and lock into a new home, where prepare has
 // made what the machine has, and returns their catalog.
-func catalog(t *testing.T, config, lockFile string, prepare func(home string)) (*Catalog, string) {
+func catalog(t *testing.T, conf, lockFile string, prepare func(home string)) (*Catalog, string) {
 	t.Helper()
 	h := testenv.Home(t)
 	prepare(h)
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{})
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{})
 	for _, e := range c.Errors {
 		t.Fatalf("config: %v", e)
 	}
@@ -34,8 +36,8 @@ func catalog(t *testing.T, config, lockFile string, prepare func(home string)) (
 	return New(c, l, path), h
 }
 
-func entry(text string) cfg.Entry {
-	c := cfg.Parse([]byte(fmt.Sprintf("schema: ctxtra/config/v1\nbindings:\n  - {name: b, instructions: ['%s']}\n", text)), cfg.Options{})
+func entry(text string) config.Entry {
+	c := config.Parse([]byte(fmt.Sprintf("schema: ctxtra/config/v1\nbindings:\n  - {name: b, instructions: ['%s']}\n", text)), config.Options{})
 	return c.Bindings[0].Instructions[0]
 }
 
@@ -48,7 +50,7 @@ func refs(items []Item) []string {
 }
 
 func TestSourceStates(t *testing.T) {
-	const config = `sources:
+	const conf = `sources:
   team: {repo: 'https://github.com/acme/team.git', branch: main}
   moved: {repo: 'https://github.com/acme/moved.git', branch: next}
   absent: {repo: 'https://github.com/acme/absent.git', branch: main}
@@ -64,8 +66,8 @@ func TestSourceStates(t *testing.T) {
 	h := testenv.Home(t)
 	testenv.Write(t, filepath.Join(source.GenDir("git@github.com:acme/team.git", commitA), "x.md"), "x")
 	testenv.Write(t, filepath.Join(h, "live", "y.md"), "y")
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 
 	want := map[string]State{"team": Active, "moved": Inactive, "absent": Inactive, "clone": NotHere, "live": Active, "gone": NotHere}
 	for name, state := range want {
@@ -140,7 +142,7 @@ func TestGlobLimit(t *testing.T) {
 }
 
 func TestStoredSymlinkLeftOut(t *testing.T) {
-	config := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
 	gen := source.GenDir("https://github.com/acme/team.git", commitA)
@@ -149,8 +151,8 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	if err := os.Symlink(filepath.Join(h, "secret.md"), filepath.Join(gen, "b.md")); err != nil {
 		t.Fatal(err)
 	}
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 	items, err := expand(c, "team:*.md", Files)
 	if err != nil || !slices.Equal(refs(items), []string{"team:a.md"}) {
 		t.Errorf("files %v, %v", refs(items), err)
@@ -161,13 +163,13 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 }
 
 func TestStoreReadOnlyBySourcePath(t *testing.T) {
-	config := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
 	gen := source.GenDir("https://github.com/acme/team.git", commitA)
 	testenv.Write(t, filepath.Join(gen, "a.md"), "a")
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 	items, err := expand(c, filepath.Join(gen, "a.md"), Files)
 	if err != nil {
 		t.Fatal(err)
@@ -197,4 +199,121 @@ func TestGlobCharactersInTheHomeFolder(t *testing.T) {
 func expand(c *Catalog, text string, kind Kind) ([]Item, error) {
 	items, errs := c.Paths(entry(text), kind)
 	return items, errors.Join(errs...)
+}
+
+// A local server's ~/ program is in the home folder, for the config's
+// servers and for a manifest's.
+func TestHomeProgram(t *testing.T) {
+	c, h := catalog(t, `sources: {tools: {dir: ~/tools}}
+mcp-servers:
+  home: {command: ['~/bin/mcp', --stdio]}
+  name: {command: [mcp]}
+`, "", func(h string) {
+		testenv.Write(t, filepath.Join(h, "tools", "ctxtra-source.yaml"), "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: ['~/bin/build', --all]}\n")
+	})
+	want := map[string][]string{
+		"home":        {filepath.Join(h, "bin", "mcp"), "--stdio"},
+		"name":        {"mcp"},
+		"tools:build": {filepath.Join(h, "bin", "build"), "--all"},
+	}
+	for ref, command := range want {
+		s, ok := c.Server(ref)
+		if !ok || !slices.Equal(s.Command, command) {
+			t.Errorf("%s: %v %v, want %v", ref, ok, s.Command, command)
+		}
+	}
+	if raw := c.conf.MCPServers[0].Command[0]; raw != "~/bin/mcp" {
+		t.Errorf("the config's model changed: %s", raw)
+	}
+}
+
+// Manifests read within a session's limit read no more than it has left:
+// one that doesn't fit is neither read nor kept, and one read before
+// counts again in the next session.
+func TestManifestWithinLimit(t *testing.T) {
+	const n, size = 36, 512 << 10
+	var conf strings.Builder
+	conf.WriteString("sources:\n")
+	for i := range n {
+		fmt.Fprintf(&conf, "  s%02d: {dir: ~/s%02d}\n", i, i)
+	}
+	c, _ := catalog(t, conf.String(), "", func(h string) {
+		for i := range n {
+			testenv.Write(t, filepath.Join(h, fmt.Sprintf("s%02d", i), "ctxtra-source.yaml"),
+				"schema: ctxtra/source/v1\n# "+strings.Repeat("p", size)+"\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+		}
+	})
+	const total = 16 << 20
+	rd := fsutil.NewReader(config.MaxFileBytes, total)
+	read, refused := 0, 0
+	for _, s := range c.Sources() {
+		m, _, err := c.ManifestWithin(s, rd)
+		switch {
+		case err != nil && errors.Is(err, fsutil.ErrTotalLimit) && !s.manifestRead:
+			refused++
+		case err == nil && m != nil:
+			read += s.manifestSize
+		default:
+			t.Fatalf("%s: %v %v", s.Name, m, err)
+		}
+	}
+	if read > total || refused == 0 {
+		t.Errorf("read %d bytes of manifests, %d refused", read, refused)
+	}
+	rd = fsutil.NewReader(config.MaxFileBytes, size)
+	first := c.Sources()[0]
+	if _, _, err := c.ManifestWithin(first, rd); !errors.Is(err, fsutil.ErrTotalLimit) {
+		t.Errorf("a manifest read before counts again: %v", err)
+	}
+}
+
+// Waits that end well count against the budget too: each mark of the store
+// gets what the earlier ones left, and after one fails, the rest are
+// refused without waiting.
+func TestStoreWaitBudget(t *testing.T) {
+	var waits []time.Duration
+	old := touch
+	t.Cleanup(func() { touch = old })
+	touch = func(dir string, wait time.Duration) error {
+		waits = append(waits, wait)
+		if wait < 450*time.Millisecond {
+			time.Sleep(wait)
+			return fsutil.ErrLockTimeout
+		}
+		time.Sleep(450 * time.Millisecond)
+		return nil
+	}
+	var conf, lockFile strings.Builder
+	conf.WriteString("sources:\n")
+	lockFile.WriteString("sources:\n")
+	names := []string{"a", "b", "c", "d"}
+	for _, n := range names {
+		fmt.Fprintf(&conf, "  %s: {repo: 'https://h/%s.git', branch: main}\n", n, n)
+		fmt.Fprintf(&lockFile, "  %s: {repo: 'https://h/%s.git', branch: main, commit: '%s'}\n", n, n, strings.Repeat(n, 40))
+	}
+	c, _ := catalog(t, conf.String(), lockFile.String(), func(string) {
+		for _, n := range names {
+			testenv.Write(t, filepath.Join(source.GenDir("https://h/"+n+".git", strings.Repeat(n, 40)), "x.md"), "x")
+		}
+	})
+	start := time.Now()
+	var failed []string
+	for _, n := range names {
+		if _, err := expand(c, n+":x.md", Files); err != nil {
+			failed = append(failed, n)
+		}
+	}
+	if d := time.Since(start); d > 1300*time.Millisecond {
+		t.Errorf("took %v, waits %v", d, waits)
+	}
+	if len(waits) != 3 || waits[0] != source.TouchWait || waits[1] >= waits[0] || waits[2] >= waits[1] {
+		t.Errorf("waits %v", waits)
+	}
+	if !slices.Equal(failed, []string{"c", "d"}) {
+		t.Errorf("failed %v", failed)
+	}
+	// A commit marked once isn't marked again.
+	if _, err := expand(c, "a:x.md", Files); err != nil || len(waits) != 3 {
+		t.Errorf("again: %v, waits %v", err, waits)
+	}
 }

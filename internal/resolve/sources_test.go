@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
+	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -15,6 +19,17 @@ import (
 func TestSources(t *testing.T) {
 	const iamTeam = "sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n"
 	iamFiles := map[string]string{"instructions/go.md": "GO", "instructions/rust.md": "RUST"}
+
+	t.Run("tag, rev and subdir are not implemented yet", func(t *testing.T) {
+		h := newHome(t)
+		env := h.load("sources:\n  a: {repo: 'https://h/a', tag: v1}\n  b: {repo: 'https://h/b', rev: " + commit("b") + "}\n" +
+			"  c: {repo: 'https://h/c', branch: main, subdir: x}\nbindings:\n  - {name: b, instructions: ['a:x.md', 'b:x.md', 'c:x.md']}\n")
+		res := start(env, h.dir, "")
+		if errs := errorsOf(res, yamlx.BrokenSource); len(errs) != 3 || !strings.Contains(errs[0].Error(), "tag is not implemented yet") ||
+			!strings.Contains(errs[1].Error(), "rev is not implemented yet") || !strings.Contains(errs[2].Error(), "subdir is not implemented yet") {
+			t.Errorf("errors %v", res.Errors)
+		}
+	})
 
 	t.Run("sessions read the locked commit", func(t *testing.T) {
 		h := newHome(t)
@@ -38,6 +53,7 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("one team's folder of a shared repository", func(t *testing.T) {
+		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), map[string]string{
 			"teams/billing/skills/pay/SKILL.md": "---\nname: pay\ndescription: Pay.\n---\nbody",
@@ -96,6 +112,7 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("subdir changed", func(t *testing.T) {
+		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), nil)
 		env := h.load("sources:\n  billing-ctx: {repo: 'git@github.com:acme/agent-context.git', branch: main, subdir: teams}\nbindings:\n  - {name: b, skills: ['billing-ctx:*']}\n", entry)
@@ -105,7 +122,7 @@ func TestSources(t *testing.T) {
 	t.Run("a config without its lock file", func(t *testing.T) {
 		h := newHome(t)
 		h.write("dotfiles/agents/a.md", "A")
-		env := h.load("sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n  obs-team: {repo: 'https://github.com/acme/obs.git', tag: v1.4.0}\n  dotfiles: {dir: ~/dotfiles}\n" +
+		env := h.load("sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n  obs-team: {repo: 'https://github.com/acme/obs.git', branch: v1}\n  dotfiles: {dir: ~/dotfiles}\n" +
 			"bindings:\n  - {name: b, instructions: ['iam-team:x.md', 'obs-team:y.md', 'dotfiles:agents/*.md']}\n")
 		res := start(env, h.dir, "")
 		eq(t, "files", bases(res.Files), "a.md")
@@ -400,4 +417,188 @@ func TestDirSourceSkillLoop(t *testing.T) {
 	if e := oneError(t, res, "skills/bad/SKILL.md"); e.Err.Mistake != yamlx.UnreadableFile {
 		t.Errorf("mistake %v", e.Err.Mistake)
 	}
+}
+
+// A dir source in a repository with remotes is read live only after
+// source trust recorded them, and stops when they change.
+func TestDirSourceTrust(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("dotfiles/agents/me.md", "ME")
+	cfg := "sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/*.md']}\n"
+	res := start(h.load(cfg), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "remotes github.com/me/dotfiles", "ctxtra source trust dotfiles")
+
+	if err := state.Trust(paths.Real(h.path("dotfiles")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	res = start(h.load(cfg), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "me.md")
+
+	testenv.Run(t, h.path("dotfiles"), "git", "remote", "add", "fork", "git@github.com:other/dotfiles.git")
+	res = start(h.load(cfg), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "remotes of ~/dotfiles changed", "github.com/me/dotfiles, github.com/other/dotfiles", "ctxtra source trust dotfiles")
+}
+
+// A folder without a remote is read live without trust.
+func TestDirSourceWithoutRemote(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "")
+	h.write("dotfiles/agents/me.md", "ME")
+	res := start(h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/*.md']}\n"), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "me.md")
+}
+
+// A symlink on the way to a dir source's folder passes the trust check at
+// its own location: a link in another repository with a remote keeps the
+// source from being read, at the source's folder or above it, even when
+// the folder it leads to is trusted, and also when that folder is in the
+// same repository. A link outside git doesn't.
+func TestDirSourceRoute(t *testing.T) {
+	h := newHome(t)
+	h.repo("untrusted", "git@github.com:other/untrusted.git")
+	h.write("private-notes/sub/rules.md", "PRIVATE")
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("dotfiles/agents/me.md", "ME")
+	if err := state.Trust(paths.Real(h.path("dotfiles/agents")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, h.path("private-notes"), h.path("untrusted/link"))
+	symlink(t, h.path("dotfiles/agents"), h.path("untrusted/to-dotfiles"))
+	h.mkdir("links")
+	symlink(t, h.path("private-notes"), h.path("links/notes"))
+	symlink(t, "agents", h.path("dotfiles/inner"))
+	for _, c := range []struct {
+		dir, file, repo string
+		blocked         bool
+	}{
+		{"~/untrusted/link", "sub/rules.md", "untrusted", true},
+		{"~/untrusted/link/sub", "rules.md", "untrusted", true},
+		{"~/untrusted/to-dotfiles", "me.md", "untrusted", true},
+		{"~/links/notes", "sub/rules.md", "", false},
+		{"~/dotfiles/inner", "me.md", "dotfiles", true},
+	} {
+		t.Run(c.dir, func(t *testing.T) {
+			res := start(h.load("sources: {dot: {dir: "+c.dir+"}}\nbindings:\n  - {name: b, instructions: ['dot:"+c.file+"']}\n"), h.dir, "")
+			if !c.blocked {
+				noErrors(t, res)
+				eq(t, "files", bases(res.Files), filepath.Base(c.file))
+				return
+			}
+			eq(t, "files", bases(res.Files))
+			oneError(t, res, c.dir+" leads through a symlink at ~/"+c.repo+"/", "in ~/"+c.repo+", which has the remotes")
+		})
+	}
+}
+
+// A session's total read limit counts the config, the lock and the
+// manifests it reads, not only the content files.
+func TestTotalLimitCoversConfig(t *testing.T) {
+	file := strings.Repeat("x", config.MaxFileBytes-100)
+	pad := "# " + strings.Repeat("p", 3<<20) + "\n"
+	files := "  - {name: b, instructions: [~/a.md, ~/b.md, ~/c.md, ~/d.md]}\n"
+	for _, c := range []struct{ name, conf, lock string }{
+		{"nothing else", "bindings:\n" + files, ""},
+		{"config", pad + "bindings:\n" + files, ""},
+		{"lock", "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\nbindings:\n" + files, pad},
+		{"manifest", "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: s, mcp-servers: ['tools:*']}\n" + files, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHome(t)
+			for _, n := range []string{"a", "b", "c", "d"} {
+				h.write(n+".md", file)
+			}
+			h.write("tools/ctxtra-source.yaml", "schema: ctxtra/source/v1\n"+"# "+strings.Repeat("p", 1<<19)+"\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+			if c.lock != "" {
+				h.write(".config/ctxtra/ctxtra.lock", "schema: ctxtra/lock/v1\n"+c.lock)
+			}
+			res := start(h.load(c.conf), h.dir, "")
+			var limit []string
+			for _, e := range res.Errors {
+				if strings.Contains(e.Error(), "total read limit") {
+					limit = append(limit, e.Error())
+				}
+			}
+			if c.name == "nothing else" {
+				eq(t, "files", bases(res.Files), "a.md", "b.md", "c.md", "d.md")
+				noErrors(t, res)
+				return
+			}
+			eq(t, "files", bases(res.Files), "a.md", "b.md", "c.md")
+			if len(limit) != 1 || !strings.Contains(limit[0], "d.md") {
+				t.Errorf("errors %v", res.Errors)
+			}
+		})
+	}
+}
+
+// A file that the session counted without reading it as content, the
+// config or a manifest, still delivers its text when a binding names it.
+func TestCountedFilesKeepTheirContent(t *testing.T) {
+	h := newHome(t)
+	h.write("tools/ctxtra-source.yaml", "schema: ctxtra/source/v1\n# MANIFEST_MARKER\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+	for name, conf := range map[string]string{
+		"the config": "# CONFIG_MARKER\nbindings:\n  - {name: b, instructions: [~/.config/ctxtra/config.yaml]}\n",
+		"a manifest, servers first": "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: s, mcp-servers: ['tools:build']}\n" +
+			"  - {name: b, instructions: ['tools:ctxtra-source.yaml']}\n",
+		"a manifest, instruction first": "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: b, instructions: ['tools:ctxtra-source.yaml']}\n" +
+			"  - {name: s, mcp-servers: ['tools:build']}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := start(h.load(conf), h.dir, "")
+			noErrors(t, res)
+			want := "MANIFEST_MARKER"
+			if name == "the config" {
+				want = "CONFIG_MARKER"
+			}
+			if len(res.Files) != 1 || !strings.Contains(res.Files[0].Content, want) {
+				t.Errorf("files %+v", res.Files)
+			}
+			if name != "the config" && len(res.MCPServers) != 1 {
+				t.Errorf("servers %+v", res.MCPServers)
+			}
+		})
+	}
+}
+
+// A link on the way to a dir source passes when its location is in
+// another dir source that is trusted on its own: the user trusted that
+// folder. Without that source, the same link is refused, and two sources
+// can't make each other's links pass.
+func TestDirSourceRouteThroughTrustedSource(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("notes/x.md", "NOTES")
+	symlink(t, h.path("notes"), h.path("dotfiles/notes"))
+	if err := state.Trust(paths.Real(h.path("dotfiles")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	binding := "bindings:\n  - {name: b, instructions: ['notes:x.md']}\n"
+	res := start(h.load("sources:\n  notes: {dir: ~/dotfiles/notes}\n  dot: {dir: ~/dotfiles}\n"+binding), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "x.md")
+
+	res = start(h.load("sources:\n  notes: {dir: ~/dotfiles/notes}\n"+binding), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "~/dotfiles/notes leads through a symlink at ~/dotfiles/notes")
+
+	// Each source's folder holds the link on the way to the other, and
+	// both folders' remotes are trusted: neither link passes first.
+	h.repo("a", "git@github.com:other/a.git")
+	h.repo("b", "git@github.com:other/b.git")
+	h.write("a/x.md", "A")
+	h.write("b/x.md", "B")
+	symlink(t, h.path("b"), h.path("a/to-b"))
+	symlink(t, h.path("a"), h.path("b/to-a"))
+	for _, r := range []string{"a", "b"} {
+		if err := state.Trust(paths.Real(h.path(r)), []string{"github.com/other/" + r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res = start(h.load("sources:\n  sa: {dir: ~/b/to-a}\n  sb: {dir: ~/a/to-b}\nbindings:\n  - {name: b, instructions: ['sa:x.md', 'sb:x.md']}\n"), h.dir, "")
+	eq(t, "files", bases(res.Files))
 }

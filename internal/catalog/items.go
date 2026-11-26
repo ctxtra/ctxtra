@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/trust"
@@ -80,7 +81,7 @@ func (it Item) Ref() string {
 // couldn't add: folders the trust rules refuse leave out only what is in
 // them. An entry that names a source whose content can't be used gives
 // *Unavailable.
-func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, []error) {
+func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 	if !e.InSource {
 		base, rest := c.diskBase(e.Value)
 		root, pattern := path.Dir(rest), path.Base(rest)
@@ -104,6 +105,9 @@ func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, []error) {
 		return nil, []error{&Unavailable{s}}
 	case pattern == ".." || strings.HasPrefix(pattern, "../"):
 		return nil, []error{fmt.Errorf("%s: the path leaves its source", e.Text)}
+	}
+	if err := c.use(s); err != nil {
+		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
 	}
 	found, errs := c.glob(s.Top, pattern, kind, s.Live())
 	items := make([]Item, len(found))
@@ -153,6 +157,15 @@ func escapeMeta(s string) string {
 func (c *Catalog) Read(it Item, rd *fsutil.Reader) ([]byte, error) { return c.read(it, rd) }
 
 func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
+	limit := maxManifestBytes
+	if rd != nil {
+		limit = math.MaxInt // rd's own limit
+	}
+	return c.readMax(it, rd, limit)
+}
+
+// readMax is read with at most limit bytes for this file.
+func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error) {
 	p := it.Path
 	if !it.stored {
 		if err := c.trust.Check(p); err != nil {
@@ -160,9 +173,9 @@ func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
 		}
 	}
 	if rd == nil {
-		return fsutil.ReadBounded(p, maxManifestBytes)
+		return fsutil.ReadBounded(p, limit)
 	}
-	return rd.Read(p)
+	return rd.ReadMax(p, limit)
 }
 
 // Untrusted is the error of a file that others can change, outside a

@@ -34,8 +34,8 @@ func TestMCPAddReusesSharedCredentialsWithoutPromptsOrAuthorization(t *testing.T
 				w.WriteHeader(http.StatusBadRequest)
 			}))
 			t.Cleanup(server.Close)
-			testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '"+server.URL+"'}\n")
-			file := testenv.Config(t, h, "schema: ctxtra/v1\n# second config\n")
+			testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: '"+server.URL+"'}\n")
+			file := testenv.Config(t, h, "schema: ctxtra/config/v1\n# second config\n")
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: server.URL}
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {
@@ -83,7 +83,7 @@ func TestMCPAddRefusesExplicitSharedSettingsChanges(t *testing.T) {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
-			file := testenv.Config(t, h, "schema: ctxtra/v1\n")
+			file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {

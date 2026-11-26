@@ -27,7 +27,7 @@ func TestMCPSummary(t *testing.T) {
 					if tc.name == "none" {
 						selectedDir = "~/unselected"
 					}
-					testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  one: {url: 'https://one.example.invalid/mcp'}\n  two: {url: 'https://two.example.invalid/mcp'}\nbindings:\n  - name: files\n    match: {global: true}\n    instructions: [~/rule.md]\n    skills: [~/deploy]\n  - name: selected\n    match: {dirs: ['"+selectedDir+"']}\n    instructions: [~/rule.md]\n    mcp-servers: "+tc.servers+"\n  - name: repeated\n    match: {dirs: ['"+selectedDir+"']}\n    mcp-servers: "+tc.servers+"\n  - name: elsewhere\n    match: {dirs: ['~/elsewhere']}\n    mcp-servers: [two]\n")
+					testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  one: {url: 'https://one.example.invalid/mcp'}\n  two: {url: 'https://two.example.invalid/mcp'}\nbindings:\n  - name: files\n    instructions: [~/rule.md]\n    skills: [~/deploy]\n  - name: selected\n    location: {dirs: ['"+selectedDir+"']}\n    instructions: [~/rule.md]\n    mcp-servers: "+tc.servers+"\n  - name: repeated\n    location: {dirs: ['"+selectedDir+"']}\n    mcp-servers: "+tc.servers+"\n  - name: elsewhere\n    location: {dirs: ['~/elsewhere']}\n    mcp-servers: [two]\n")
 					var out, errOut bytes.Buffer
 					input, _ := json.Marshal(map[string]string{"cwd": h})
 					RunSlot(harness, "SessionStart", 0, bytes.NewReader(input), &out, &errOut)

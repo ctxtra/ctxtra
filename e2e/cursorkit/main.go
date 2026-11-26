@@ -135,13 +135,13 @@ func prepare(dir string, chars int, delay time.Duration) error {
 	if err := os.WriteFile(filepath.Join(dir, "ctx", "big.md"), []byte(b.String()), 0o644); err != nil {
 		return err
 	}
-	cfg := "schema: ctxtra/v1\nbindings:\n  - name: cursorkit\n    match: {global: true}\n    instructions: [" +
+	cfg := "schema: ctxtra/config/v1\nbindings:\n  - name: cursorkit\n    instructions: [" +
 		filepath.Join(dir, "ctx", "big.md") + "]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config", "ctxtra", "config.yaml"), []byte(cfg), 0o644); err != nil {
 		return err
 	}
 	// For the user's own ctxtra hook, if any: binds nothing.
-	if err := os.WriteFile(filepath.Join(dir, "empty", "ctxtra", "config.yaml"), []byte("schema: ctxtra/v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "empty", "ctxtra", "config.yaml"), []byte("schema: ctxtra/config/v1\n"), 0o644); err != nil {
 		return err
 	}
 	wait := ""

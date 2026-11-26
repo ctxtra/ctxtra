@@ -5,11 +5,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/mcp/netguard"
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
@@ -19,14 +20,16 @@ import (
 )
 
 func (a *app) mcpStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var agentName string
+	c := &cobra.Command{
 		Use:   "status [DIR]",
 		Short: "Show the MCP servers of a folder, and why a session has no tools of one",
 		Long: `Show the MCP servers bound to DIR (the current folder by default) with their
 sign-in state, and what the last session started there got from each: its
-tools in time, later, or none, and why. Reads local files only.`,
+tools in time, later, or none, and why. With --agent, for a session of that
+agent: without it, bindings with agents don't apply. Reads local files only.`,
 		Example: `  ctxtra mcp status
-  ctxtra mcp status ~/dev/app`,
+  ctxtra mcp status ~/dev/app --agent claude-code`,
 		Args: atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			dir, _ := os.Getwd()
@@ -36,31 +39,41 @@ tools in time, later, or none, and why. Reads local files only.`,
 			if abs, err := filepath.Abs(dir); err == nil {
 				dir = abs
 			}
-			return code(a.mcpStatus(dir))
+			if agentName != "" {
+				if _, ok := registry.Get(agentName); !ok {
+					return fmt.Errorf("unknown agent %q (one of: %s)", agentName, strings.Join(registry.Names(), ", "))
+				}
+			}
+			return code(a.mcpStatus(dir, agentName))
 		}),
 	}
+	c.Flags().StringVar(&agentName, "agent", "", "for a session of `AGENT`, as its MCP proxy resolves it")
+	return c
 }
 
-func (a *app) mcpStatus(dir string) int {
+func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
-	res, cfg := resolve.Session(dir, paths.ConfigPath())
-	for i, binding := range cfg.Bindings {
-		if !res.Trace[i].Matched {
+	env := loadEnv()
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName})
+	for _, e := range res.Errors {
+		if e.Err.Part.Kind == "MCP server" {
+			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
+		}
+	}
+	for _, t := range res.Trace {
+		if !t.Matched {
 			continue
 		}
-		for _, ref := range binding.MCPListed {
-			id := ref
-			if binding.MCPScope != "" {
-				id = binding.MCPScope + "/" + ref
-			}
-			if !slices.Contains(binding.MCPServers, id) {
-				fmt.Fprintf(out, "unavailable MCP reference %q in binding %s; see ctxtra doctor\n", ref, binding.ID())
-			}
+		for _, e := range t.Errors {
+			fmt.Fprintf(out, "error in binding %s: %s; see ctxtra doctor\n", t.Origin, e.Err)
+		}
+		for _, u := range t.Unavailable {
+			fmt.Fprintf(out, "binding %s uses source %s, which can't be read; see ctxtra doctor\n", t.Origin, u)
 		}
 	}
 	servers := res.MCPServers
-	for _, conflict := range res.MCPConflicts {
-		fmt.Fprintf(out, "  %s shadowed by %s (tool prefix %s, binding %s); no fallback\n", conflict.Loser, conflict.Winner, conflict.Prefix, conflict.Origin)
+	for _, c := range res.MCPConflicts {
+		fmt.Fprintf(out, "  %s and %s are both named %s; the session gets %s, the first in binding order (binding %s)\n", c.Winner, c.Loser, c.Prefix, c.Winner, c.Origin)
 	}
 	if len(servers) == 0 {
 		fmt.Fprintf(out, "no MCP servers are bound to %s\n", paths.Tilde(dir))

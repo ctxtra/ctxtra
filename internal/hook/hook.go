@@ -168,9 +168,6 @@ func RunArgs(harness, event string, args Args, in io.Reader, out, errOut io.Writ
 		e.Files, e.Dropped, e.Chars = nil, nil, 0
 	}
 	logEntry(e)
-	for _, m := range res.Missing {
-		fmt.Fprintf(errOut, "ctxtra: bound file not found: %s\n", m)
-	}
 	write(out, a.Answer(event, res))
 	return 0
 }
@@ -206,19 +203,20 @@ func delivery(a agent.Agent, event string, in agent.Input) (d agent.Delivery, er
 func session(a agent.Agent, d agent.Delivery, version, ts, event string, p payload, dir string) (*resolve.Result, Entry) {
 	// Before resolving: the session lists the skills as they are on disk.
 	skillErr := skill.Refresh()
-	configPath := paths.ConfigPath()
-	res, cfg := resolve.Session(dir, configPath)
-	if n := update.ReleaseNotice(cfg, state.Load(), version); n != "" {
+	env := resolve.Load(paths.ConfigPath(), registry.Names())
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: a.Name()})
+	checks := update.FromConfig(env.Config)
+	if n := update.ReleaseNotice(checks, state.Load(), version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
-	checkErr := update.StartDue(cfg, version)
+	checkErr := update.StartDue(checks, version)
 	d.Fit(res)
 	e := newEntry(ts, a.Name(), event, p, res, resolve.Chars(res.Render()))
 	if skillErr != nil {
-		e.Problems = append(slices.Clip(e.Problems), "can't update ctxtra's skills: "+skillErr.Error())
+		e.Errors = append(slices.Clip(e.Errors), "can't update ctxtra's skills: "+skillErr.Error())
 	}
 	if checkErr != nil {
-		e.Problems = append(slices.Clip(e.Problems), "can't start the update check: "+checkErr.Error())
+		e.Errors = append(slices.Clip(e.Errors), "can't start the update check: "+checkErr.Error())
 	}
 	return res, e
 }

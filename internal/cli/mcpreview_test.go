@@ -12,19 +12,17 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
-	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 func TestMCPApprovalFailureExitCodes(t *testing.T) {
 	h := testenv.Home(t)
-	commit := strings.Repeat("a", 40)
-	root := source.GenDir("https://example.invalid/context.git", commit)
-	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [build-mcp]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  work: {git: https://example.invalid/context.git, branch: main, commit: '"+commit+"'}\n")
+	entry := lockedSource(t, "work", "https://example.invalid/context.git", map[string]string{
+		manifest.FileName: "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: [build-mcp]}\n"})
+	writeLock(t, testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.invalid/context.git', branch: main}\n"), entry)
 	old := Interactive
 	t.Cleanup(func() { Interactive = old })
 	for _, tc := range []struct {
@@ -32,12 +30,12 @@ func TestMCPApprovalFailureExitCodes(t *testing.T) {
 		terminal bool
 		code     int
 	}{
-		{[]string{"mcp", "approve", "work/build"}, false, 1},
-		{[]string{"mcp", "approve", "work/build", "--no-input"}, true, 1},
-		{[]string{"mcp", "approve", "work/build"}, true, 1},
+		{[]string{"mcp", "approve", "work:build"}, false, 1},
+		{[]string{"mcp", "approve", "work:build", "--no-input"}, true, 1},
+		{[]string{"mcp", "approve", "work:build"}, true, 1},
 		{[]string{"mcp", "approve", "unknown"}, true, 1},
 		{[]string{"mcp", "revoke", "unknown"}, true, 1},
-		{[]string{"mcp", "remove", "work/build"}, true, 1},
+		{[]string{"mcp", "remove", "work:build"}, true, 1},
 		{[]string{"mcp", "approve"}, true, 2},
 		{[]string{"mcp", "revoke", "--unknown"}, true, 2},
 	} {
@@ -64,7 +62,7 @@ func TestMCPAddRecoversLostCredentialKey(t *testing.T) {
 	if err := os.Remove(filepath.Join(store.Dir, "key")); err != nil {
 		t.Fatal(err)
 	}
-	testenv.Config(t, h, "schema: ctxtra/v1\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	var output bytes.Buffer
 	io := IO{In: strings.NewReader("new\n"), Out: &output, Err: &output}
 	if n := mcpAdd(io, "build", "", []string{"missing-build-mcp"}, mcpAddOptions{noLogin: true, secretEnv: []string{"TOKEN"}}); n != 0 {
@@ -77,38 +75,28 @@ func TestMCPAddRecoversLostCredentialKey(t *testing.T) {
 	}
 }
 
-func TestSourceRemovalReportsOnlyMCPReferences(t *testing.T) {
+func TestSourceRemovalReportsRemainingReferences(t *testing.T) {
 	h := testenv.Home(t)
-	testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - name: mine\n    match: {dirs: ['~/work/**']}\n    mcp-servers: [work/build]\n")
-	var output bytes.Buffer
-	s := newSources(IO{Out: &output})
-	s.stillUsed(config.Source{Name: "work"}, "ctxtra://work/")
-	if !strings.Contains(output.String(), "MCP server work/build in binding mine") || strings.Contains(output.String(), "~/work/**") {
-		t.Fatalf("remaining references: %s", &output)
+	testenv.Write(t, filepath.Join(h, "context", "a.md"), "A")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {dir: ~/context}\nbindings:\n  - name: mine\n    location: {dirs: ['~/work/**']}\n    mcp-servers: ['work:build']\n")
+	var out, stderr bytes.Buffer
+	if n := Run([]string{"source", "remove", "work"}, IO{Out: &out, Err: &stderr}, "test"); n != 0 {
+		t.Fatalf("remove: %d, %s", n, &stderr)
 	}
-}
-
-func TestSourceBindingListingExcludesManifest(t *testing.T) {
-	h := testenv.Home(t)
-	root := filepath.Join(h, "context")
-	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers: {}\n")
-	testenv.Write(t, filepath.Join(root, "b.yaml"), "schema: ctxtra/v1\nbindings: []\n")
-	var output bytes.Buffer
-	newSources(IO{Out: &output}).listSourceBindingFiles("work", root)
-	if strings.Contains(output.String(), config.MCPManifest) || !strings.Contains(output.String(), "  b.yaml\n") {
-		t.Fatalf("binding listing: %s", &output)
+	if !strings.Contains(stderr.String(), "binding mine still uses work:build") || strings.Contains(stderr.String(), "~/work/**") {
+		t.Fatalf("remaining references: %s", &stderr)
 	}
 }
 
 func TestMCPStatusDoesNotResolveConfigReferenceBySuffix(t *testing.T) {
 	h := testenv.Home(t)
 	root := filepath.Join(h, "context")
-	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {command: [linear-mcp]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  work: {trusted-path: '"+root+"'}\nbindings:\n  - {name: mine, match: {global: true}, mcp-servers: [linear, work/linear]}\n")
+	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  linear: {command: [linear-mcp]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {dir: '"+root+"'}\nbindings:\n  - {name: mine, mcp-servers: [linear, 'work:linear']}\n")
 	var output bytes.Buffer
 	a := &app{IO: IO{Out: &output}}
-	a.mcpStatus(h)
-	if !strings.Contains(output.String(), "unavailable MCP reference \"linear\"") || strings.Contains(output.String(), "unavailable MCP reference \"work/linear\"") {
+	a.mcpStatus(h, "")
+	if !strings.Contains(output.String(), "the config has no MCP server linear") || !strings.Contains(output.String(), "  work:linear  local") {
 		t.Fatalf("reference status: %s", &output)
 	}
 }
@@ -118,7 +106,7 @@ func TestNoAuthLoginDoesNotClaimToReplaceCredentials(t *testing.T) {
 	keyring.MockInit()
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	defer remote.Close()
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: '"+remote.URL+"'}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  linear: {url: '"+remote.URL+"'}\n")
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {
 		t.Fatal(err)
@@ -146,15 +134,15 @@ func TestNoAuthLoginDoesNotClaimToReplaceCredentials(t *testing.T) {
 func TestSourceSecretWarningsReachMaintainersAndReview(t *testing.T) {
 	h := testenv.Home(t)
 	root := filepath.Join(h, "context")
-	testenv.Write(t, filepath.Join(root, config.MCPManifest), "schema: ctxtra/v1\nmcp-servers:\n  linear: {url: https://example.invalid/mcp, headers: {Authorization: embedded-value}}\n")
+	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  linear: {url: https://example.invalid/mcp, headers: {Authorization: embedded-value}}\n")
 	var output bytes.Buffer
-	if n := checkSource(IO{Out: &output, Err: &output}, root, "work", nil, false); n != 0 || !strings.Contains(output.String(), "1 warning") || !strings.Contains(output.String(), "manifest shouldn't hold") {
+	if n := validateSource(IO{Out: &output, Err: &output}, root, false); n != 0 || !strings.Contains(output.String(), "1 warning") || !strings.Contains(output.String(), "manifest shouldn't hold") {
 		t.Fatalf("maintainer warnings: exit %d, %s", n, &output)
 	}
-	cfg := config.LoadSource(root, "work", nil)
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {dir: '"+root+"'}\n")
 	output.Reset()
-	newSources(IO{Out: &output}).mcpDefinitionWarnings("work", nil, cfg)
-	if !strings.Contains(output.String(), "warning: mcp-servers.work/linear: headers.Authorization") {
+	newSources(IO{Out: &output}).mcpDefinitionWarnings("work", nil, loadEnv().Catalog)
+	if !strings.Contains(output.String(), "warning: mcp-servers.work:linear: headers.Authorization") {
 		t.Fatalf("review warnings: %s", &output)
 	}
 }

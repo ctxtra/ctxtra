@@ -447,18 +447,38 @@ func TestHead(t *testing.T) {
 	if Exists(r.dir) {
 		t.Error("Head created the source's repository")
 	}
-	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not on the remote") {
+	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not in ") {
 		t.Errorf("missing branch: %v", err)
 	}
 	if _, err := r.Head(context.Background(), "-x"); err == nil {
 		t.Error("an option as a branch")
 	}
-	// A local-git source: the clone's HEAD.
+	// A clone on this disk: its branch.
 	next := commit(t, dir, map[string]string{"b.md": "B"})
-	if got, err := Open(dir).Head(context.Background(), ""); err != nil || got != next {
+	if got, err := Open(dir).Head(context.Background(), "main"); err != nil || got != next {
 		t.Errorf("clone HEAD = %q, %v; want %q", got, err, next)
 	}
 	if _, err := Open("https://127.0.0.1:1/none").Head(context.Background(), "main"); err == nil {
 		t.Error("an unreachable remote")
+	}
+}
+
+// MaterializeAs writes the commit where the store has the other spelling
+// of the repository.
+func TestMaterializeAs(t *testing.T) {
+	dir, url := team(t)
+	first := commit(t, dir, map[string]string{"a.md": "A\n"})
+	ctx := context.Background()
+	r := Open(url)
+	if err := r.FetchCommit(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	other := url + "/."
+	gen, err := r.MaterializeAs(ctx, first, other)
+	if err != nil || gen != GenDir(other, first) || !Has(other, first) || Has(url, first) {
+		t.Fatalf("gen %s %v", gen, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(gen, "a.md")); string(b) != "A\n" {
+		t.Errorf("a.md: %q", b)
 	}
 }

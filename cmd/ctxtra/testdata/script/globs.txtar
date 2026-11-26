@@ -1,5 +1,5 @@
 # Local expansion is shared by bind, previews and hooks.
-exec ctxtra binding add local --global --instruction '~/notes/**/*.md'
+exec ctxtra binding add local --instruction '~/notes/**/*.md'
 exec ctxtra context files .
 stdout 'notes/a.md'
 stdout 'notes/sub/b.md'
@@ -13,7 +13,7 @@ stdout 'LOCAL_A'
 stdout 'LOCAL_B'
 
 # Entries that start with ! leave files and skills out, wherever they are.
-exec ctxtra binding add trimmed --global --instruction '!trim/drafts/**' --instruction 'trim/**/*.md' --skill 'skills/*' --skill '!skills/exp-*'
+exec ctxtra binding add trimmed --instruction '!trim/drafts/**' --instruction 'trim/**/*.md' --skill 'skills/*' --skill '!skills/exp-*'
 stdout 'instructions: ''?!~/trim/drafts/\*\*''?, ''?~/trim/\*\*/\*.md'
 exec ctxtra context files .
 stdout 'trim/kept.md'
@@ -21,26 +21,27 @@ stdout 'trim/kept.md'
 stdout 'skills/deploy'
 ! stdout 'exp-x'
 exec ctxtra context explain .
-stdout 'skip +.*trim/drafts/draft.md \(excluded\)'
-stdout 'skip +.*skills/exp-x/SKILL.md \(excluded\)'
+stdout 'excluded .*trim/drafts/draft.md \(by !~/trim/drafts/\*\*\)'
+stdout 'excluded .*skills/exp-x \(by !~/skills/exp-\*\)'
 runhook claude-code SessionStart .
 stdout 'KEPT'
 ! stdout 'DRAFT'
 ! stdout 'Experimental'
 
 # An exclusion that leaves nothing out is a typo, and binding add refuses it.
-! exec ctxtra binding add typo --global --instruction 'trim/*.md' --instruction '!trim/kept.mdd'
+! exec ctxtra binding add typo --instruction 'trim/*.md' --instruction '!trim/kept.mdd'
 stderr 'excludes nothing'
-! exec ctxtra binding add only --global --instruction '!trim/kept.md'
-stderr 'only entries that start with !'
+! exec ctxtra binding add only --instruction '!trim/kept.md'
+stderr 'instructions has only ! entries'
 
 # Pinned patterns must include additions in review without a binding edit.
 gitrepo srv/team
-exec ctxtra source add git $GITSRV/team --include bindings.yaml
+exec ctxtra source add --repo $GITSRV/team
+exec ctxtra binding add pinned --instruction 'team:notes/**/*.md'
 exec ctxtra context show .
 stdout 'PINNED_A'
 stdout 'OLD_MATCH'
-exec ctxtra binding add own --global --instruction 'ctxtra://team/notes/*.md'
+exec ctxtra binding add own --instruction 'team:notes/*.md'
 rm srv/team/notes/old.md
 cp new.md srv/team/notes/new.md
 cp old.md srv/team/notes/a.md
@@ -63,12 +64,12 @@ stdout 'NEW_MATCH'
 stdout 'CHANGED_MATCH'
 
 # New glob errors in the user's config must be visible during sync.
-exec ctxtra binding add last --global --instruction 'ctxtra://team/notes/new*.md'
+exec ctxtra binding add last --instruction 'team:notes/new*.md'
 rm srv/team/notes/new.md
 gitcommit srv/team
 stdin no.txt
 exec ctxtra-tty source update
-stdout 'error: .*ctxtra://team/notes/new\*.md.*glob matches no instructions'
+stdout 'error: .*team:notes/new\*.md: notes/new\*.md matches no file'
 exec ctxtra context show .
 stdout 'NEW_MATCH'
 
@@ -90,12 +91,6 @@ description: Deploy the service
 ---
 description: Experimental
 ---
--- srv/team/bindings.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: pinned
-    match: {global: true}
-    instructions: ['notes/**/*.md']
 -- srv/team/notes/old.md --
 OLD_MATCH
 -- srv/team/notes/a.md --
