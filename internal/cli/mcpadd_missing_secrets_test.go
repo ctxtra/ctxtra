@@ -57,7 +57,7 @@ func TestMCPAddFillsMissingSharedSecrets(t *testing.T) {
 		t.Run(map[bool]string{false: "header", true: "environment"}[local], func(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
-			testenv.Config(t, h, "schema: ctxtra/v1\n")
+			testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			c := newSharedSecretsCase(t, h, local)
 			store := openStore()
 			_, before, err := store.Inspect(c.srv)
@@ -109,7 +109,7 @@ func TestMCPAddWithoutMissingSharedSecretChangesNothing(t *testing.T) {
 		t.Run(map[bool]string{false: "header", true: "environment"}[local], func(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
-			file := testenv.Config(t, h, "schema: ctxtra/v1\n")
+			file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			c := newSharedSecretsCase(t, h, local)
 			c.opts.noInput = true
 			store := openStore()

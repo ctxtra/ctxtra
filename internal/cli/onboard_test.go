@@ -42,7 +42,7 @@ func TestOnboardImport(t *testing.T) {
 					t.Errorf("missing %q:\n%s", text, out)
 				}
 			}
-			if strings.Contains(out, "Next:") || skillBound("ctxtra") == nil || skillBound(follow) == nil {
+			if strings.Contains(out, "Next:") || skillBound("ctxtra") == "" || skillBound(follow) == "" {
 				t.Fatalf("skills or flow:\n%s", out)
 			}
 			if tc.started == "" {
@@ -80,7 +80,7 @@ func TestOnboardDeclineSkills(t *testing.T) {
 			if code, _, errOut := runOnboard("y\n"+input, "--agent", "claude-code"); code != 0 {
 				t.Fatalf("onboard: %d %s", code, errOut)
 			}
-			if skillBound("ctxtra") != nil || skillBound(follow) != nil || len(f.started) != 0 {
+			if skillBound("ctxtra") != "" || skillBound(follow) != "" || len(f.started) != 0 {
 				t.Fatal("declined skills installed or agent started")
 			}
 		})
@@ -123,7 +123,7 @@ func TestOnboardNeedsTerminal(t *testing.T) {
 			if _, err := os.Stat(state.SetupsPath()); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("setup changed: %v", err)
 			}
-			if skillBound("ctxtra") != nil {
+			if skillBound("ctxtra") != "" {
 				t.Fatal("skill installed")
 			}
 		})
@@ -168,7 +168,7 @@ func TestOnboardFailure(t *testing.T) {
 				args = []string{"--agent", "nonexistent"}
 			case "skill":
 				testenv.Write(t, filepath.Join(h, "notes.md"), "notes")
-				testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - name: ctxtra\n    match: {global: true}\n    instructions: [~/notes.md]\n")
+				testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - name: ctxtra\n    instructions: [~/notes.md]\n")
 			case "choice":
 				input = "\n\ny\n99\n"
 			case "start":
@@ -178,7 +178,7 @@ func TestOnboardFailure(t *testing.T) {
 			if code == 0 || errOut == "" || len(f.started) != 0 {
 				t.Fatalf("onboard: %d %s, started %+v", code, errOut, f.started)
 			}
-			if mode == "setup" && skillBound("ctxtra") != nil {
+			if mode == "setup" && skillBound("ctxtra") != "" {
 				t.Fatal("installed skill after failed setup")
 			}
 			if mode == "choice" {
@@ -208,7 +208,7 @@ func TestOnboardDeclineHooks(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("onboarding wrote state: %v", err)
 			}
-			if skillBound("ctxtra") != nil || skillBound(follow) != nil || len(f.started) != 0 || strings.Contains(out, "Your agents can set up") {
+			if skillBound("ctxtra") != "" || skillBound(follow) != "" || len(f.started) != 0 || strings.Contains(out, "Your agents can set up") {
 				t.Fatal("continued after declining hooks")
 			}
 		})

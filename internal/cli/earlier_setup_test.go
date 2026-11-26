@@ -12,7 +12,7 @@ import (
 func TestEarlierEntriesAddNothing(t *testing.T) {
 	h := testenv.Home(t)
 	testenv.Write(t, filepath.Join(h, "rules.md"), "PRIVATE INSTRUCTION")
-	testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - name: me\n    match: {global: true}\n    instructions: [~/rules.md]\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - name: me\n    instructions: [~/rules.md]\n")
 	for _, name := range []string{"claude", "copilot", "hermes", "claude-code", "codex", "cursor", "opencode", "pi", "antigravity", "devin", "muse", "dsh"} {
 		t.Run(name, func(t *testing.T) {
 			if code, out, _ := run("hook", name, "SessionStart", "--slot", "0", "--of", "40"); code != 0 || out != "{}\n" {
@@ -29,7 +29,7 @@ func TestDoctorEarlierEntry(t *testing.T) {
 	h, bin := noticeHome(t)
 	binary = func() (string, []string, error) { return bin, nil, nil }
 	t.Cleanup(func() { binary = setup.Binary })
-	testenv.Config(t, h, "schema: ctxtra/v1\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	testenv.Write(t, filepath.Join(h, ".ctxtra", "unused"), "")
 	testenv.Write(t, filepath.Join(h, ".claude", "settings.json"), `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ctxtra hook claude SessionStart"}]}]}}`)
 	if code, out, _ := run("doctor", h); code != 1 || !strings.Contains(out, "ctxtra setup --agent claude-code") ||

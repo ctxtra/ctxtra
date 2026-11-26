@@ -56,8 +56,8 @@ func TestProxyBrokenStdout(t *testing.T) {
 	pidfile := filepath.Join(h, "a.pid")
 	cfg := filepath.Join(h, "ctxtra", "config.yaml")
 	os.MkdirAll(filepath.Dir(cfg), 0o755)
-	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"', -pidfile, '"+pidfile+"', -ignore-term], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
-		"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [a]}\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("schema: ctxtra/config/v1\nmcp-servers:\n  a: {command: ['"+exe+"', -pidfile, '"+pidfile+"', -ignore-term], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
+		"bindings:\n  - {name: all, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe, "mcp", "proxy", "codex", "--setup-version=1")
@@ -130,8 +130,8 @@ func TestProxyStartBudget(t *testing.T) {
 	}
 	cfg := filepath.Join(h, "ctxtra", "config.yaml")
 	os.MkdirAll(filepath.Dir(cfg), 0o755)
-	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
-		"bindings:\n  - {name: app, match: {dirs: ['~/dev/**']}, mcp-servers: [a]}\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("schema: ctxtra/config/v1\nmcp-servers:\n  a: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
+		"bindings:\n  - {name: app, location: {dirs: ['~/dev/**']}, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	best := struct{ init, list, resolve time.Duration }{time.Hour, time.Hour, time.Hour}

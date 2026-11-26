@@ -24,7 +24,7 @@ func TestShowSession(t *testing.T) {
 	for _, s := range []string{"deploy", "lint"} {
 		testenv.Write(t, filepath.Join(h, "skills", s, "SKILL.md"), "---\ndescription: "+s+" it.\n---\n")
 	}
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: me
     match: {global: true}
@@ -78,7 +78,7 @@ bindings:
 
 	// A file the session has from a repository binding, which a global
 	// binding adds too: the session doesn't know that it applies here.
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
     match: {repos: [{remote: github.com/acme/svc}]}
@@ -93,7 +93,7 @@ bindings:
 	if _, out, _ := run("context", "show", other, "--exclude-session", h); !strings.Contains(out, "(nothing is added here beyond") {
 		t.Errorf("global here and there:\n%s", out)
 	}
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
     match: {repos: [{remote: github.com/acme/svc}]}
@@ -140,7 +140,7 @@ bindings:
 	// A file over an agent's limit: sessions of that agent don't get it, so
 	// show gives its text.
 	testenv.Write(t, filepath.Join(h, "ctx", "big.md"), strings.Repeat("MARK-BIG line of a big file\n", 400_000/28))
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
     match: {repos: [{remote: github.com/acme/svc}]}
@@ -165,7 +165,7 @@ func TestShowLongTitle(t *testing.T) {
 	esc := strings.Repeat("\x1b", 240)
 	file := filepath.Join(h, esc, esc, esc, "a.md")
 	testenv.Write(t, file, strings.Repeat("MARK-LONG line of a file\n", 30_000/25))
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: other
     match: {repos: [{remote: github.com/acme/other}]}

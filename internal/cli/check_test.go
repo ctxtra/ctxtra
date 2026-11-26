@@ -16,9 +16,9 @@ import (
 func TestCheckFindsLargeBindingFile(t *testing.T) {
 	h := testenv.Home(t)
 	dir := filepath.Join(h, "team")
-	testenv.Write(t, filepath.Join(dir, "ok.yaml"), "schema: ctxtra/v1\nbindings:\n  - name: a\n    match: {global: true}\n    instructions: [a.md]\n")
+	testenv.Write(t, filepath.Join(dir, "ok.yaml"), "schema: ctxtra/config/v1\nbindings:\n  - name: a\n    instructions: [a.md]\n")
 	testenv.Write(t, filepath.Join(dir, "a.md"), "A")
-	big := "# " + strings.Repeat("x", config.MaxFileBytes) + "\nschema: ctxtra/v1\n"
+	big := "# " + strings.Repeat("x", config.MaxFileBytes) + "\nschema: ctxtra/config/v1\n"
 	if err := os.WriteFile(filepath.Join(dir, "big.yaml"), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestCheckLimitsPerBindingFile(t *testing.T) {
 	pad := "# " + strings.Repeat("x", 3<<20) + "\n"
 	for i := range 6 {
 		testenv.Write(t, filepath.Join(dir, fmt.Sprintf("b%d.yaml", i)),
-			"schema: ctxtra/v1\n"+pad+"bindings:\n  - name: a\n    match: {global: true}\n    instructions: [a.md]\n")
+			"schema: ctxtra/config/v1\n"+pad+"bindings:\n  - name: a\n    instructions: [a.md]\n")
 	}
 	if code, out, _ := run("source", "check", dir); code != 0 || !strings.Contains(out, "0 errors, 0 warnings") {
 		t.Errorf("source check: %d %q", code, out)

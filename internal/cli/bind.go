@@ -214,7 +214,7 @@ type bindingInfo struct {
 	MCPServers   []string `json:"mcp_servers"`
 }
 
-func texts(list []config.Entry) []string {
+func entryTexts(list []config.Entry) []string {
 	out := []string{}
 	for _, e := range list {
 		out = append(out, e.Text)
@@ -223,24 +223,24 @@ func texts(list []config.Entry) []string {
 }
 
 func bindingOf(b *config.Binding) bindingInfo {
-	i := bindingInfo{Name: b.Name, Line: b.Pos.Line, Collections: texts(b.Collections), Instructions: texts(b.Instructions),
-		Skills: texts(b.Skills), MCPServers: texts(b.MCPServers)}
+	i := bindingInfo{Name: b.Name, Line: b.Pos.Line, Collections: entryTexts(b.Collections), Instructions: entryTexts(b.Instructions),
+		Skills: entryTexts(b.Skills), MCPServers: entryTexts(b.MCPServers)}
 	if b.Profiles != nil {
-		i.Profiles = texts(b.Profiles)
+		i.Profiles = entryTexts(b.Profiles)
 	}
 	if b.Agents != nil {
-		i.Agents = texts(b.Agents)
+		i.Agents = entryTexts(b.Agents)
 	}
 	if l := b.Location; l != nil {
-		i.Dirs = texts(l.Dirs)
+		i.Dirs = entryTexts(l.Dirs)
 		for _, r := range l.Repos {
 			text := r.Text
 			if r.Subdirs != nil {
-				text += " (subdirs " + strings.Join(texts(r.Subdirs), ", ") + ")"
+				text += " (subdirs " + strings.Join(entryTexts(r.Subdirs), ", ") + ")"
 			}
 			i.Repos = append(i.Repos, text)
 		}
-		i.RepoSets = texts(l.RepoSets)
+		i.RepoSets = entryTexts(l.RepoSets)
 	}
 	return i
 }

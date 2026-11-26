@@ -23,7 +23,7 @@ func TestCleanStoreKeepsAcceptedCommits(t *testing.T) {
 	}
 	cfg := func(name, commit string) string {
 		p := filepath.Join(h, name)
-		testenv.Write(t, p, "schema: ctxtra/v1\nsources:\n  team: {git: '"+url+"', branch: main, commit: '"+commit+"'}\n")
+		testenv.Write(t, p, "schema: ctxtra/config/v1\nsources:\n  team: {git: '"+url+"', branch: main, commit: '"+commit+"'}\n")
 		return p
 	}
 	mine := cfg(".config/ctxtra/config.yaml", a)

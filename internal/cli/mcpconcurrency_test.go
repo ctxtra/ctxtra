@@ -54,7 +54,7 @@ func TestMCPAddRechecksBindingAtCredentialWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := upstream.Server{ID: "shared", Name: "shared", URL: "https://a.example/mcp"}
-	file := testenv.Config(t, h, "schema: ctxtra/v1\n")
+	file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	before, _ := os.ReadFile(file)
 	other := target
 	other.URL = "https://b.example/mcp"
@@ -84,7 +84,7 @@ func TestMCPLoginRechecksBindingAfterPrompt(t *testing.T) {
 	keyring.MockInit()
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	defer remote.Close()
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '"+remote.URL+"', secret-headers: [Authorization]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: '"+remote.URL+"', secret-headers: [Authorization]}\n")
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestMCPReplacementFailureKeepsOldRecord(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 			}))
 			defer remote.Close()
-			testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '"+remote.URL+"', secret-headers: [Authorization], client-id: app}\n")
+			testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: '"+remote.URL+"', secret-headers: [Authorization], client-id: app}\n")
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {
 				t.Fatal(err)

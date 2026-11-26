@@ -9,7 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
+	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/setup"
+	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -23,13 +28,13 @@ func TestCommands(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
 	testenv.Write(t, filepath.Join(h, "a.md"), "A")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), `schema: ctxtra/v1
+	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), `schema: ctxtra/config/v1
 bindings:
   - name: svc
     match: {repos: [{remote: github.com/acme/svc}]}
     instructions: [~/a.md, ~/gone.md]
 `)
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\ninclude: [b.yaml]\n")
 
 	if code, out, errOut := run("context", "files", r); code != 1 || out != filepath.Join(h, "a.md")+"\n" || !strings.Contains(errOut, "missing: "+filepath.Join(h, "gone.md")) {
 		t.Errorf("files: %d %q %q", code, out, errOut)
@@ -80,8 +85,8 @@ bindings:
 func TestSizeWarnings(t *testing.T) {
 	h := testenv.Home(t)
 	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: me, match: {global: true}, instructions: [~/a.md, ~/b.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+		"schema: ctxtra/config/v1\nbindings:\n  - {name: me, instructions: [~/a.md, ~/b.md]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\ninclude: [b.yaml]\n")
 	testenv.Write(t, filepath.Join(h, "a.md"), "small")
 	for _, tc := range []struct {
 		content string
@@ -209,4 +214,33 @@ func TestAsk(t *testing.T) {
 			t.Errorf("%q: %v %v", c.in, yes, err)
 		}
 	}
+}
+
+// serverIn is the server ref of the config at path, as sessions read it.
+func serverIn(t *testing.T, path, ref string) (upstream.Server, bool) {
+	t.Helper()
+	s, ok := resolve.Load(path, registry.Names()).Catalog.Server(ref)
+	return s.Server, ok
+}
+
+// lockedSource puts files into ctxtra's store at a commit of the
+// repository url, as source download would, and returns the lock entry
+// of source name accepted on branch main at it.
+func lockedSource(t *testing.T, name, url string, files map[string]string) string {
+	t.Helper()
+	commit := strings.Repeat("a", 40)
+	gen := source.GenDir(url, commit)
+	if err := os.MkdirAll(gen, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for p, content := range files {
+		testenv.Write(t, filepath.Join(gen, filepath.FromSlash(p)), content)
+	}
+	return "  " + name + ":\n    repo: " + url + "\n    branch: main\n    commit: " + commit + "\n"
+}
+
+// writeLock writes the lock of the config at path with entries.
+func writeLock(t *testing.T, path string, entries ...string) {
+	t.Helper()
+	testenv.Write(t, lock.Path(path), "schema: ctxtra/lock/v1\nsources:\n"+strings.Join(entries, ""))
 }

@@ -347,10 +347,10 @@ func TestNewAgentNoticeDuringSetup(t *testing.T) {
 // another binary, gone from its file; and nothing without configured servers.
 func TestMCPNotices(t *testing.T) {
 	h, bin := noticeHome(t)
-	testenv.Config(t, h, "schema: ctxtra/v1\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	setUp(t, bin, "claude-code")
 	wantNotices(t, "no servers")
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
 	wantNotices(t, "servers added after setup")
 	o := setup.Options{Agents: []string{"claude-code"}, MCP: setup.LoadMCP()}
 	o.Binary = bin

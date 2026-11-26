@@ -38,7 +38,7 @@ func testAgentFolders(t *testing.T, name string) {
 	for _, key := range paths.XDGVars {
 		t.Setenv(key, filepath.Join(h, "custom", key))
 	}
-	testenv.Write(t, paths.ConfigPath(), "schema: ctxtra/v1\ncheck-updates: false\nmcp-servers:\n  saved: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\nbindings:\n  - {name: all, match: {global: true}, instructions: ['~/a.md'], mcp-servers: [saved]}\n")
+	testenv.Write(t, paths.ConfigPath(), "schema: ctxtra/config/v1\ncheck-updates: false\nmcp-servers:\n  saved: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\nbindings:\n  - {name: all, instructions: ['~/a.md'], mcp-servers: [saved]}\n")
 	testenv.Write(t, filepath.Join(h, "a.md"), "CUSTOM_CONFIG_MARKER\n")
 	a, _ := registry.Get(name)
 	r, err := setup.Run(setup.Options{Agents: []string{name}, Options: agent.Options{Binary: exe}, MCP: setup.MCPConfig{}})
