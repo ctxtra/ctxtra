@@ -69,7 +69,7 @@ rm srv/team/notes/new.md
 gitcommit srv/team
 stdin no.txt
 exec ctxtra-tty source update
-stdout 'error: .*team:notes/new\*.md: notes/new\*.md matches no file'
+stdout 'error: .*binding last: team:notes/new\*.md matches no file'
 exec ctxtra context show .
 stdout 'NEW_MATCH'
 

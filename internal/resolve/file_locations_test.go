@@ -20,7 +20,7 @@ func TestCacheRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Materialize(ctx, commit); err != nil {
+	if _, err := r.Materialize(ctx, commit, ""); err != nil {
 		t.Fatal(err)
 	}
 	cfg := testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  team: {repo: '"+dir+"', branch: main}\nbindings:\n  - {name: all, instructions: ['team:AGENTS.md']}\n")

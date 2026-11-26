@@ -142,7 +142,7 @@ func TestSummarySameNames(t *testing.T) {
 func TestSummarySources(t *testing.T) {
 	h := testenv.Home(t)
 	commit := strings.Repeat("a", 40)
-	a, b := source.GenDir("https://h/a", commit), source.GenDir("https://h/b", commit)
+	a, b := source.GenDir("https://h/a", "", commit), source.GenDir("https://h/b", "", commit)
 	for _, f := range []string{filepath.Join(a, "style.md"), filepath.Join(a, "go", "style.md"), filepath.Join(b, "style.md"),
 		filepath.Join(h, "ctx", "style.md"), filepath.Join(h, "dots", "ai", "me.md")} {
 		testenv.Write(t, f, "text")

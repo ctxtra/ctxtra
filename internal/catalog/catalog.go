@@ -8,6 +8,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -62,7 +63,7 @@ var touch = source.Touch
 // it: cleanup keeps what sessions use. It fails while cleanup owns the
 // store past the wait; the commit must then not be read.
 func (c *Catalog) use(s *Source) error {
-	if s.Live() || s.Top == "" {
+	if s.Live() || s.Top == "" || s.fsys != nil {
 		return nil
 	}
 	gen := s.Top
@@ -117,6 +118,8 @@ type Source struct {
 	// dir is a dir source's folder as the config names it, ~ expanded:
 	// the way its symlinks are checked on.
 	dir string
+	// fsys has the files of a source read from git, not from a folder.
+	fsys fs.FS
 
 	manifest     *manifest.Manifest
 	manifestErrs []*Error
@@ -225,12 +228,6 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 		}
 		return src
 	}
-	switch {
-	case s.Ref.Kind == config.Tag || s.Ref.Kind == config.Rev:
-		return fail(Broken, yamlx.BrokenSource, "%s is not implemented yet; follow a branch", s.Ref.Kind)
-	case s.Subdir != "":
-		return fail(Broken, yamlx.BrokenSource, "subdir is not implemented yet")
-	}
 	if config.IsLocalRepo(s.Repo) {
 		dir := filepath.Clean(paths.Expand(s.Repo))
 		why := folder(dir)
@@ -261,7 +258,7 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 		return fail(Inactive, yamlx.Inactive, "the accepted commit %s is not downloaded on this machine; run `ctxtra source download`",
 			source.Short(e.Commit))
 	}
-	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(config.CleanSubdir(s.Subdir)))
+	src.Top = paths.Real(dir)
 	return src
 }
 
@@ -388,16 +385,17 @@ func changed(ch lock.Changes) string {
 // downloaded from.
 func CommitDir(e *lock.Entry) string { return commitDir(e) }
 
-// WithTop is the catalog with source name read from top, a folder in
-// ctxtra's store: what the config would use from another commit, for the
-// review of an update.
-func (c *Catalog) WithTop(name, top string) *Catalog {
+// WithFiles is the catalog with source name read from fsys: what the config
+// would use from another commit, for the review of an update. top is the
+// folder that the source's paths in messages start from; nothing is read
+// there.
+func (c *Catalog) WithFiles(name string, fsys fs.FS, top string) *Catalog {
 	cp := *c
 	cp.sources = map[string]*Source{}
 	cp.order = nil
 	for _, s := range c.order {
 		if s.Name == name {
-			s = &Source{Source: s.Source, State: Active, Top: top}
+			s = &Source{Source: s.Source, State: Active, Top: top, fsys: fsys}
 		}
 		cp.sources[s.Name] = s
 		cp.order = append(cp.order, s)
@@ -410,10 +408,24 @@ func commitDir(e *lock.Entry) string {
 	if config.IsLocalRepo(remote) {
 		remote = filepath.Clean(paths.Expand(remote))
 	}
-	return source.GenDir(remote, e.Commit)
+	return source.GenDir(remote, config.CleanSubdir(e.Subdir), e.Commit)
 }
 
 const notHere = "is not on this machine"
+
+// NotOnThisMachine reports whether source s is not on this machine: a dir folder or
+// a local repo path that doesn't exist. That is not an error: entries that
+// use the source are left out, and nothing checks or downloads it.
+func NotOnThisMachine(s *config.Source) bool {
+	p := s.Dir
+	if p == "" {
+		if !config.IsLocalRepo(s.Repo) {
+			return false
+		}
+		p = s.Repo
+	}
+	return folder(filepath.Clean(paths.Expand(p))) == notHere
+}
 
 // folder says what keeps dir from being a folder, notHere when it doesn't
 // exist, "" when it is one.
@@ -477,7 +489,7 @@ func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manife
 		}
 		return s.manifest, s.manifestErrs, nil
 	}
-	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
+	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live(), fsys: s.fsys}
 	file := s.Name + ":" + manifest.FileName
 	data, err := c.readMax(it, rd, maxManifestBytes)
 	if errors.Is(err, fsutil.ErrTotalLimit) {

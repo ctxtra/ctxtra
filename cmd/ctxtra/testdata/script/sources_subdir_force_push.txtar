@@ -1,0 +1,23 @@
+# A force-pushed branch is reported also when it changes nothing under the
+# source's subdir: the folder is up to date, the history is not the one
+# accepted.
+
+gitrepo srv/ctx
+exec ctxtra source add --repo $GITSRV/ctx --subdir teams/billing --name billing
+
+# Replace main with an unrelated commit that has the same billing files.
+cp other.md srv/ctx/other.md
+exec git -C srv/ctx checkout -q --orphan rewritten
+gitcommit srv/ctx
+exec git -C srv/ctx branch -M rewritten main
+exec ctxtra source update billing --dry-run
+stdout '^billing: up to date: main at [0-9a-f]{7} changes nothing under teams/billing since [0-9a-f]{7}$'
+stdout '^warning: [0-9a-f]{7} doesn''t continue [0-9a-f]{7}: the branch was force-pushed'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+-- srv/ctx/teams/billing/a.md --
+A
+-- other.md --
+other

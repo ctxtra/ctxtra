@@ -69,7 +69,7 @@ exec ctxtra source add --repo $GITSRV/team
 stdout 'is the source team already'
 cmp .config/ctxtra/config.yaml before.yaml
 ! exec ctxtra source add --repo $GITSRV/team/ --branch other --name dotfiles
-stderr 'a source named dotfiles already exists \(dir ~/dev/dotfiles\)'
+stderr 'the name dotfiles is taken by the source for dir ~/dev/dotfiles; choose another name with --name'
 
 -- no.txt --
 n

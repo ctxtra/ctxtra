@@ -25,7 +25,7 @@ func FuzzSourceReference(f *testing.F) {
 		testenv.Write(f, filepath.Join(h, p), "x")
 	}
 	commit := strings.Repeat("a", 40)
-	gen := source.GenDir("https://example.com/team.git", commit)
+	gen := source.GenDir("https://example.com/team.git", "", commit)
 	for _, p := range []string{"rules.md", "nested/x.md"} {
 		testenv.Write(f, filepath.Join(gen, p), "x")
 	}

@@ -1,0 +1,75 @@
+# Sources not on this machine: a repo clone or a dir folder that doesn't
+# exist here is no error. Entries that use it are left out, doctor and
+# context explain list it, the session message doesn't mention it, source
+# download skips it, and the lock keeps its entry.
+
+gitrepo dev/iam-ctx
+exec ctxtra setup --agent claude-code
+exec git -C dev/iam-ctx checkout -q -b my-change
+exec ctxtra source add --repo ~/dev/iam-ctx --name iam-dev
+expand config.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart notes
+stdout 'IAM_RULES'
+stdout 'ME_NOTES'
+cp .config/ctxtra/ctxtra.lock saved.lock
+
+# A clone on one machine only: on the second machine the session gets
+# everything but iam-dev's entries, and its message doesn't mention it.
+mv dev/iam-ctx elsewhere
+runhook claude-code SessionStart notes
+stdout 'ME_NOTES'
+! stdout 'IAM_RULES'
+! stdout 'iam-dev'
+! stdout 'dotfiles'
+! stdout 'error'
+exec ctxtra doctor notes
+stdout 'source iam-dev: repo ~/dev/iam-ctx, branch my-change: ~/dev/iam-ctx is not on this machine$'
+stdout 'source dotfiles: dir ~/dev/dotfiles: ~/dev/dotfiles is not on this machine$'
+exec ctxtra context explain notes
+stdout 'iam-dev'
+stdout 'not on this machine'
+exec ctxtra source download
+stdout '^iam-dev: ~/dev/iam-ctx is not on this machine; skipped$'
+cmp .config/ctxtra/ctxtra.lock saved.lock
+exec ctxtra source update --dry-run
+stdout '^iam-dev: ~/dev/iam-ctx is not on this machine; skipped$'
+exec ctxtra check-updates
+! stdout 'iam-dev'
+! stderr .
+
+# A path that exists but isn't a folder, or isn't a git repository, is an
+# error, also for the update check.
+mkdir dev/iam-ctx
+! exec ctxtra doctor notes
+stdout 'repo ~/dev/iam-ctx is not a git repository'
+! exec ctxtra check-updates
+stdout '^iam-dev: can''t check: '
+
+# A live folder not cloned yet: once it is there, the next session reads it.
+rm dev/iam-ctx
+mv elsewhere dev/iam-ctx
+mv dev/dotfiles-later dev/dotfiles
+gitrepo dev/dotfiles
+runhook claude-code SessionStart notes
+stdout 'IAM_RULES'
+stdout 'DOT_AGENT'
+
+-- config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+sources:
+  iam-dev:
+    repo: ~/dev/iam-ctx
+    branch: my-change
+  dotfiles:
+    dir: ~/dev/dotfiles
+bindings:
+  - name: me
+    instructions: ['iam-dev:rules.md', 'dotfiles:agents/*.md', ~/me.md]
+-- me.md --
+ME_NOTES
+-- notes/.keep --
+-- dev/iam-ctx/rules.md --
+IAM_RULES
+-- dev/dotfiles-later/agents/a.md --
+DOT_AGENT

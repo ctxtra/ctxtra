@@ -20,17 +20,6 @@ func TestSources(t *testing.T) {
 	const iamTeam = "sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n"
 	iamFiles := map[string]string{"instructions/go.md": "GO", "instructions/rust.md": "RUST"}
 
-	t.Run("tag, rev and subdir are not implemented yet", func(t *testing.T) {
-		h := newHome(t)
-		env := h.load("sources:\n  a: {repo: 'https://h/a', tag: v1}\n  b: {repo: 'https://h/b', rev: " + commit("b") + "}\n" +
-			"  c: {repo: 'https://h/c', branch: main, subdir: x}\nbindings:\n  - {name: b, instructions: ['a:x.md', 'b:x.md', 'c:x.md']}\n")
-		res := start(env, h.dir, "")
-		if errs := errorsOf(res, yamlx.BrokenSource); len(errs) != 3 || !strings.Contains(errs[0].Error(), "tag is not implemented yet") ||
-			!strings.Contains(errs[1].Error(), "rev is not implemented yet") || !strings.Contains(errs[2].Error(), "subdir is not implemented yet") {
-			t.Errorf("errors %v", res.Errors)
-		}
-	})
-
 	t.Run("sessions read the locked commit", func(t *testing.T) {
 		h := newHome(t)
 		entry := h.accept("iam-team", "git@github.com:acme/iam-ctx.git", "branch: main", "", commit("a"), iamFiles)
@@ -39,6 +28,35 @@ func TestSources(t *testing.T) {
 		res := start(env, h.dir, "")
 		noErrors(t, res)
 		if len(res.Files) != 1 || res.Files[0].Content != "GO" || res.Files[0].Ref != "iam-team:instructions/go.md" {
+			t.Errorf("files %+v", res.Files)
+		}
+	})
+
+	t.Run("a tag and a rev read their locked commits", func(t *testing.T) {
+		h := newHome(t)
+		tag := h.accept("obs-team", "https://github.com/acme/obs.git", "tag: v1.4.0", "", commit("a"), map[string]string{"x.md": "TAG"})
+		rev := h.accept("security", "git@github.com:acme/sec.git", "rev: "+commit("b"), "", commit("b"), map[string]string{"y.md": "REV"})
+		env := h.load("sources:\n  obs-team: {repo: 'https://github.com/acme/obs.git', tag: v1.4.0}\n"+
+			"  security: {repo: 'git@github.com:acme/sec.git', rev: "+commit("b")+"}\n"+
+			"bindings:\n  - {name: b, instructions: ['obs-team:x.md', 'security:y.md']}\n", tag, rev)
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		if len(res.Files) != 2 || res.Files[0].Content != "TAG" || res.Files[1].Content != "REV" {
+			t.Errorf("files %+v", res.Files)
+		}
+	})
+
+	t.Run("two folders of one commit", func(t *testing.T) {
+		h := newHome(t)
+		files := map[string]string{"teams/billing/a.md": "BILLING", "teams/iam/a.md": "IAM"}
+		b := h.accept("billing", "https://h/ctx.git", "branch: main", "teams/billing", commit("a"), files)
+		i := h.accept("iam", "https://h/ctx.git", "branch: main", "teams/iam", commit("a"), files)
+		env := h.load("sources:\n  billing: {repo: 'https://h/ctx.git', branch: main, subdir: teams/billing}\n"+
+			"  iam: {repo: 'https://h/ctx.git', branch: main, subdir: teams/iam}\n"+
+			"bindings:\n  - {name: b, instructions: ['billing:a.md', 'iam:a.md']}\n", b, i)
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		if len(res.Files) != 2 || res.Files[0].Content != "BILLING" || res.Files[1].Content != "IAM" {
 			t.Errorf("files %+v", res.Files)
 		}
 	})
@@ -53,7 +71,6 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("one team's folder of a shared repository", func(t *testing.T) {
-		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), map[string]string{
 			"teams/billing/skills/pay/SKILL.md": "---\nname: pay\ndescription: Pay.\n---\nbody",
@@ -112,7 +129,6 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("subdir changed", func(t *testing.T) {
-		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), nil)
 		env := h.load("sources:\n  billing-ctx: {repo: 'git@github.com:acme/agent-context.git', branch: main, subdir: teams}\nbindings:\n  - {name: b, skills: ['billing-ctx:*']}\n", entry)
@@ -359,7 +375,7 @@ func TestDirSourceGlobs(t *testing.T) {
 		h := newHome(t)
 		h.write("notes/go.md", "GO")
 		entry := h.accept("team", "https://github.com/acme/team.git", "branch: main", "", commit("a"), map[string]string{"agents/me.md": "ME"})
-		symlink(t, h.path("notes"), filepath.Join(source.GenDir("https://github.com/acme/team.git", commit("a")), "agents", "notes"))
+		symlink(t, h.path("notes"), filepath.Join(source.GenDir("https://github.com/acme/team.git", "", commit("a")), "agents", "notes"))
 		env := h.load("sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\nbindings:\n  - {name: b, instructions: ['team:agents/**/*.md']}\n", entry)
 		res := start(env, h.dir, "")
 		noErrors(t, res)

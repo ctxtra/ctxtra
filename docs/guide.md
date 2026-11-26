@@ -239,7 +239,7 @@ ctxtra source update team-ctx
 
 Read the repository before adding it: its first commit is accepted without review.
 Later commits reach sessions only after you review and accept them in your terminal.
-`--dry-run` shows the review without accepting or dismissing it. Accepting covers every file in the commit,
+`--dry-run` shows the review without accepting or dismissing it, and writes only to ctxtra's cache. Accepting covers every file in the commit,
 also files shown only by name. The warnings help you read; they do not prove the text is safe.
 
 `SOURCE:PATH` always means content from that source. An absolute, `~` or relative disk path stays a disk
@@ -255,7 +255,28 @@ ctxtra binding add preview --instruction preview:services-overview.md
 
 This follows the clone's checked-out named branch when added. It reads accepted commits, never dirty files
 or the branch's upstream. Use `--branch NAME` to choose another branch, or when HEAD is detached.
-`tag`, `rev` and source `subdir` are not implemented yet.
+
+A source can follow a tag or stay at one commit instead of a branch:
+
+```bash
+ctxtra source add --repo https://github.com/acme/observability-ctx.git --tag v1.4.0
+ctxtra source add --repo git@github.com:acme/security-guidelines.git --rev 9f8e7d6
+```
+
+With a tag, you hear when someone moves it, and `source update` shows the change for review. With `--rev`,
+nothing is new until you edit `rev` in the config; `source add` writes the commit's full ID.
+
+When teams share one repository, one folder per team, add only your team's folder:
+
+```bash
+ctxtra source add --repo git@github.com:acme/agent-context.git --subdir teams/billing
+ctxtra binding add billing --skill 'agent-context-billing:skills/*'
+```
+
+The folder is the source's top: `agent-context-billing:skills/*` means `teams/billing/skills/*`, and its
+manifest is `teams/billing/ctxtra-source.yaml`. Commits that change only other teams' folders are nothing
+new for you. Changing `subdir` or `repo` later makes it a new source, which `source update` reviews from
+nothing. Changing `branch`, `tag` or `rev` is reviewed as a change from the accepted commit.
 
 On another machine, copy both the config and its lock, then run:
 
@@ -263,12 +284,13 @@ On another machine, copy both the config and its lock, then run:
 ctxtra source download
 ```
 
-It downloads exactly the accepted commits and leaves the lock unchanged. Missing local source folders
+It downloads exactly the accepted commits and leaves the lock unchanged. Run it too after you delete
+`~/.local/share/ctxtra`; deleting `~/.cache/ctxtra` changes nothing for sessions. Missing local source folders
 are listed as not on this machine, without an error. A source without a matching lock entry is inactive;
 run `ctxtra source update NAME` to review and accept a version.
 
-Sessions check repo sources for new commits at most once an hour in the background. Checks never accept
-them. Remote checks use your git credentials; keys needing a touch or approval can ask for it.
+Sessions check repo sources for new commits, or a moved tag, at most once an hour in the background.
+Checks never accept them. Remote checks use your git credentials; keys needing a touch or approval can ask for it.
 Use `--check-updates=false` when adding such a source, or set `check-updates: false` on it later.
 `ctxtra check-updates` checks now. `ctxtra source list` and `ctxtra source show NAME` show source state.
 

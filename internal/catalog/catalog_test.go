@@ -64,7 +64,7 @@ func TestSourceStates(t *testing.T) {
   absent: {repo: 'https://github.com/acme/absent.git', branch: main, commit: '%[1]s'}
 `, commitA)
 	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(source.GenDir("git@github.com:acme/team.git", commitA), "x.md"), "x")
+	testenv.Write(t, filepath.Join(source.GenDir("git@github.com:acme/team.git", "", commitA), "x.md"), "x")
 	testenv.Write(t, filepath.Join(h, "live", "y.md"), "y")
 	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
 	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
@@ -75,7 +75,7 @@ func TestSourceStates(t *testing.T) {
 			t.Errorf("%s: state %v (%s), want %v", name, s.State, s.Why, state)
 		}
 	}
-	if top := c.Source("team").Top; top != source.GenDir("git@github.com:acme/team.git", commitA) {
+	if top := c.Source("team").Top; top != source.GenDir("git@github.com:acme/team.git", "", commitA) {
 		t.Errorf("team's top %s: the store keeps a commit under the address it was downloaded from", top)
 	}
 	var names []string
@@ -145,7 +145,7 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
-	gen := source.GenDir("https://github.com/acme/team.git", commitA)
+	gen := source.GenDir("https://github.com/acme/team.git", "", commitA)
 	testenv.Write(t, filepath.Join(h, "secret.md"), "secret")
 	testenv.Write(t, filepath.Join(gen, "a.md"), "a")
 	if err := os.Symlink(filepath.Join(h, "secret.md"), filepath.Join(gen, "b.md")); err != nil {
@@ -166,7 +166,7 @@ func TestStoreReadOnlyBySourcePath(t *testing.T) {
 	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
-	gen := source.GenDir("https://github.com/acme/team.git", commitA)
+	gen := source.GenDir("https://github.com/acme/team.git", "", commitA)
 	testenv.Write(t, filepath.Join(gen, "a.md"), "a")
 	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
 	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
@@ -293,7 +293,7 @@ func TestStoreWaitBudget(t *testing.T) {
 	}
 	c, _ := catalog(t, conf.String(), lockFile.String(), func(string) {
 		for _, n := range names {
-			testenv.Write(t, filepath.Join(source.GenDir("https://h/"+n+".git", strings.Repeat(n, 40)), "x.md"), "x")
+			testenv.Write(t, filepath.Join(source.GenDir("https://h/"+n+".git", "", strings.Repeat(n, 40)), "x.md"), "x")
 		}
 	})
 	start := time.Now()

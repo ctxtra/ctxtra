@@ -123,7 +123,8 @@ Otherwise the source is not read, `source trust` refuses it, and the error names
 A repo source leaves symlinks and submodules out. Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
-`doctor` and `context explain` list it as not on this machine; the session message says nothing about it.
+`doctor` and `context explain` list it as not on this machine; the session message says nothing about it,
+and update checks skip it.
 A path that exists but is not a folder, or a repo path that is not a repository, is an error.
 
 ## Pinned sources
@@ -136,17 +137,33 @@ ctxtra source update team-ctx
 ctxtra source download
 ```
 
-A repo source has `repo` and `branch`. The address is an HTTPS or SSH URL, `user@host:path`, or an
-absolute or `~` path to a local repository. `source add --repo` accepts relative local paths too and writes
-them as absolute paths. Without `--branch`, it uses the remote's default branch, or the local clone's
-checked-out branch. A detached local clone needs `--branch`. Local sources follow that named branch,
-never its upstream or uncommitted files.
+A repo source has `repo` and exactly one of `branch`, `tag` and `rev`. The address is an HTTPS or SSH URL,
+`user@host:path`, or an absolute or `~` path to a local repository. `source add --repo` accepts relative
+local paths too and writes them as absolute paths.
+
+| Key | Follows | `source add` |
+|---|---|---|
+| `branch` | New commits of the branch. | `--branch BRANCH`, or by default the remote's default branch, or the local clone's checked-out branch. A detached local clone needs `--branch`. |
+| `tag` | The tag. When someone moves it, the update check reports it and `source update` reviews the new commit. | `--tag TAG`. An annotated tag counts by the commit it points to. |
+| `rev` | One commit: a full ID, 40 hex digits or 64 in a SHA-256 repository. Nothing is new until you edit it. | `--rev REV` takes any revision that names one commit (a short ID, a tag, a branch, `HEAD`, `refs/heads/NAME` or `refs/tags/NAME`, also with `~N` or `^N` after it, as in `main~1`) and writes its full ID. A name that is a tag and a branch means the tag. |
+
+Local sources follow their named branch, never its upstream or uncommitted files.
+
+`subdir: PATH` makes a folder of the repository the source's top, with `source add --subdir PATH`. Its
+manifest, every `SOURCE:PATH` and the update review are under it; the rest of the repository isn't part of
+the source. `subdir` is a relative path to a folder. A symlink is never followed as `subdir`, and a missing
+folder is an error.
 
 `source add` accepts the first commit without review, as cloning does. Read the source before adding it.
 It writes the source and its accepted lock entry, lists executable files and source servers, and adds no binding.
-`--name NAME` chooses its local name; otherwise the repository or folder name is used. Adding the same
-repository and branch again succeeds without writing, even with another requested name. A taken name for
-different content is an error. `--check-updates=false` disables checks on a new repo source.
+It fetches the whole repository and checks it against the [limits](#how-ctxtra-runs-git) before it writes
+anything: over them, the config, the lock and the store are unchanged.
+
+Without `--name`, the source is named after the repository, and with `--subdir` after the repository and the
+folder's last part: `agent-context-billing` for `teams/billing`. Adding the same repository, branch, tag or rev
+and subdir again succeeds without writing, even with another requested name. A name that another source has is
+an error that changes nothing and asks for `--name`. `--check-updates=false` disables checks on a new repo
+source; a `rev` source has none.
 
 Two repository addresses compare as lower-case `host/path`, without scheme, user, port, trailing `.git`
 or slash. Local paths compare by their real paths. The original spelling is kept for fetching.
@@ -164,11 +181,13 @@ sources:
     commit: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432
 ```
 
-Only repo sources have lock entries. Each records the address, branch and full commit ID: 40 hex digits,
-or 64 for a SHA-256 repository. Entries are sorted by source name, with keys in that order.
-A missing or mismatched entry makes the source inactive. Sessions report the source and the
-`ctxtra source update NAME` command that accepts a version. They never guess a commit.
-Changing a URL's spelling to the same repository does not invalidate the lock.
+Only repo sources have lock entries. Each records what the commit was accepted for: the address, the
+`branch`, `tag` or `rev`, and `subdir`, then the full commit ID: 40 hex digits, or 64 for a SHA-256
+repository. Entries are sorted by source name, with keys in that order.
+A missing or mismatched entry makes the source inactive: another address, `branch`, `tag`, `rev` or `subdir`
+in the config than the entry has. Sessions report the source and the `ctxtra source update NAME` command that
+accepts a version. They never guess a commit. Changing a URL's spelling to the same repository does not
+invalidate the lock.
 
 Sessions read only downloaded locked commits. When one is missing, they name the source and say to run
 `ctxtra source download`. This downloads exactly the locked commits, asks nothing and leaves the lock
@@ -182,11 +201,11 @@ lock entry have not changed during the review; otherwise it stops and asks the u
 
 | Command | Does |
 |---|---|
-| `ctxtra source add --repo URL --branch BRANCH` | Fetch and accept a branch, and write its source and lock entry. |
+| `ctxtra source add --repo URL [--branch BRANCH \| --tag TAG \| --rev REV] [--subdir PATH]` | Fetch and accept a commit, and write the source and its lock entry. |
 | `ctxtra source add --dir DIR` | Add a live folder. |
 | `ctxtra source list`, `ctxtra source show NAME` | Show sources and their state. Both take `--json`. |
-| `ctxtra source update [NAME]...` | Review branches and accept new commits in a terminal. |
-| `ctxtra source update --dry-run [NAME]...` | Review without accepting or dismissing. Takes `--json` and `--full`. |
+| `ctxtra source update [NAME]...` | Review new commits and moved tags, and accept them in a terminal. |
+| `ctxtra source update --dry-run [NAME]...` | Review without accepting or dismissing; writes only to the cache. Takes `--json` and `--full`. |
 | `ctxtra source download [NAME]...` | Download exactly the lock's commits. |
 | `ctxtra source trust NAME` | Record a dir source's remotes for live reading. |
 | `ctxtra source remove NAME` | Remove the source and its lock entry; report bindings still using it. |
@@ -197,7 +216,8 @@ bindings and reports each dangling reference. Source credentials remain until ex
 
 ### Source manifests
 
-A source may have `ctxtra-source.yaml` at its top. ctxtra never searches deeper for manifests.
+A source may have `ctxtra-source.yaml` at its top: with `subdir`, in that folder, and a manifest at the
+repository's root is not read. ctxtra never searches deeper for manifests.
 A source without one still works by file paths. A broken manifest leaves direct file references usable.
 
 ```yaml
@@ -212,8 +232,7 @@ A manifest can declare `mcp-servers`, `collections` and `repo-sets`. It cannot d
 Manifest paths refer only to files under that source; they cannot name another source or the user's disk.
 
 Collections and repo sets parse, but using them currently reports "not implemented yet".
-`tag`, `rev` and source `subdir` also parse but leave the source out with that error.
-Use branch sources and direct file, skill and server references for now.
+Use direct file, skill and server references for now.
 
 ### Check a source repository
 
@@ -229,14 +248,32 @@ A missing manifest is an error. A symlinked manifest is refused, as it would be 
 
 ### Review
 
+What counts as new depends on what the source follows:
+
+- `branch`: a new commit that changes files under `subdir`. One that changes only other folders is
+  nothing new: `source update` says the source is up to date.
+- `tag`: a moved tag, always, even when nothing under `subdir` changed. A new commit on a branch is nothing.
+- `rev`: nothing. The version changes only when you edit `rev`.
+- A changed `branch`, `tag` or `rev` in the config is always reviewed as a change from the locked commit,
+  and can be accepted when nothing under `subdir` changed: the review says so.
+- A changed `repo` (another repository, not another spelling) or `subdir` is a new source: the review shows
+  it from nothing, as `source add` does, and its servers need approval and sign-in again. A source without a
+  lock entry is reviewed the same way.
+
 `source update` shows changes in every directly referenced file and every file inside a referenced skill,
 under all bindings, whether their conditions match now or not. Patterns select files at both the old and
-new commits, so additions and deletions are reviewed too. Newly broken references are errors in the review.
-Other changes are listed by filename; `--full` shows their contents too. A branch that no longer continues
-the accepted commit gets a force-push warning. Nothing is accepted until the user answers yes in a terminal.
+new commits, after the bindings' `!` entries and before content reads and limits, so additions, deletions
+and skills whose `SKILL.md` became invalid are reviewed too. Newly broken references are errors in the
+review, as a session would report them: a pattern that matches nothing, a `!` entry that now excludes
+nothing, a `SKILL.md` that can't be parsed. Paths are relative to the source's top. Other changes are listed
+by filename; `--full` shows their contents too. A branch that no longer continues the accepted commit gets a
+force-push warning, and a moved tag says where it was. Nothing is accepted until the user answers yes in a
+terminal.
 
-The question goes to stderr. Nonterminal use and `--no-input` fail before fetching; `--dry-run` reviews
-without asking. It currently also downloads the proposed commit and records check results.
+The review reads both commits from ctxtra's copy of the repository in the cache. The new commit reaches the
+store only when you accept it. The question goes to stderr. Nonterminal use and `--no-input` fail before
+fetching; `--dry-run` reviews without asking, and writes only to the cache: not the config, the lock, the
+store or the state folder.
 Answering no records a dismissed commit. Sessions using that source show a notice; the next review still
 offers it. Input ending without an answer accepts and dismisses nothing. Accepting writes `ctxtra.lock`.
 It accepts every file in the commit, including files the review lists only by name.
@@ -278,11 +315,14 @@ that these patterns weren't found. Read what you accept.
 ### Notices
 
 A session that uses a pinned source says when the last
-[update check](#update-checks) found new commits. It also says when you dismissed a commit:
+[update check](#update-checks) found new commits, or that a tag moved. It also says when you dismissed a
+commit:
 
 ```text
 ℹ team-ctx has new commits on main
   run `ctxtra source update team-ctx` to review them.
+ℹ obs-team: the tag v1.4.0 moved to another commit
+  run `ctxtra source update obs-team` to review it.
 ℹ team-ctx has a newer commit that you didn't accept
   run `ctxtra source update team-ctx` to review it again.
 ```
@@ -310,46 +350,52 @@ agent config backups may contain tokens. If the source or its lock entry changed
 ### Store
 
 - `~/.cache/ctxtra/git/<id>.git`: a bare repository per source.
-- `~/.local/share/ctxtra/store/<id>/<commit>/`: the files of each accepted commit, and of each commit `source update` showed you,
-  private and read-only. Sessions
+- `~/.local/share/ctxtra/store/<id>/<commit>/`: the files of each accepted commit, private and read-only:
+  with `subdir`, only that folder's files, at their paths from it. Sessions
   read only these, and only through `SOURCE:PATH`: plain paths into the store are errors. A missing commit is reported
   (`ctxtra source download`), and the references to it are skipped; the rest of the binding still
   applies.
-- `<id>` comes from the URL: a source whose URL changes doesn't use the old data.
+- `<id>` comes from the URL and `subdir`: a source whose URL changes doesn't use the old data, and two
+  folders of one commit have their own.
 - A commit is deleted from the store 30 days after the last session that used it started (`source update`
   cleans up). Accepted commits in the lock are never deleted. If the config
   cannot be read, nothing is deleted. A session marks a commit as used before it reads from it; while
   cleaning decides about that commit, the session waits up to a second, and else skips the source's files
   for this session. A session that runs longer than 30 days on an old commit can lose its skill files.
-- `~/.local/state/ctxtra/state.json`: per source, the last fetch, the dismissed commit and what the update checks found;
-  what the release check found. Losing it loses the notices.
+- `~/.local/state/ctxtra/state.json`: per source, by its address, its branch or tag and its `subdir`: the last
+  fetch, the dismissed commit and what the update checks found; what the release check found. Losing it loses
+  the notices.
 
 ### How ctxtra runs git
 
-- It runs your `git`, so ssh keys, the ssh agent and credential helpers work. Only `source add`,
-  `source update` and `source download` fetch, and git may prompt there. Sessions never fetch. The
-  [update checks](#update-checks) run `git ls-remote`, which reads only the branch's commit ID, and git may
-  not prompt.
+- It runs your `git`, so ssh keys, the ssh agent and credential helpers work. `source add`,
+  `source update` and `source download` fetch, and git may prompt there. Sessions never fetch and never
+  wait for the network. The [update checks](#update-checks), which run in their own process, run
+  `git ls-remote`, which reads only the commit ID of a branch or tag. For a branch source with `subdir`, a
+  check that finds a new commit also fetches the branch into the cache. git may not prompt in a check.
 - Only the https and ssh transports, and the file transport only to fetch from a clone you named (a local repo source). No hooks, no submodules, no automatic maintenance. Nothing is checked
   out, so `.gitattributes` filters (git-lfs, smudge) never run. Diffs use no external diff and no textconv.
 - Environment variables that point git at another repository or config are cleared.
 - Every file path in a commit is checked before anything is written: no `..`, no `.git`, no control
   characters, no two file or folder names that a case-insensitive or Unicode-normalizing disk would merge.
   A commit over the limits (10,000 entries, 10 MiB per file, 100 MiB in total) is refused as a whole. A
-  repository larger than 1 GiB with its history is refused too, and git's output is limited.
+  repository larger than 1 GiB with its history is refused too, and git's output is limited. The limits count
+  the whole repository, also for a source with `subdir`. `source add` and `source update` check them before
+  they write anything outside the cache.
 - Control characters in diffs, paths and messages are shown as escapes, so they can't hide lines in your
   terminal.
 
 ## Update checks
 
-ctxtra can tell you about a new ctxtra release, and about new commits of a pinned source. A check reads
-only a version number or a commit ID. It fetches no files, changes nothing in the config, and accepts
-nothing: you still upgrade ctxtra and review commits yourself.
+ctxtra can tell you about a new ctxtra release, and about new commits or a moved tag of a pinned source. A
+check reads only a version number or a commit ID, changes nothing in the config, and accepts nothing: you
+still upgrade ctxtra and review commits yourself. For a branch source with `subdir`, a check that finds a new
+commit also fetches the branch into ctxtra's cache, to tell whether anything changed under `subdir`.
 
 | Check | Default | Turn it on or off | What it asks |
 |---|---|---|---|
 | New ctxtra release | on | `check-releases: false` at the top of the config | GitHub's API, for the latest release (prereleases left out); from the `ctxtra-rc` formula, also for the list of releases, for the newest release candidate |
-| New commits of a source | on | `check-updates: false` on the source | `git ls-remote` of the configured branch, remotely or in the named local clone |
+| New commits of a source, or a moved tag | on | `check-updates: false` on the source; a `rev` source has nothing to check | `git ls-remote` of the configured branch or tag, remotely or in the named local clone |
 
 Sessions never wait for a check. At session start, the hook shows what earlier checks found, and starts a
 check in the background when the last one is an hour old. The background check runs as a separate
@@ -375,7 +421,8 @@ The notices go only to you, never to the model, in the agents that show a messag
 - A ctxtra installed with the `ctxtra-rc` formula is told about release candidates too, with
   `brew upgrade atelpis/tap/ctxtra-rc`. Other installs are told only about releases, and a release candidate
   that an earlier `ctxtra-rc` check found is no notice for them.
-- The source notice compares with the accepted commit. A commit you dismissed is no new notice.
+- The source notice compares with the accepted commit. A commit you dismissed is no new notice, and neither
+  is a commit that changes nothing under the source's `subdir`.
 - A failed check adds no notice and never counts as up to date: the notice from the last check that worked
   stays. `doctor` shows why the check failed, or couldn't start, and when the last one that worked ran and
   what it found. For a pinned source with `check-updates: false`, `doctor` says that its update checks
@@ -1073,8 +1120,9 @@ non-interactive and prints pending commands plus a pointer to guided onboarding.
 ### Setup notices
 
 After every command that runs, but `hook`, `setup`, `onboard`, `doctor`, `source validate`, `check-updates`, `help`, `version` and `completion`, ctxtra
-prints a line on stderr for each setup that needs you, with the command that repairs it. `--help` and usage
-errors print none. The lines never change the exit code; `doctor`
+prints a line on stderr for each setup that needs you, with the command that repairs it. `--help`, usage
+errors, a command run with `--dry-run` and a `source` command that fails print none: they change nothing,
+and the notices would. The lines never change the exit code; `doctor`
 shows the same lines under each agent instead:
 
 | When | Notice |
@@ -1149,8 +1197,8 @@ with its flags and examples. The commands that change the config are grouped by 
 - ctxtra asks a question only when stdin and stdout are a terminal. `--no-input` turns every question off:
   a step that needs an answer then fails. No option answers a question for you.
 - `--dry-run` on the commands that change the config, the agents' setup or the installed skills checks the
-  change and shows it, and writes nothing. `source update --dry-run` currently also records check results
-  and downloads the reviewed commit; it accepts and dismisses nothing.
+  change and shows it, and writes nothing. `source update --dry-run` may fetch into the cache and writes
+  nothing else; it accepts and dismisses nothing.
 - Paths in arguments are relative to the current folder; in the config they are relative to the config's
   folder.
 
@@ -1201,7 +1249,9 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | Config key | Meaning |
 |---|---|
 | `schema` | Required: `ctxtra/config/v1`. |
-| `sources.NAME.repo`, `sources.NAME.branch` | A repository and the named branch to review. |
+| `sources.NAME.repo` | A repository, read at accepted commits. |
+| `sources.NAME.branch`, `sources.NAME.tag`, `sources.NAME.rev` | Exactly one: the branch or tag to follow, or the full commit ID to stay at. |
+| `sources.NAME.subdir` | The folder of the repository that is the source's top. |
 | `sources.NAME.dir` | A live folder; mutually exclusive with repo. |
 | `sources.NAME.check-updates` | Repo-source checks; default true. |
 | `mcp-servers` | The config's own server definitions. |

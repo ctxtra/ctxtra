@@ -227,7 +227,7 @@ func serverIn(t *testing.T, path, ref string) (upstream.Server, bool) {
 func lockedSource(t *testing.T, name, url string, files map[string]string) string {
 	t.Helper()
 	commit := strings.Repeat("a", 40)
-	gen := source.GenDir(url, commit)
+	gen := source.GenDir(url, "", commit)
 	if err := os.MkdirAll(gen, 0o755); err != nil {
 		t.Fatal(err)
 	}

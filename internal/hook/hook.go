@@ -205,7 +205,7 @@ func session(a agent.Agent, d agent.Delivery, version, ts, event string, p paylo
 	skillErr := skill.Refresh()
 	env := resolve.Load(paths.ConfigPath(), registry.Names())
 	res := env.Resolve(resolve.Input{Dir: dir, Agent: a.Name()})
-	checks := update.FromConfig(env.Config)
+	checks := update.FromConfig(env.Config, env.Lock)
 	if n := update.ReleaseNotice(checks, state.Load(), version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}

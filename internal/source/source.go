@@ -52,6 +52,14 @@ const (
 // for tests.
 var maxRepoBytes int64 = 1 << 30
 
+// LimitRepoBytes sets the limit of a repository with its history to n, for
+// the tests of other packages, and returns what restores it.
+func LimitRepoBytes(n int64) (restore func()) {
+	old := maxRepoBytes
+	maxRepoBytes = n
+	return func() { maxRepoBytes = old }
+}
+
 // Limits on what one git command prints.
 const (
 	maxOutput     = 16 << 20
@@ -102,15 +110,23 @@ func CheckBranch(b string) error {
 	return nil
 }
 
-// ID names a source's data in the store. It comes from the source's remote:
-// the git URL, or the absolute path of a clone on this machine. A
+// ID names a source's repository in the cache. It comes from the source's
+// remote: the git URL, or the absolute path of a clone on this machine. A
 // source whose remote changes never uses data of the old one.
-func ID(remote string) string {
+func ID(remote string) string { return storeID(remote, "") }
+
+// storeID names the files of one folder of a repository in the store:
+// two sources of one repository with another subdir never share them.
+func storeID(remote, subdir string) string {
 	kind := "git"
 	if filepath.IsAbs(remote) {
 		kind = "path"
 	}
-	sum := sha256.Sum256([]byte(kind + "\x00" + remote))
+	key := kind + "\x00" + remote
+	if subdir != "" {
+		key += "\x00" + subdir
+	}
+	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -118,13 +134,16 @@ func ID(remote string) string {
 func StoreDir() string { return filepath.Join(paths.DataDir(), "store") }
 func GitDir() string   { return filepath.Join(paths.CacheDir(), "git") }
 
-// GenDir is the generation of commit: a folder with the commit's files.
-func GenDir(url, commit string) string { return filepath.Join(StoreDir(), ID(url), commit) }
+// GenDir is the generation of commit: a folder with the files of the
+// commit's folder subdir ("" for the whole commit), which is its top.
+func GenDir(url, subdir, commit string) string {
+	return filepath.Join(StoreDir(), storeID(url, subdir), commit)
+}
 
 // Has reports whether the generation of commit is in the store. A generation
 // is published by renaming a complete folder, so one that exists is complete.
-func Has(url, commit string) bool {
-	st, err := os.Stat(GenDir(url, commit))
+func Has(url, subdir, commit string) bool {
+	st, err := os.Stat(GenDir(url, subdir, commit))
 	return err == nil && st.IsDir()
 }
 
@@ -382,7 +401,7 @@ func (r *Repo) FetchHead(ctx context.Context, from string) (string, error) {
 // private ref is its own: another ctxtra may fetch another branch at the
 // same time.
 func (r *Repo) fetchRef(ctx context.Context, from, ref string) (string, error) {
-	tmp := "refs/ctxtra/fetched/" + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid())
+	tmp := "refs/ctxtra/fetched/" + uniq()
 	if err := r.fetch(ctx, from, "+"+ref+":"+tmp); err != nil {
 		return "", err
 	}
@@ -391,9 +410,14 @@ func (r *Repo) fetchRef(ctx context.Context, from, ref string) (string, error) {
 	return commit, err
 }
 
+// uniq is a name no other fetch uses at the same time.
+func uniq() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid())
+}
+
 // errRepoSize is a fetch that makes the repository larger than
 // maxRepoBytes.
-var errRepoSize = errors.New("the repository with its history is larger than ctxtra's limit")
+var errRepoSize = errors.New("the repository with its history is over ctxtra's limit of 1 GiB")
 
 // lock keeps other ctxtra processes from fetching into the repository at
 // the same time: git fails on the locks of concurrent ref updates.
@@ -401,9 +425,9 @@ func (r *Repo) lock() (func(), error) {
 	return fsutil.Lock(r.dir + ".lock")
 }
 
-// fetch fetches refspec from from, and stops git when the repository grows
+// fetch fetches refspecs from from, and stops git when the repository grows
 // over maxRepoBytes.
-func (r *Repo) fetch(ctx context.Context, from, refspec string) error {
+func (r *Repo) fetch(ctx context.Context, from string, refspecs ...string) error {
 	limit := maxRepoBytes
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -424,8 +448,8 @@ func (r *Repo) fetch(ctx context.Context, from, refspec string) error {
 			}
 		}
 	}()
-	_, err := r.git(ctx, true, nil, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
-		"--", from, refspec)
+	_, err := r.git(ctx, true, nil, append([]string{"fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
+		"--", from}, refspecs...)...)
 	close(done)
 	<-stopped
 	if err == nil && dirSize(r.dir) > limit {
@@ -671,19 +695,20 @@ func CheckPath(p string) error {
 	return nil
 }
 
-// Materialize writes the generation of commit unless it is in the store,
-// and keeps commit with a ref so that git never deletes it. It returns the
-// generation's folder. The files are written into a new private folder,
-// which is renamed into place only when complete.
-func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
-	return r.MaterializeAs(ctx, commit, r.URL)
+// Materialize writes the generation of commit's folder subdir unless it is
+// in the store, and keeps commit with a ref so that git never deletes it. It
+// returns the generation's folder. The whole commit must be within the
+// limits, also with subdir. The files are written into a new private
+// folder, which is renamed into place only when complete.
+func (r *Repo) Materialize(ctx context.Context, commit, subdir string) (string, error) {
+	return r.MaterializeAs(ctx, commit, subdir, r.URL)
 }
 
 // MaterializeAs is Materialize into the store folder of address store, an
 // equivalent spelling of the repository: where the lock's address has it.
-func (r *Repo) MaterializeAs(ctx context.Context, commit, store string) (string, error) {
-	dst := GenDir(store, commit)
-	if Has(store, commit) {
+func (r *Repo) MaterializeAs(ctx context.Context, commit, subdir, store string) (string, error) {
+	dst := GenDir(store, subdir, commit)
+	if Has(store, subdir, commit) {
 		if err := Touch(dst, TouchWait); err != nil { // a fresh time keeps Clean away until the config names it
 			return "", err
 		}
@@ -692,9 +717,9 @@ func (r *Repo) MaterializeAs(ctx context.Context, commit, store string) (string,
 	if c, err := r.commit(ctx, commit); err != nil || c != commit {
 		return "", fmt.Errorf("commit %s is not in ctxtra's copy of %s", Short(commit), r.URL)
 	}
-	entries, _, err := r.Tree(ctx, commit)
+	entries, _, err := r.Files(ctx, commit, subdir)
 	if err != nil {
-		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
+		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return "", err
@@ -707,7 +732,7 @@ func (r *Repo) MaterializeAs(ctx context.Context, commit, store string) (string,
 	if err := r.writeFiles(ctx, tmp, entries); err != nil {
 		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
 	}
-	if err := os.Rename(tmp, dst); err != nil && !Has(store, commit) {
+	if err := os.Rename(tmp, dst); err != nil && !Has(store, subdir, commit) {
 		return "", err
 	}
 	if err := Touch(dst, TouchWait); err != nil {
