@@ -15,6 +15,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -52,7 +53,7 @@ type SameSkill struct {
 func (env *Env) Resolve(in Input) *Result {
 	dir := paths.Real(in.Dir)
 	r := &session{env: env, in: in, dir: dir, repo: in.Repo, repoKnown: in.Repo != nil,
-		rd:    fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes),
+		rd:    env.reader(),
 		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
 		manifests: map[string]bool{}}
 	r.res = &Result{Dir: dir, Summary: summary(env.Config.SessionMessage)}
@@ -626,8 +627,9 @@ func (r *session) addServers(b *config.Binding, t *Trace) {
 		if e.Err != nil || e.Not {
 			continue
 		}
-		for _, name := range r.env.Catalog.ManifestSources(e) {
-			r.manifests[name] = true
+		if err := r.countManifests(e); err != nil {
+			r.entryErrors(b, t, e, []error{err})
+			continue
 		}
 		s, errs := r.env.Catalog.Servers(e)
 		r.entryErrors(b, t, e, errs)
@@ -648,6 +650,25 @@ func (r *session) addServers(b *config.Binding, t *Trace) {
 		}
 		r.res.MCPServers = append(r.res.MCPServers, MCPServer{s.Server, b.Name})
 	}
+}
+
+// countManifests reads the manifests that entry e needs and counts them
+// against the session's total read limit.
+func (r *session) countManifests(e config.Entry) error {
+	for _, name := range r.env.Catalog.ManifestSources(e) {
+		r.manifests[name] = true
+		s := r.env.Catalog.Source(name)
+		if s == nil || s.State != catalog.Active {
+			continue
+		}
+		r.env.Catalog.Manifest(s)
+		if file, n := s.ManifestFile(); n > 0 {
+			if err := r.rd.Count(file, n); err != nil {
+				return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
+			}
+		}
+	}
+	return nil
 }
 
 // serverExcluded reports whether a ! entry of b matches one of s's names.

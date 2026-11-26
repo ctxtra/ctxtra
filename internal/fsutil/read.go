@@ -72,6 +72,21 @@ func NewReader(perFile, total int) *Reader {
 	return &Reader{perFile: perFile, total: total, cache: map[string]cached{}}
 }
 
+// Count counts n bytes of name, read elsewhere, against the total limit,
+// once for each name. It fails when they don't fit in what is left.
+func (r *Reader) Count(name string, n int) error {
+	if c, ok := r.cache[name]; ok {
+		return c.err
+	}
+	var err error
+	if r.used+n > r.total {
+		err = fmt.Errorf("%s: %w of %d bytes", name, ErrTotalLimit, r.total)
+	}
+	r.used += n
+	r.cache[name] = cached{err: err}
+	return err
+}
+
 // Read returns the content of name. Bytes read count against the total limit
 // also when the file is then refused for its size.
 func (r *Reader) Read(name string) ([]byte, error) {

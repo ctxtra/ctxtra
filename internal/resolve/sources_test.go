@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -490,6 +491,47 @@ func TestDirSourceRoute(t *testing.T) {
 			}
 			eq(t, "files", bases(res.Files))
 			oneError(t, res, c.dir+" leads through a symlink at ~/untrusted/", "github.com/other/untrusted")
+		})
+	}
+}
+
+// A session's total read limit counts the config, the lock and the
+// manifests it reads, not only the content files.
+func TestTotalLimitCoversConfig(t *testing.T) {
+	file := strings.Repeat("x", config.MaxFileBytes-100)
+	pad := "# " + strings.Repeat("p", 3<<20) + "\n"
+	files := "  - {name: b, instructions: [~/a.md, ~/b.md, ~/c.md, ~/d.md]}\n"
+	for _, c := range []struct{ name, conf, lock string }{
+		{"nothing else", "bindings:\n" + files, ""},
+		{"config", pad + "bindings:\n" + files, ""},
+		{"lock", "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\nbindings:\n" + files, pad},
+		{"manifest", "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: s, mcp-servers: ['tools:*']}\n" + files, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHome(t)
+			for _, n := range []string{"a", "b", "c", "d"} {
+				h.write(n+".md", file)
+			}
+			h.write("tools/ctxtra-source.yaml", "schema: ctxtra/source/v1\n"+"# "+strings.Repeat("p", 1<<19)+"\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+			if c.lock != "" {
+				h.write(".config/ctxtra/ctxtra.lock", "schema: ctxtra/lock/v1\n"+c.lock)
+			}
+			res := start(h.load(c.conf), h.dir, "")
+			var limit []string
+			for _, e := range res.Errors {
+				if strings.Contains(e.Error(), "total read limit") {
+					limit = append(limit, e.Error())
+				}
+			}
+			if c.name == "nothing else" {
+				eq(t, "files", bases(res.Files), "a.md", "b.md", "c.md", "d.md")
+				noErrors(t, res)
+				return
+			}
+			eq(t, "files", bases(res.Files), "a.md", "b.md", "c.md")
+			if len(limit) != 1 || !strings.Contains(limit[0], "d.md") {
+				t.Errorf("errors %v", res.Errors)
+			}
 		})
 	}
 }

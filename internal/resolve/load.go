@@ -25,6 +25,9 @@ type Env struct {
 	// Errors are the errors of the config, the lock and the sources, which
 	// every session reports.
 	Errors []*catalog.Error
+	// read are the files Load read, with their sizes: a session's total
+	// read limit counts them.
+	read map[string]int
 }
 
 // Input is the session to resolve.
@@ -56,7 +59,7 @@ func LoadData(path string, data []byte, agents []string) *Env {
 }
 
 func load(path string, data []byte, err error, agents []string) *Env {
-	env := &Env{Path: path}
+	env := &Env{Path: path, read: map[string]int{path: len(data)}}
 	switch {
 	case os.IsNotExist(err):
 		env.Config = &config.Config{}
@@ -68,7 +71,7 @@ func load(path string, data []byte, err error, agents []string) *Env {
 	for _, e := range env.Config.Errors {
 		env.Errors = append(env.Errors, &catalog.Error{File: path, Err: e})
 	}
-	env.Lock = readLock(lock.Path(path), env.Config)
+	env.Lock = env.readLock(lock.Path(path))
 	for _, e := range env.Lock.Errors {
 		env.Errors = append(env.Errors, &catalog.Error{File: lock.Path(path), Err: e})
 	}
@@ -77,11 +80,21 @@ func load(path string, data []byte, err error, agents []string) *Env {
 	return env
 }
 
+// reader is a reader with a session's limits that has counted what Load
+// read.
+func (env *Env) reader() *fsutil.Reader {
+	rd := fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes)
+	for name, n := range env.read {
+		_ = rd.Count(name, n)
+	}
+	return rd
+}
+
 // readLock reads the lock at path. A config without repo sources needs no
 // lock, and a missing lock is empty: every repo source is then inactive.
-func readLock(path string, c *config.Config) *lock.Lock {
+func (env *Env) readLock(path string) *lock.Lock {
 	repos := false
-	for _, s := range c.Sources {
+	for _, s := range env.Config.Sources {
 		repos = repos || s.Repo != ""
 	}
 	if !repos {
@@ -94,5 +107,6 @@ func readLock(path string, c *config.Config) *lock.Lock {
 	case err != nil:
 		return &lock.Lock{Errors: []*yamlx.Error{{Mistake: yamlx.Unreadable, Msg: err.Error()}}}
 	}
+	env.read[path] = len(data)
 	return lock.Parse(data)
 }

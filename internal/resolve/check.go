@@ -3,7 +3,6 @@ package resolve
 import (
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
 )
 
 // Alone is what binding b adds by itself, as a session whose conditions
@@ -12,7 +11,7 @@ import (
 // own limits: the limits are per session.
 func (env *Env) Alone(b *config.Binding, in Input) *Result {
 	r := &session{env: env, in: in, dir: in.Dir, repoKnown: true,
-		rd:    fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes),
+		rd:    env.reader(),
 		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
 		manifests: map[string]bool{}}
 	r.res = &Result{Dir: in.Dir, Summary: summary(env.Config.SessionMessage)}

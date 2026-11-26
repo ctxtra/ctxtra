@@ -74,6 +74,7 @@ type Source struct {
 	manifest     *manifest.Manifest
 	manifestErrs []*Error
 	manifestRead bool
+	manifestSize int
 }
 
 // Live reports whether the source is a folder read as it is on disk.
@@ -356,6 +357,12 @@ func isRepo(dir string) bool {
 // read it.
 func (s *Source) ManifestErrors() []*Error { return s.manifestErrs }
 
+// ManifestFile is the path of the manifest of s and its size, once
+// Manifest has read it.
+func (s *Source) ManifestFile() (string, int) {
+	return filepath.Join(s.Top, manifest.FileName), s.manifestSize
+}
+
 // Manifest is the manifest of active source s, read once; nil when the
 // source has none. The errors are the manifest's.
 func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
@@ -366,6 +373,7 @@ func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
 	it := Item{Path: filepath.Join(s.Top, manifest.FileName), Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
 	file := s.Name + ":" + manifest.FileName
 	data, err := c.read(it, nil)
+	s.manifestSize = len(data)
 	switch {
 	case os.IsNotExist(err):
 		return nil, nil
