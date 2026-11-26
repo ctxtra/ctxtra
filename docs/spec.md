@@ -114,7 +114,8 @@ and the commands for reviewed commits or live trust. A nested repository needs i
 remote. A source covers its folder, not another clone or a worktree elsewhere.
 
 Symlinks in live paths are followed only when every link and the destination pass the same trust check.
-A link in a trusted folder cannot make an untrusted file readable. A repo source leaves symlinks and
+A link in a trusted folder cannot make an untrusted file readable. A `dir` that leads through a symlink in
+another repository with remotes is not read, and `source trust` refuses it: use the folder it leads to. A repo source leaves symlinks and
 submodules out. Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.

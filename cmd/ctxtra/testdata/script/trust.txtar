@@ -44,6 +44,24 @@ cp links.yaml .config/ctxtra/config.yaml
 stdout '/ctx/outside.md'
 stderr 'dev/dotfiles/team-link.md leads through a symlink to ~/dev/team/team.md, which is in ~/dev/team'
 
+# A dir source whose folder is a symlink in another repository with a remote
+# is not read, and can't be trusted: whoever pushes there can change the link.
+symlink dev/team/notes -> ../../ctx
+cp routed.yaml .config/ctxtra/config.yaml
+! exec ctxtra source trust notes
+stderr '~/dev/team/notes leads through a symlink at ~/dev/team/notes, in ~/dev/team, which has the remotes github.com/acme/team'
+! exec ctxtra context files notes
+! stdout 'ctx/me.md'
+stderr '~/dev/team/notes leads through a symlink'
+
+-- routed.yaml --
+schema: ctxtra/config/v1
+sources:
+  notes:
+    dir: ~/dev/team/notes
+bindings:
+  - name: me
+    instructions: [notes:me.md]
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/config/v1
 bindings:

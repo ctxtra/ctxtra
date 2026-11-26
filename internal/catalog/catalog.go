@@ -173,6 +173,10 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 			return fail(Broken, yamlx.BrokenSource, "dir %s %s", s.Dir, why)
 		}
 		src.Top = paths.Real(dir)
+		if why := Route(s, dir, src.Top); why != "" {
+			src.Top = ""
+			return fail(Inactive, yamlx.Inactive, "%s", why)
+		}
 		if why := c.untrusted(src); why != "" {
 			src.Top = ""
 			return fail(Inactive, yamlx.Inactive, "%s", why)
@@ -245,6 +249,32 @@ func (c *Catalog) untrusted(s *Source) string {
 	case !slices.Equal(was, remotes):
 		return fmt.Sprintf("the remotes of %s changed since you trusted it (now %s); it is not read until you run `ctxtra source trust %s` again",
 			s.Dir, strings.Join(remotes, ", "), s.Name)
+	}
+	return ""
+}
+
+// Route says why the symlinks on the way to dir source s keep it from
+// being read, "" when they don't: a symlink in another repository that has
+// a remote can be changed by whoever pushes to it, and the trust of the
+// folder it leads to doesn't cover it. top is where dir leads.
+func Route(s *config.Source, dir, top string) string {
+	links, err := trust.Links(dir)
+	if err != nil {
+		return fmt.Sprintf("dir %s: %v; it is not read", s.Dir, err)
+	}
+	own, _, _ := trust.Remotes(top)
+	for _, l := range links {
+		repo, remotes, err := trust.Remotes(filepath.Dir(l))
+		switch {
+		case repo == "" || repo == own:
+			continue
+		case err != nil:
+			return fmt.Sprintf("%s leads through a symlink at %s, in the git repository %s, which ctxtra can't check (%v); it is not read",
+				s.Dir, paths.Tilde(l), paths.Tilde(repo), err)
+		case len(remotes) > 0:
+			return fmt.Sprintf("%s leads through a symlink at %s, in %s, which has the remotes %s and is not this source; it is not read. To read the folder the link leads to, use dir: %s",
+				s.Dir, paths.Tilde(l), paths.Tilde(repo), strings.Join(remotes, ", "), paths.Tilde(top))
+		}
 	}
 	return ""
 }

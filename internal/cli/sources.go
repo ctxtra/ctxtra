@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -653,6 +654,9 @@ func (s *sources) trust(name string, dryRun bool) error {
 		return fmt.Errorf("%s is not a folder", src.Dir)
 	}
 	real := paths.Real(dir)
+	if why := catalog.Route(src, filepath.Clean(dir), real); why != "" {
+		return errors.New(why)
+	}
 	repo, remotes, err := trust.Remotes(real)
 	switch {
 	case err != nil:

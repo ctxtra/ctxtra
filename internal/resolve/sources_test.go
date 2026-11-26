@@ -451,3 +451,45 @@ func TestDirSourceWithoutRemote(t *testing.T) {
 	noErrors(t, res)
 	eq(t, "files", bases(res.Files), "me.md")
 }
+
+// A symlink on the way to a dir source's folder passes the trust check at
+// its own location: a link in another repository with a remote keeps the
+// source from being read, at the source's folder or above it, even when
+// the folder it leads to is trusted. A link outside git or in the source's
+// own repository doesn't.
+func TestDirSourceRoute(t *testing.T) {
+	h := newHome(t)
+	h.repo("untrusted", "git@github.com:other/untrusted.git")
+	h.write("private-notes/sub/rules.md", "PRIVATE")
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("dotfiles/agents/me.md", "ME")
+	if err := state.Trust(paths.Real(h.path("dotfiles/agents")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, h.path("private-notes"), h.path("untrusted/link"))
+	symlink(t, h.path("dotfiles/agents"), h.path("untrusted/to-dotfiles"))
+	h.mkdir("links")
+	symlink(t, h.path("private-notes"), h.path("links/notes"))
+	symlink(t, "agents", h.path("dotfiles/inner"))
+	for _, c := range []struct {
+		dir, file string
+		blocked   bool
+	}{
+		{"~/untrusted/link", "sub/rules.md", true},
+		{"~/untrusted/link/sub", "rules.md", true},
+		{"~/untrusted/to-dotfiles", "me.md", true},
+		{"~/links/notes", "sub/rules.md", false},
+		{"~/dotfiles/inner", "me.md", false},
+	} {
+		t.Run(c.dir, func(t *testing.T) {
+			res := start(h.load("sources: {dot: {dir: "+c.dir+"}}\nbindings:\n  - {name: b, instructions: ['dot:"+c.file+"']}\n"), h.dir, "")
+			if !c.blocked {
+				noErrors(t, res)
+				eq(t, "files", bases(res.Files), filepath.Base(c.file))
+				return
+			}
+			eq(t, "files", bases(res.Files))
+			oneError(t, res, c.dir+" leads through a symlink at ~/untrusted/", "github.com/other/untrusted")
+		})
+	}
+}

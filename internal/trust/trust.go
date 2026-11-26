@@ -222,6 +222,12 @@ func Remotes(dir string) (top string, remotes []string, err error) {
 	}
 }
 
+// Links are the symlinks that path passes, each at its own location.
+func Links(path string) ([]string, error) {
+	links, _, err := resolveLinks(path)
+	return links, err
+}
+
 func notFound(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
