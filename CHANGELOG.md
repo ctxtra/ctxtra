@@ -17,6 +17,9 @@
 - Commands that write the config refuse a change that would make it or the lock larger than 4 MiB, which
   would leave sessions with nothing from the config.
 
+- Sessions with `ctxtra-follow` give the exact command for another folder, keeping the session's agent
+  and profiles even after a profile switch. A session with no profiles keeps that empty selection too.
+
 - `profile set NAME...` replaces the profiles selected on this machine; `profile clear` empties them.
   `profile list` shows every profile the bindings use, its bindings and the active selection's origin,
   with `--json` available. The commands never change the config and refuse an unreadable selection file.

@@ -95,6 +95,7 @@ var DefaultSessionMessage = SessionMessage{MaxInstructions: 30, MaxSkills: 30}
 // Result is what a session in Dir gets.
 type Result struct {
 	Dir    string
+	Agent  string
 	Repo   *gitrepo.Repo // nil outside git
 	Files  []Hit
 	Skills []Hit

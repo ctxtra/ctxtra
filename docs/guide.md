@@ -473,8 +473,11 @@ don't reach the session. ctxtra has an optional skill for this:
 ctxtra skill install ctxtra-follow
 ```
 
-Before the agent works in a folder outside the session folder, the skill tells it to run
-`ctxtra context show DIR --exclude-session SESSION_DIR --part 1`, once for each folder: the top of another repository, or a
+The session's text gives the exact command with its agent and profiles, for example
+`ctxtra context show DIR --agent claude-code --profile iam --exclude-session SESSION_DIR --part 1`.
+With no active profile, it starts with `CTXTRA_PROFILES=` so a later selection doesn't apply.
+Before the agent works in a folder outside the session folder, the skill tells it to run that command,
+once for each folder: the top of another repository, or a
 project folder in a repository with several. That prints only the files and skills the folder adds, not
 what the session has already (a file the session has from another folder is listed by name, so the agent
 knows it applies here too), and the agent follows them for its work there. Each file's header names the

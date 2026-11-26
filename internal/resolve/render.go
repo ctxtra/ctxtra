@@ -67,7 +67,25 @@ func (r *Result) fileBlocks() []chunk.Block {
 		}
 		blocks = append(blocks, chunk.Block{Title: "Files that ctxtra also adds", Text: b.String()})
 	}
+	if slices.ContainsFunc(r.Skills, func(h Hit) bool { return h.Name == "ctxtra-follow" }) {
+		blocks = append(blocks, chunk.Block{Title: "Following work into another folder", Text: r.followBlock()})
+	}
 	return blocks
+}
+
+func (r *Result) followBlock() string {
+	cmd := "ctxtra context show FOLDER"
+	if r.Agent != "" {
+		cmd += " --agent " + r.Agent
+	}
+	for _, name := range r.Profiles.Names {
+		cmd += " --profile " + name
+	}
+	if len(r.Profiles.Names) == 0 {
+		cmd = "CTXTRA_PROFILES= " + cmd
+	}
+	cmd += " --exclude-session '" + strings.ReplaceAll(r.Dir, "'", "'\"'\"'") + "' --part 1"
+	return "When using ctxtra-follow for work in another folder, run this command. Replace FOLDER with that folder's absolute path; keep the agent and profiles as given for this session:\n\n```bash\n" + cmd + "\n```"
 }
 
 func (r *Result) block(h Hit) string {

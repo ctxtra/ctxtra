@@ -637,6 +637,11 @@ it is active now, the active selection's origin and the bindings that use each n
 new session would get. The `context` commands take `--profile NAME`, repeatable, to show a session with only
 those profiles active; nothing is stored.
 
+When `ctxtra-follow` is bound, the session's text gives its exact `ctxtra context show FOLDER` command,
+with `--agent ID`, one `--profile NAME` per active profile, the session folder in `--exclude-session`, and
+`--part 1`. A session with no profile gets a `CTXTRA_PROFILES=` prefix, so a later selection doesn't apply.
+Keep those options when following work into another folder or reading another part.
+
 ### A session keeps its profiles
 
 A session keeps the profiles it started with, also when the variable or the stored selection changes while it

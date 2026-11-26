@@ -19,7 +19,7 @@ func (env *Env) Alone(b *config.Binding, in Input) *Result {
 		rd:    env.reader(),
 		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
 		manifests: map[string]bool{}}
-	r.res = &Result{Dir: in.Dir, Summary: summary(env.Config.SessionMessage)}
+	r.res = &Result{Dir: in.Dir, Agent: in.Agent, Profiles: in.Profiles, Summary: summary(env.Config.SessionMessage)}
 	t := Trace{Origin: b.Name, Matched: true}
 	if !b.Broken() {
 		if b.Location != nil {
