@@ -81,12 +81,14 @@ func TestTheEnvironmentVariablesFormat(t *testing.T) {
 func TestABrokenStoredSelection(t *testing.T) {
 	t.Run("unreadable selection in a session", func(t *testing.T) {
 		for name, content := range map[string]string{
-			"not JSON":      "iam",
-			"unknown key":   `{"profiles": ["iam"], "active": true}`,
-			"invalid name":  `{"profiles": ["on call"]}`,
-			"two values":    `{"profiles": ["iam"]} {}`,
-			"not a list":    `{"profiles": "iam"}`,
-			"not an object": `["iam"]`,
+			"not JSON":       "iam",
+			"unknown key":    `{"profiles": ["iam"], "active": true}`,
+			"invalid name":   `{"profiles": ["on call"]}`,
+			"two values":     `{"profiles": ["iam"]} {}`,
+			"not a list":     `{"profiles": "iam"}`,
+			"not an object":  `["iam"]`,
+			"a brace more":   `{"profiles": ["iam"]}}`,
+			"a bracket more": `{"profiles": ["iam"]}]`,
 		} {
 			t.Run(name, func(t *testing.T) {
 				h := testenv.Home(t)

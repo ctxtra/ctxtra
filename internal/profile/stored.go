@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"slices"
@@ -14,7 +15,8 @@ import (
 	"github.com/ctxtra/ctxtra/internal/paths"
 )
 
-// maxStored bounds what is read of a file this package writes.
+// maxStored bounds the files this package writes and reads, the same for
+// both: a set that doesn't fit is not written.
 const maxStored = 64 << 10
 
 // stored is the format of profiles.json and of a session's record.
@@ -68,10 +70,13 @@ func readStored(path string) (stored, bool, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&s); err != nil || dec.More() {
-		if err == nil {
-			err = errors.New("more than one JSON value")
+	err = dec.Decode(&s)
+	if err == nil {
+		if dec.Decode(&struct{}{}) != io.EOF {
+			err = errors.New("more after the JSON value")
 		}
+	}
+	if err != nil {
 		return stored{}, false, fmt.Errorf("%s is not a valid profile selection: %w", paths.Tilde(path), err)
 	}
 	for _, n := range s.Profiles {
@@ -82,11 +87,16 @@ func readStored(path string) (stored, bool, error) {
 	return s, true, nil
 }
 
-// writeStored writes s to path, readable by the user only.
+// writeStored writes s to path, readable by the user only, when it is at
+// most maxStored bytes.
 func writeStored(path string, s stored) error {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFile(path, append(b, '\n'), 0o600)
+	b = append(b, '\n')
+	if len(b) > maxStored {
+		return fmt.Errorf("%d profiles take %d bytes, more than the %d that are kept", len(s.Profiles), len(b), maxStored)
+	}
+	return fsutil.WriteFile(path, b, 0o600)
 }

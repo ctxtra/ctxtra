@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -160,6 +162,19 @@ func TestKeepingProfilesNeverBreaksASession(t *testing.T) {
 			}
 		}
 	})
+	t.Run("cannot record a subagent's own ID", func(t *testing.T) {
+		testenv.Home(t)
+		store(t, "iam")
+		forEvent(t, Event{Agent: "muse", Kind: Start, Session: "p"})
+		store(t, "observability")
+		if err := os.MkdirAll(recordPath("muse", "c"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		a, err := ForEvent(Event{Agent: "muse", Kind: Subagent, Session: "c", Parent: "p"})
+		if !slices.Equal(a.Names, []string{"observability"}) || a.Kept || err == nil {
+			t.Errorf("%+v %v", a, err)
+		}
+	})
 	t.Run("a record that can't be read", func(t *testing.T) {
 		testenv.Home(t)
 		store(t, "iam")
@@ -182,6 +197,105 @@ func TestKeepingProfilesNeverBreaksASession(t *testing.T) {
 			t.Errorf("%+v", a)
 		}
 	})
+}
+
+// namesOfSize are valid profile names whose record, with origin, takes
+// exactly size bytes.
+func namesOfSize(t *testing.T, size int, origin Origin) []string {
+	t.Helper()
+	bytes := func(names []string) int {
+		b, err := json.Marshal(stored{Profiles: names, Origin: origin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(b) + 1
+	}
+	name := func(i, n int) string {
+		s := fmt.Sprintf("p%d-", i)
+		return s + strings.Repeat("x", n-len(s))
+	}
+	names := []string{}
+	for i := 0; size-bytes(names) >= 2*(64+3); i++ {
+		names = append(names, name(i, 64))
+	}
+	// The last two names take what is left: each adds its length and 3.
+	left := size - bytes(names) - 2*3
+	if len(names) == 0 {
+		left += 2 // no comma before the first
+	}
+	n := len(names)
+	names = append(names, name(n, left/2), name(n+1, left-left/2))
+	if got := bytes(names); got != size {
+		t.Fatalf("%d bytes, want %d", got, size)
+	}
+	return names
+}
+
+func TestRecordSize(t *testing.T) {
+	t.Run("a record at the limit is kept", func(t *testing.T) {
+		testenv.Home(t)
+		names := namesOfSize(t, maxStored, FromEnv)
+		t.Setenv(Env, strings.Join(names, ","))
+		forEvent(t, claude(Start, "s1"))
+		os.Unsetenv(Env)
+		if a := forEvent(t, claude(Subagent, "s1")); !slices.Equal(a.Names, names) || !a.Kept {
+			t.Errorf("%d names, kept %v", len(a.Names), a.Kept)
+		}
+	})
+	// A stored selection that fits its own file can be too large for a
+	// record, which adds the origin: the record isn't written, and a later
+	// switch reaches the subagent instead of an older record.
+	t.Run("a record over the limit is not written", func(t *testing.T) {
+		testenv.Home(t)
+		store(t, "iam")
+		forEvent(t, claude(Start, "s1"))
+		names := namesOfSize(t, maxStored, None)
+		store(t, names...)
+		a, err := ForEvent(claude(Start, "s1"))
+		if !slices.Equal(a.Names, names) || err == nil || !strings.Contains(err.Error(), "more than the 65536 that are kept") {
+			t.Fatalf("%d names, %v", len(a.Names), err)
+		}
+		if _, err := os.Stat(recordPath("claude-code", "s1")); err == nil {
+			t.Error("the older record is still there")
+		}
+		store(t, "observability")
+		if a := forEvent(t, claude(Subagent, "s1")); !slices.Equal(a.Names, []string{"observability"}) {
+			t.Errorf("subagent: %+v", a)
+		}
+	})
+}
+
+// A hook that uses or replaces an old record while the cleanup runs keeps
+// it.
+func TestCleanupSkipsARecordUsedMeanwhile(t *testing.T) {
+	for name, use := range map[string]func(t *testing.T){
+		"read": func(t *testing.T) {
+			if a := forEvent(t, claude(Continue, "s1")); !a.Kept {
+				t.Errorf("%+v", a)
+			}
+		},
+		"replaced": func(t *testing.T) { forEvent(t, claude(Start, "s1")) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			testenv.Home(t)
+			store(t, "iam")
+			forEvent(t, claude(Start, "s1"))
+			path := recordPath("claude-code", "s1")
+			old := time.Now().Add(-31 * 24 * time.Hour)
+			if err := os.Chtimes(path, old, old); err != nil {
+				t.Fatal(err)
+			}
+			orig := beforeRemove
+			beforeRemove = func(string) { use(t) }
+			t.Cleanup(func() { beforeRemove = orig })
+			if err := Clean(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("deleted: %v", err)
+			}
+		})
+	}
 }
 
 // setNow makes it t from now on in this package.

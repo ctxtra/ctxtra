@@ -56,6 +56,8 @@ const (
 var (
 	now   = time.Now
 	spawn = func(args []string) error { return detach.Start(detach.Executable(), args) }
+	// beforeRemove runs between the cleanup's two checks of a record.
+	beforeRemove = func(string) {}
 )
 
 // CleanArgs are the arguments of the ctxtra command that deletes records no
@@ -96,10 +98,15 @@ func ForEvent(e Event) (Active, error) {
 		a, ok, err := read(e.Agent, lookup)
 		errs = append(errs, err)
 		if ok {
-			if e.Session != "" && e.Session != lookup {
-				errs = append(errs, write(e.Agent, e.Session, a))
+			if e.Session == "" || e.Session == lookup {
+				return a, err
 			}
-			return a, errors.Join(errs...)
+			werr := write(e.Agent, e.Session, a)
+			if werr == nil {
+				return a, err
+			}
+			// Not recorded: the event gets what a new session would.
+			return Current(), errors.Join(err, werr)
 		}
 	}
 	a := Current()
@@ -128,13 +135,16 @@ func read(agent, id string) (Active, bool, error) {
 }
 
 // write replaces the record of agent's session id with a, and starts the
-// cleanup when it is due.
+// cleanup when it is due. A record that can't be written is removed, so
+// that later events don't take an older set from it.
 func write(agent, id string, a Active) error {
 	names := a.Names
 	if names == nil {
 		names = []string{}
 	}
-	if err := writeStored(recordPath(agent, id), stored{Profiles: names, Origin: a.Origin}); err != nil {
+	path := recordPath(agent, id)
+	if err := writeStored(path, stored{Profiles: names, Origin: a.Origin}); err != nil {
+		_ = os.Remove(path)
 		return fmt.Errorf("can't keep the session's profiles: %w", err)
 	}
 	startClean()
@@ -175,13 +185,28 @@ func Clean() error {
 		if e.IsDir() || !strings.HasSuffix(name, ".json") && !strings.HasPrefix(name, ".ctxtra-") {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil || now().Sub(info.ModTime()) <= keepRecords {
+		path := filepath.Join(recordsDir(), name)
+		if !unused(path) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(recordsDir(), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		beforeRemove(path)
+		// Again right before the removal: a hook may have used or replaced
+		// the record since. Without a lock, a use in between these two
+		// steps can still be lost; on a record unused for 30 days, that is
+		// a rare cost.
+		if !unused(path) {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// unused reports whether the file at path exists and no event used it for
+// keepRecords.
+func unused(path string) bool {
+	st, err := os.Lstat(path)
+	return err == nil && now().Sub(st.ModTime()) > keepRecords
 }
