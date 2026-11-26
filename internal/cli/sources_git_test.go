@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -155,4 +156,74 @@ func TestSourceAddSizeLimits(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A large product repository, on update: a new commit over the limits is
+// refused before anything uses it, also when it changes nothing under the
+// source's subdir, and a refused update changes neither the state nor the
+// data folder.
+func TestUpdateRefusesACommitOverTheLimits(t *testing.T) {
+	h := testenv.Home(t)
+	url, dir := teamRepo(t, h, "team", map[string]string{"teams/billing/a.md": "A"})
+	testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n")
+	if code, out, errOut := run("source", "add", "--repo", url, "--subdir", "teams/billing", "--name", "billing"); code != 0 {
+		t.Fatalf("add: %s%s", out, errOut)
+	}
+	testenv.Write(t, filepath.Join(dir, "outside.bin"), strings.Repeat("x", source.MaxFileBytes+1))
+	commitAll(t, dir)
+	code, out, errOut := run("source", "update", "billing", "--dry-run")
+	if code != 1 || !strings.Contains(errOut, "outside.bin is larger than") || strings.Contains(out, "up to date") {
+		t.Errorf("dry run: exit %d\n%s%s", code, out, errOut)
+	}
+
+	testenv.Write(t, filepath.Join(dir, "teams/billing/a.md"), "A2")
+	commitAll(t, dir)
+	if err := os.RemoveAll(source.StoreDir()); err != nil {
+		t.Fatal(err)
+	}
+	folders := []string{paths.ConfigDir(), paths.DataDir(), paths.StateDir()}
+	before := map[string][]string{}
+	for _, f := range folders {
+		before[f] = folderState(t, f)
+	}
+	var o, e strings.Builder
+	s := newSources(IO{In: strings.NewReader(""), Out: &o, Err: &e})
+	s.prompt = true
+	if code := s.update([]string{"billing"}, false, false); code != 1 || !strings.Contains(e.String(), "outside.bin is larger than") {
+		t.Errorf("update: exit %d\n%s%s", code, o.String(), e.String())
+	}
+	for _, f := range folders {
+		if got := folderState(t, f); !slices.Equal(got, before[f]) {
+			t.Errorf("%s changed:\nbefore %q\nafter  %q", f, before[f], got)
+		}
+	}
+}
+
+// The limit of a repository with its history holds for a commit that the
+// cache has from before, too: source add --rev with its full ID.
+func TestSourceAddRevChecksTheCachedRepository(t *testing.T) {
+	h := testenv.Home(t)
+	url, dir := teamRepo(t, h, "team", map[string]string{"a.md": "A"})
+	cfg := testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n")
+	if code, out, errOut := run("source", "add", "--repo", url); code != 0 {
+		t.Fatalf("add: %s%s", out, errOut)
+	}
+	before, _ := os.ReadFile(cfg)
+	t.Cleanup(source.LimitRepoBytes(1))
+	code, out, errOut := run("source", "add", "--repo", url, "--rev", strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD")), "--name", "pinned")
+	if code != 1 || !strings.Contains(errOut, "over ctxtra's limit of 1 GiB") {
+		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+	if after, _ := os.ReadFile(cfg); string(after) != string(before) {
+		t.Errorf("the config changed:\n%s", after)
+	}
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

@@ -170,10 +170,23 @@ func (r *Repo) TreeID(ctx context.Context, commit, subdir string) (string, error
 	return "", fmt.Errorf("%s at %s has no folder %s", r.URL, Short(commit), Sanitize(subdir))
 }
 
+// Validate checks commit, in the cache, against ctxtra's limits: the
+// repository with its history, and the whole commit. Every command checks a
+// commit it takes from the cache before it uses or records it, also one that
+// was there before the fetch.
+func (r *Repo) Validate(ctx context.Context, commit string) error {
+	_, _, err := r.Files(ctx, commit, "")
+	return err
+}
+
 // Files lists the regular files of commit's folder subdir, by their paths
 // from it, and the symlinks and submodules there that the store leaves out.
-// The limits apply to the whole commit, also outside subdir.
+// It fails as Validate does: the limits apply to the whole repository, also
+// outside subdir.
 func (r *Repo) Files(ctx context.Context, commit, subdir string) ([]Entry, []Skipped, error) {
+	if dirSize(r.dir) > maxRepoBytes {
+		return nil, nil, fmt.Errorf("%s: %w", r.URL, errRepoSize)
+	}
 	entries, skipped, err := r.Tree(ctx, commit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)

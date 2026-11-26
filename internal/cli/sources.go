@@ -284,6 +284,9 @@ func (s *sources) addRepo(o addOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := r.Validate(s.ctx, commit); err != nil {
+		return err
+	}
 	snap, err := r.Snapshot(s.ctx, commit, subdir)
 	if err != nil {
 		return err
@@ -565,7 +568,8 @@ func (s *sources) update(names []string, dryRun, asJSON bool) int {
 		}
 		results = append(results, res)
 	}
-	if len(todo) > 0 && !dryRun {
+	// After a failure, the store stays as it was.
+	if len(todo) > 0 && !dryRun && n == 0 {
 		s.cleanStore()
 	}
 	if asJSON {
@@ -612,6 +616,11 @@ func (s *sources) sync(env *resolve.Env, cs *catalog.Source, dryRun bool) (strin
 		if err := r.FetchCommit(s.ctx, old); err != nil {
 			return "", false, err
 		}
+	}
+	// Before anything uses or records the new commit: one over the limits
+	// changes nothing.
+	if err := r.Validate(s.ctx, commit); err != nil {
+		return "", false, err
 	}
 	if was != nil && ch.Same() {
 		unchanged := ""
@@ -754,7 +763,15 @@ func (s *sources) showChange(r *source.Repo, src *config.Source, was *lock.Entry
 		fmt.Fprintf(s.Out, "%s has %s accepted for %s; the config now says %s\n", lock.FileName, source.Short(old), was.Ref, src.Ref)
 	case src.Ref.Kind == config.Tag:
 		fmt.Fprintf(s.Out, "the tag %s moved: it was at %s, it is at %s now\n", src.Ref.Name, source.Short(old), source.Short(commit))
-	case src.Ref.Kind == config.Branch && !r.IsAncestor(s.ctx, old, commit):
+	case src.Ref.Kind == config.Branch:
+		s.forcePushed(r, old, commit)
+	}
+}
+
+// forcePushed warns when commit of a branch doesn't continue old, the
+// accepted one.
+func (s *sources) forcePushed(r *source.Repo, old, commit string) {
+	if !r.IsAncestor(s.ctx, old, commit) {
 		fmt.Fprintf(s.Out, "warning: %s doesn't continue %s: the branch was force-pushed, or %s was never pushed\n",
 			source.Short(commit), source.Short(old), source.Short(old))
 	}
@@ -844,6 +861,9 @@ func (s *sources) download(names []string) int {
 		}
 		r := source.Open(resolve.RemoteOf(cs.Source))
 		err := r.FetchCommit(s.ctx, e.Commit)
+		if err == nil {
+			err = r.Validate(s.ctx, e.Commit)
+		}
 		if err == nil {
 			_, err = r.MaterializeAs(s.ctx, e.Commit, subdir, stored)
 		}
