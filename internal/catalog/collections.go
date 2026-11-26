@@ -143,7 +143,11 @@ func (k *coll) entryFailed(e config.Entry, err error) {
 		k.own.Unavailable = union(k.own.Unavailable, u.Source.Name)
 		return
 	}
-	k.fail(e.Pos, EntryMistake(err), "%v", err)
+	if m := EntryMistake(err); m != yamlx.BrokenEntry {
+		k.fail(e.Pos, m, "%s: %v", e.Text, err)
+		return
+	}
+	k.fail(e.Pos, yamlx.BrokenEntry, "%v", err)
 }
 
 // EntryMistake is the mistake of what a content entry couldn't add: a

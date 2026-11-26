@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 )
 
 // validateResult is the data of source validate --json.
@@ -26,9 +28,9 @@ type validateResult struct {
 }
 
 // validateSource is source validate: it reads the manifest of the folder
-// dir, a checkout of a source, the way sessions read it, and reports its
-// mistakes. It reads no config and runs and fetches nothing. 1 when it
-// finds an error.
+// dir, a checkout of a source, and its collections, the way sessions read
+// them from an accepted commit, and reports their mistakes. It reads no
+// config and runs and fetches nothing. 1 when it finds an error.
 func validateSource(stdio IO, dir string, asJSON bool) int {
 	fail := func(err error) int {
 		fmt.Fprintf(stdio.Err, "ctxtra source validate: %v\n", err)
@@ -55,21 +57,22 @@ func validateSource(stdio IO, dir string, asJSON bool) int {
 		return fail(err)
 	}
 	m := manifest.Parse(data)
-	var errs, warns, notes []string
+	var errs, warns []string
 	for _, e := range m.Errors {
 		errs = append(errs, e.Error())
+	}
+	top := paths.Real(dir)
+	for _, e := range resolve.CheckCollections(catalog.Checkout(filepath.Base(top), top), filepath.Base(top)) {
+		errs = append(errs, e.Err.Error())
 	}
 	for _, s := range m.MCPServers {
 		if !s.Broken() {
 			warns = append(warns, secretNotes(s.Name, upstream.Server{Headers: s.Headers, Env: s.Env}, "manifest")...)
 		}
 	}
-	if len(m.Collections) > 0 {
-		notes = append(notes, "the files that collections name are not checked yet")
-	}
 	if asJSON {
 		writeJSON(stdio.Out, validateResult{dir, len(m.Collections), len(m.MCPServers), len(m.RepoSets), len(errs), len(warns)},
-			slices.Concat(diagnostics("error", errs), diagnostics("warning", warns), diagnostics("notice", notes)))
+			slices.Concat(diagnostics("error", errs), diagnostics("warning", warns)))
 	} else {
 		fmt.Fprintf(stdio.Out, "validated %s: %s, %s, %s\n", paths.Tilde(file), plural(len(m.Collections), "collection"),
 			plural(len(m.MCPServers), "MCP server"), plural(len(m.RepoSets), "repo set"))
@@ -78,9 +81,6 @@ func validateSource(stdio IO, dir string, asJSON bool) int {
 		}
 		for _, w := range warns {
 			fmt.Fprintf(stdio.Out, "warning: %s\n", w)
-		}
-		for _, n := range notes {
-			fmt.Fprintf(stdio.Out, "note: %s\n", n)
 		}
 		fmt.Fprintf(stdio.Out, "%s, %s\n", plural(len(errs), "error"), plural(len(warns), "warning"))
 	}

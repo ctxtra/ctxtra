@@ -249,9 +249,13 @@ ctxtra source validate .
 ctxtra source validate . --json
 ```
 
-Validation reads only `DIR/ctxtra-source.yaml`. It checks YAML, names, keys, entry shapes and MCP
-definitions. Secret-looking header and environment values are warnings. Errors exit 1.
-It does not yet check the files named by collections, their skill headers, or whether their globs match.
+Validation reads `DIR/ctxtra-source.yaml` and the files its collections name, and nothing outside DIR. It
+checks YAML, names, keys, entry shapes and MCP definitions. It reads each collection the way a session reads
+it from an accepted commit, and reports what a session would: a path that matches nothing, a missing nested
+collection, a cycle, a `!` entry that excludes nothing, and a skill whose `SKILL.md` has no valid header.
+A symlink, a file in a nested repository or submodule, and `.git` are not in a commit that ctxtra reads,
+and an entry that names one is an error that says so.
+Secret-looking header and environment values are warnings. Errors exit 1.
 A missing manifest is an error. A symlinked manifest is refused, as it would be in a repo source.
 
 ### Review

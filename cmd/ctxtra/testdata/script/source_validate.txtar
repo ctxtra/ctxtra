@@ -49,7 +49,7 @@ stdout '"collections": 2'
 stdout '"mcp_servers": 0'
 stdout '"repo_sets": 0'
 stdout '"errors": 0'
-stdout '"diagnostics": \[\s+\{\s+"severity": "notice",\s+"message": "the files that collections name are not checked yet"\s+\}\s+\]'
+! stdout 'not checked'
 
 mkdir empty
 ! exec ctxtra source validate empty
@@ -63,8 +63,7 @@ stderr 'expected DIR'
 ! exec ctxtra source validate team-ctx ../x.yaml
 stderr 'Usage: ctxtra source validate DIR'
 
-skip 'source validate does not check the files of collections yet'
-
+# Collections are read as sessions read them from an accepted commit.
 mv team-ctx/instructions/security.md team-ctx/instructions/secure.md
 ! exec ctxtra source validate team-ctx
 stdout '^error: .*work.*instructions/security.md.*not a file'
@@ -75,7 +74,7 @@ cp skill-nodesc.md team-ctx/skills/deploy/SKILL.md
 stdout '^error: .*tools.*skills/deploy/SKILL.md.*frontmatter has no description'
 rm team-ctx/skills/deploy/SKILL.md
 ! exec ctxtra source validate team-ctx
-stdout '^error: .*tools.*skills/deploy/SKILL.md.*not a file'
+stdout '^error: .*tools.*skills/deploy is not a skill folder with a SKILL.md'
 cp skill.md team-ctx/skills/deploy/SKILL.md
 cp globs.yaml team-ctx/ctxtra-source.yaml
 ! exec ctxtra source validate team-ctx
@@ -92,8 +91,16 @@ stdout '^2 errors, 0 warnings$'
 cp all.yaml team-ctx/ctxtra-source.yaml
 ! exec ctxtra source validate team-ctx
 stdout '^error: .*\.git\*/\*\*.*matches no file'
-stdout '^error: .*nested/a.md,missing.md.*matches no file'
+stdout '^error: .*all: .*nested/a.md.*nested repository or submodule'
 stdout '^2 errors, 0 warnings$'
+cp cycle.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^error: line 3: collections a and b nest each other, so they add nothing'
+stdout '^error: .*collection c: source team-ctx has no collection gone'
+stdout '^2 errors, 0 warnings$'
+cp unquoted.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout 'quote'
 cp git-path.yaml team-ctx/ctxtra-source.yaml
 mkdir outside
 cp nested.md outside/x.md
@@ -179,6 +186,17 @@ collections:
     instructions: [.git/config]
   linked:
     instructions: [linked/*.md]
+-- cycle.yaml --
+schema: ctxtra/source/v1
+collections:
+  a: {collections: [b], instructions: [instructions/style.md]}
+  b: {collections: [a]}
+  c: {collections: [a, gone], instructions: [instructions/style.md]}
+-- unquoted.yaml --
+schema: ctxtra/source/v1
+collections:
+  work:
+    instructions: [instructions/*.md, !instructions/style.md]
 -- all.yaml --
 schema: ctxtra/source/v1
 collections:

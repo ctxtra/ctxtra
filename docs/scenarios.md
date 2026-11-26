@@ -161,9 +161,9 @@ ctxtra source validate .
 ctxtra source validate . --json
 ```
 
-Validation reads that one manifest without user config, credentials or network. It checks YAML, names,
-entry shapes and servers. Collection file checks are not implemented yet. Collections and repo sets are
-also not usable yet; bind sources by direct paths.
+Validation reads that one manifest and the files its collections name, without user config, credentials
+or network. It reports what a session would get wrong: a deleted file, a cycle, a missing nested collection.
+Repo sets are not usable yet.
 
 ## Agent-specific content
 

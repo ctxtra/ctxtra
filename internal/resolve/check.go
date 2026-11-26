@@ -1,8 +1,12 @@
 package resolve
 
 import (
+	"slices"
+
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/manifest"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // Alone is what binding b adds by itself, as a session whose conditions
@@ -50,6 +54,50 @@ func (env *Env) OtherErrors(res *Result) []*catalog.Error {
 			if !seen[e.Error()] {
 				seen[e.Error()] = true
 				out = append(out, e)
+			}
+		}
+	}
+	return out
+}
+
+// CheckCollections are the errors that sessions would have in the
+// collections of source name's manifest, each read by itself: those of
+// their entries, cycles, and each skill's SKILL.md that can't be read or
+// parsed, as an error of the first collection that adds the skill.
+func CheckCollections(cat *catalog.Catalog, name string) []*catalog.Error {
+	s := cat.Source(name)
+	if s == nil {
+		return nil
+	}
+	m, _ := cat.Manifest(s)
+	if m == nil {
+		return nil
+	}
+	var out []*catalog.Error
+	skills := map[string]bool{}
+	for _, c := range m.Collections {
+		x, ok := cat.Collection(name, c.Name)
+		if !ok {
+			continue
+		}
+		for _, e := range x.Errors {
+			if !slices.Contains(out, e) {
+				out = append(out, e)
+			}
+		}
+		for _, it := range x.Skills {
+			md := it.Child("SKILL.md")
+			if skills[md.Path] {
+				continue
+			}
+			skills[md.Path] = true
+			content, _, err := cat.Read(md, nil)
+			if err == nil {
+				_, _, _, err = parseSkill(string(content))
+			}
+			if err != nil {
+				out = append(out, &catalog.Error{File: name + ":" + manifest.FileName, Err: &yamlx.Error{Pos: c.Pos,
+					Mistake: yamlx.UnreadableFile, Part: yamlx.Part{Kind: "collection", Name: c.Name}, Msg: md.Ref() + ": " + err.Error()}})
 			}
 		}
 	}

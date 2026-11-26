@@ -351,8 +351,9 @@ They exit with 1 when a session wouldn't get everything it should, and take `--j
 `context show`). `doctor` checks every binding, also those that don't match DIR. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
 
 If you maintain a source, `ctxtra source validate DIR` checks `DIR/ctxtra-source.yaml` without reading
-your config, trust records or credentials and without network access. It validates YAML, keys, names and
-MCP definitions. It does not yet check files named by collections. It exits 1 on errors and supports `--json`.
+your config, trust records or credentials and without network access. It validates YAML, keys, names,
+MCP definitions and the files that collections name, as sessions would read them from a commit. It exits 1
+on errors and supports `--json`, so CI can run it.
 Sources need no manifest when users bind files directly by path.
 
 
