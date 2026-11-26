@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
-	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/trust"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -37,11 +35,7 @@ type Catalog struct {
 	trust      *trust.Policy
 	// renamed is the config's name for a source's server, by SOURCE:SERVER.
 	renamed map[string]string
-	// trusted are the folders trusted with ctxtra source trust, read when
-	// a dir source's repository has remotes.
-	trusted     []state.Trusted
-	trustedErr  error
-	trustedRead bool
+	live    trust.Live
 	// store is the use of commits in ctxtra's store, shared by copies of
 	// the catalog.
 	store *storeUse
@@ -115,9 +109,6 @@ type Source struct {
 	// there is none, or when the config's own errors say it.
 	Err *Error
 
-	// dir is a dir source's folder as the config names it, ~ expanded:
-	// the way its symlinks are checked on.
-	dir string
 	// fsys has the files of a source read from git, not from a folder.
 	fsys fs.FS
 
@@ -221,8 +212,8 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 			}
 			return fail(Broken, yamlx.BrokenSource, "dir %s %s", s.Dir, why)
 		}
-		src.Top, src.dir = paths.Real(dir), dir
-		if why := c.untrusted(src); why != "" {
+		src.Top = paths.Real(dir)
+		if why := c.live.Check(s.Name, s.Dir, src.Top); why != "" {
 			src.Top = ""
 			return fail(Inactive, yamlx.Inactive, "%s", why)
 		}
@@ -262,36 +253,6 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 	return src
 }
 
-// untrusted says why dir source s can't be read live, "" when it can: its
-// folder's repository has no remote, or the remotes that ctxtra source
-// trust recorded.
-func (c *Catalog) untrusted(s *Source) string {
-	repo, remotes, err := trust.Remotes(s.Top)
-	switch {
-	case err != nil:
-		return fmt.Sprintf("the remotes of %s can't be read (%v); it is not read until they can be", paths.Tilde(repo), err)
-	case len(remotes) == 0:
-		return ""
-	}
-	if !c.trustedRead {
-		c.trustedRead = true
-		c.trusted, c.trustedErr = state.LoadTrusted()
-	}
-	if c.trustedErr != nil {
-		return c.trustedErr.Error()
-	}
-	was, ok := state.TrustedRemotes(c.trusted, s.Top)
-	switch {
-	case !ok:
-		return fmt.Sprintf("%s is in a repository with the remotes %s, which others can push to; to read it live, run `ctxtra source trust %s`",
-			s.Dir, strings.Join(remotes, ", "), s.Name)
-	case !slices.Equal(was, remotes):
-		return fmt.Sprintf("the remotes of %s changed since you trusted it (now %s); it is not read until you run `ctxtra source trust %s` again",
-			s.Dir, strings.Join(remotes, ", "), s.Name)
-	}
-	return ""
-}
-
 // checkRoutes checks the symlinks on the way to each active dir source,
 // and returns the dir sources that pass, as trusted roots. A link may be
 // trusted because it is in another dir source that passed: those are
@@ -303,7 +264,7 @@ func (c *Catalog) checkRoutes() []trust.Root {
 		changed = false
 		others := trust.New(roots)
 		for _, s := range c.order {
-			if s.State == Active && s.Live() && !passed[s] && route(s.Source, s.dir, s.Top, others) == "" {
+			if s.State == Active && s.Live() && !passed[s] && trust.Route(s.Dir, s.Top, others) == "" {
 				passed[s], changed = true, true
 				roots = append(roots, trust.Root{Name: s.Name, Path: s.Top})
 			}
@@ -312,7 +273,7 @@ func (c *Catalog) checkRoutes() []trust.Root {
 	others := trust.New(roots)
 	for _, s := range c.order {
 		if s.State == Active && s.Live() && !passed[s] {
-			s.State, s.Why = Inactive, route(s.Source, s.dir, s.Top, others)
+			s.State, s.Why = Inactive, trust.Route(s.Dir, s.Top, others)
 			s.Top = ""
 			s.Err = &Error{File: c.file, Err: &yamlx.Error{Pos: s.Pos, Mistake: yamlx.Inactive, Part: yamlx.Part{Kind: "source", Name: s.Name}, Msg: s.Why}}
 		}
@@ -335,34 +296,7 @@ func (c *Catalog) Route(name string) string {
 		}
 	}
 	dir := filepath.Clean(paths.Expand(s.Dir))
-	return route(s.Source, dir, paths.Real(dir), trust.New(roots))
-}
-
-// route says why the symlinks on the way to dir source s keep it from
-// being read, "" when they don't. Each link passes the trust check at its
-// own location: outside git, in a repository without remotes, or in a
-// folder that others trusts. A link elsewhere can be changed by whoever
-// pushes to its repository, and the trust of the folder it leads to
-// doesn't cover it, also in the same repository. top is where dir leads.
-func route(s *config.Source, dir, top string, others *trust.Policy) string {
-	links, err := trust.Links(dir)
-	if err != nil {
-		return fmt.Sprintf("dir %s: %v; it is not read", s.Dir, err)
-	}
-	for _, l := range links {
-		repo, remotes, err := trust.Remotes(filepath.Dir(l))
-		switch {
-		case repo == "" || others.CheckAt(l) == nil:
-			continue
-		case err != nil:
-			return fmt.Sprintf("%s leads through a symlink at %s, in the git repository %s, which ctxtra can't check (%v); it is not read",
-				s.Dir, paths.Tilde(l), paths.Tilde(repo), err)
-		case len(remotes) > 0:
-			return fmt.Sprintf("%s leads through a symlink at %s, in %s, which has the remotes %s and no trusted dir source there; it is not read. To read the folder the link leads to, use dir: %s",
-				s.Dir, paths.Tilde(l), paths.Tilde(repo), strings.Join(remotes, ", "), paths.Tilde(top))
-		}
-	}
-	return ""
+	return trust.Route(s.Dir, paths.Real(dir), trust.New(roots))
 }
 
 // changed names what a config source changed since its lock entry.
@@ -491,7 +425,7 @@ func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manife
 	}
 	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live(), fsys: s.fsys}
 	file := s.Name + ":" + manifest.FileName
-	data, err := c.readMax(it, rd, maxManifestBytes)
+	data, _, err := c.readMax(it, rd, maxManifestBytes)
 	if errors.Is(err, fsutil.ErrTotalLimit) {
 		return nil, nil, err
 	}

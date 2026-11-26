@@ -109,6 +109,11 @@ A `dir` is absolute or starts with `~`. Edits apply to new sessions immediately.
 With no remote in its repository, it needs no trust record. With remotes, `source trust NAME` records
 them on this machine. A change to the remotes stops live reading until the user trusts the folder again.
 `source trust --dry-run NAME` previews that consent. It never converts a repo source to a dir source.
+The command says that the folder's files, servers and repo sets apply as they are, without review.
+If a folder gets a remote later, the session message, `doctor` and `context explain` name
+`ctxtra source trust NAME` and the alternative of adding a repo source for reviewed commits.
+If trusted remotes change, those reports say to trust the source again. Every fetch and push URL of every remote counts;
+equivalent SSH and HTTPS addresses count as the same repository.
 
 A disk file is read only when it is outside git, in a repository without remotes, or under a trusted dir source.
 The config itself is always read. A remote repository outside trusted dir sources is refused with an error
@@ -116,11 +121,13 @@ and the commands for reviewed commits or live trust. A nested repository needs i
 remote. A source covers its folder, not another clone or a worktree elsewhere.
 
 Symlinks in live paths are followed only when every link and the destination pass the same trust check.
+Reads open the destination path that passed the check. The displayed path and read cache use that path too.
 A link in a trusted folder cannot make an untrusted file readable. Each symlink on the way to a `dir` passes
 the check at its own location: outside git, in a repository without remotes, or in another dir source that is
 trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository.
 Otherwise the source is not read, `source trust` refuses it, and the error names the folder the link leads to.
-A repo source leaves symlinks and submodules out. Repository trust is checked without running git; git config includes are not followed.
+A repo source leaves symlinks and submodules out, including links in an explicit path or at its manifest.
+Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
 `doctor` and `context explain` list it as not on this machine; the session message says nothing about it,
@@ -522,8 +529,8 @@ profile condition does not hold and an exclusion-only profile condition holds.
   exclusions, and an exclusion that can't be resolved (an unknown source, a source that isn't available,
   a path outside the pinned source), are errors, and the binding is skipped: without the exclusion, it
   would add more than intended. `context explain` lists the paths that exclusions left out.
-- Glob expansion skips symlink entries and does not descend into symlinked folders. Symlinks in the
-  fixed prefix retain the usual trust checks. Every local file still needs to be trusted.
+- Live glob expansion follows symlinks only when each link and destination pass the trust check.
+  An untrusted folder is left out with an error; other matches remain. Repo sources never follow symlinks.
 - Each pattern is limited to 10,000 directory entries and operations, with a maximum traversal depth of
   64. A traversal error or exceeded limit skips the whole pattern, with an error.
 - Pinned-source patterns expand only against the selected commit. `source update` reviews matching files from

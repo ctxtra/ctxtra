@@ -122,15 +122,21 @@ func (e *Error) Error() string {
 // its own location, and then the file itself, so that a link in an untrusted
 // repository can't lead to a trusted file, and the other way round.
 func (p *Policy) Check(path string) error {
+	_, err := p.Resolve(path)
+	return err
+}
+
+// Resolve checks path and returns the destination that passed the check.
+func (p *Policy) Resolve(path string) (string, error) {
 	if p == nil {
 		p = New(nil)
 	}
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("%s: not an absolute path; skipped", path)
+		return "", fmt.Errorf("%s: not an absolute path; skipped", path)
 	}
 	links, final, err := resolveLinks(path)
 	if err != nil {
-		return fmt.Errorf("%s: %w; skipped", paths.Tilde(path), err)
+		return "", fmt.Errorf("%s: %w; skipped", paths.Tilde(path), err)
 	}
 	for _, l := range append(links, final) {
 		if err := p.checkOne(l); err != nil {
@@ -140,10 +146,10 @@ func (p *Policy) Check(path string) error {
 			if e, ok := err.(*DeniedError); ok {
 				e.Path = path
 			}
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return final, nil
 }
 
 // CheckAt checks the location path itself, without following it when it
@@ -371,7 +377,7 @@ func parseRemotes(b []byte) (url string, has bool, err error) {
 }
 
 // parseRemoteURLs is parseRemotes with every remote URL, normalized, in
-// file order; a remote without a url is "(unknown)".
+// file order, including push URLs; a remote without a URL is "(unknown)".
 func parseRemoteURLs(b []byte) (urls []string, has bool, err error) {
 	b = bytes.TrimPrefix(b, []byte("\ufeff"))
 	section := ""
@@ -414,7 +420,7 @@ func parseRemoteURLs(b []byte) (urls []string, has bool, err error) {
 		if m == nil || section == "" || !validValue(m[2]) {
 			return bad("unreadable line")
 		}
-		if section == "remote" && !urlInSection && strings.EqualFold(m[1], "url") {
+		if section == "remote" && (strings.EqualFold(m[1], "url") || strings.EqualFold(m[1], "pushurl")) {
 			urls, urlInSection = append(urls, gitrepo.NormalizeRemote(value(m[2]))), true
 		}
 	}
@@ -444,16 +450,32 @@ func validValue(v string) bool {
 	return !quoted
 }
 
-// value is a config value without a comment and quotes, good enough to show a
-// remote URL.
+// value decodes a value already checked by validValue, including adjacent
+// quoted and unquoted parts of a URL.
 func value(v string) string {
-	v = strings.TrimSpace(v)
-	if rest, ok := strings.CutPrefix(v, `"`); ok {
-		v, _, _ = strings.Cut(rest, `"`)
-		return v
+	var b strings.Builder
+	quoted := false
+	for i := 0; i < len(v); i++ {
+		switch c := v[i]; {
+		case c == '"':
+			quoted = !quoted
+		case c == '\\':
+			i++
+			escaped := v[i]
+			switch escaped {
+			case 'n':
+				escaped = '\n'
+			case 't':
+				escaped = '\t'
+			case 'b':
+				escaped = '\b'
+			}
+			b.WriteByte(escaped)
+		case !quoted && (c == '#' || c == ';'):
+			return strings.TrimSpace(b.String())
+		default:
+			b.WriteByte(c)
+		}
 	}
-	if i := strings.IndexAny(v, "#;"); i >= 0 {
-		v = v[:i]
-	}
-	return strings.TrimSpace(v)
+	return strings.TrimSpace(b.String())
 }

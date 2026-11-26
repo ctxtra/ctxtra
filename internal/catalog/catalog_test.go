@@ -121,7 +121,7 @@ func TestPaths(t *testing.T) {
 	if _, err := expand(c, "nope:*.md", Files); err == nil || !strings.Contains(err.Error(), "no source nope") {
 		t.Errorf("unknown source: %v", err)
 	}
-	content, err := c.Read(items[0], nil)
+	content, _, err := c.Read(items[0], nil)
 	if err != nil || string(content) != "n" {
 		t.Errorf("read %q, %v", content, err)
 	}
@@ -162,6 +162,92 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	}
 }
 
+func TestRepoSourceLeavesSymlinksOut(t *testing.T) {
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
+	c, h := catalog(t, conf, lockFile, func(h string) {
+		gen := source.GenDir("https://github.com/acme/team.git", "", commitA)
+		testenv.Write(t, filepath.Join(gen, "ok.md"), "OK")
+		testenv.Write(t, filepath.Join(h, "outside", "rules.md"), "OUTSIDE")
+		if err := os.Symlink(filepath.Join(h, "outside"), filepath.Join(gen, "link")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, pattern := range []string{"team:link/rules.md", "team:link/*.md", "team:**/*.md"} {
+		t.Run(pattern, func(t *testing.T) {
+			items, _ := expand(c, pattern, Files)
+			for _, it := range items {
+				if strings.Contains(it.Rel, "link/") {
+					t.Errorf("a repo source followed a folder symlink: %s", it.Ref())
+				}
+			}
+		})
+	}
+	gen := c.Source("team").Top
+	if data, _, err := c.Read(Item{Path: filepath.Join(gen, "link", "rules.md"), Source: "team", Rel: "link/rules.md", stored: true}, nil); err == nil {
+		t.Errorf("read %q through symlink to %s", data, h)
+	}
+	testenv.Write(t, filepath.Join(h, "manifest.yaml"), "schema: ctxtra/source/v1\nmcp-servers: {outside: {command: [outside]}}\n")
+	if err := os.Symlink(filepath.Join(h, "manifest.yaml"), filepath.Join(gen, "ctxtra-source.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if m, errs := c.Manifest(c.Source("team")); m != nil || len(errs) == 0 {
+		t.Errorf("a repo source read a symlinked manifest: %v, %v", m, errs)
+	}
+}
+
+func TestLiveSourceSymlinkInANestedRepository(t *testing.T) {
+	c, _ := catalog(t, "sources: {notes: {dir: ~/team/local/notes}}\n", "", func(h string) {
+		outer := testenv.Repo(t, filepath.Join(h, "team"), "git@github.com:acme/team.git")
+		inner := testenv.Repo(t, filepath.Join(outer, "local"), "")
+		testenv.Write(t, filepath.Join(h, "notes", "rules.md"), "MINE")
+		if err := os.Symlink(filepath.Join(h, "notes"), filepath.Join(inner, "notes")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	s := c.Source("notes")
+	if s.State != Inactive || !strings.Contains(s.Why, "github.com/acme/team") {
+		t.Fatalf("an untrusted outer repository controls the source's symlink: %v, %s", s.State, s.Why)
+	}
+}
+
+func TestReadUsesTheCheckedPath(t *testing.T) {
+	conf := "sources:\n  live: {dir: ~/live}\n  team: {repo: 'https://github.com/acme/team.git', branch: main}\n"
+	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
+	c, h := catalog(t, conf, lockFile, func(h string) {
+		testenv.Write(t, filepath.Join(h, "live", "rules.md"), "LIVE")
+		if err := os.Symlink("rules.md", filepath.Join(h, "live", "link.md")); err != nil {
+			t.Fatal(err)
+		}
+		testenv.Write(t, filepath.Join(source.GenDir("https://github.com/acme/team.git", "", commitA), "rules.md"), "STORED")
+	})
+	for _, tc := range []struct {
+		name, original, checked, content string
+		stored                           bool
+	}{
+		{"live", filepath.Join(h, "live", "link.md"), filepath.Join(h, "live", "rules.md"), "LIVE", false},
+		{"stored", c.Source("team").Top + "/./rules.md", filepath.Join(c.Source("team").Top, "rules.md"), "STORED", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := readBounded
+			t.Cleanup(func() { readBounded = original })
+			readBounded = func(path string, limit int) ([]byte, error) {
+				if path != tc.checked {
+					t.Errorf("read opened %s; want checked path %s", path, tc.checked)
+				}
+				return original(path, limit)
+			}
+			it := Item{Path: tc.original, Source: "team", Rel: "rules.md", stored: tc.stored}
+			for _, rd := range []*fsutil.Reader{nil, fsutil.NewReader(1024, 4096)} {
+				content, path, err := c.Read(it, rd)
+				if err != nil || string(content) != tc.content || path != tc.checked {
+					t.Errorf("read %q at %s, %v; want %q at %s", content, path, err, tc.content, tc.checked)
+				}
+			}
+		})
+	}
+}
+
 func TestStoreReadOnlyBySourcePath(t *testing.T) {
 	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
@@ -174,7 +260,7 @@ func TestStoreReadOnlyBySourcePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Read(items[0], nil); !IsUntrusted(err) {
+	if _, _, err := c.Read(items[0], nil); !IsUntrusted(err) {
 		t.Errorf("a file of the store by its path: %v", err)
 	}
 }

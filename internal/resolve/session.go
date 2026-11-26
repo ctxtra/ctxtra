@@ -592,17 +592,16 @@ func (r *session) excludes(e config.Entry, it catalog.Item) bool {
 // read is the content of it and its real path, unless seen has it
 // already; it is then in seen.
 func (r *session) read(b *config.Binding, t *Trace, it catalog.Item, seen map[string]bool) ([]byte, string, bool) {
-	real := it.Real()
-	if seen[real] {
-		return nil, "", false
-	}
-	content, err := r.env.Catalog.Read(it, r.rd)
+	content, real, err := r.env.Catalog.Read(it, r.rd)
 	switch {
 	case catalog.IsUntrusted(err):
 		r.fail(t, b, yamlx.Pos{}, yamlx.UntrustedFile, "%v", err)
 		return nil, "", false
 	case err != nil:
 		r.fail(t, b, yamlx.Pos{}, yamlx.UnreadableFile, "%s can't be read: %v", it.Ref(), err)
+		return nil, "", false
+	}
+	if seen[real] {
 		return nil, "", false
 	}
 	seen[real] = true
