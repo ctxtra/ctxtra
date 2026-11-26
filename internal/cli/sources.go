@@ -1092,12 +1092,16 @@ func (s *sources) list(asJSON bool) int {
 	if err != nil {
 		return failEnv(s.IO, "source list", asJSON, err)
 	}
+	problems := errorTexts(env.Errors)
 	if asJSON {
 		out := []sourceInfo{}
 		for _, cs := range env.Catalog.Sources() {
 			out = append(out, info(env, cs))
 		}
-		writeJSON(s.Out, out, nil)
+		writeJSON(s.Out, out, diagnostics("error", problems))
+		if len(problems) > 0 {
+			return 1
+		}
 		return 0
 	}
 	if len(env.Catalog.Sources()) == 0 {
@@ -1105,6 +1109,12 @@ func (s *sources) list(asJSON bool) int {
 	}
 	for _, cs := range env.Catalog.Sources() {
 		fmt.Fprintf(s.Out, "%s: %s\n", cs.Name, describeSource(env, cs))
+	}
+	for _, p := range problems {
+		fmt.Fprintf(s.Err, "error: %s\n", p)
+	}
+	if len(problems) > 0 {
+		return 1
 	}
 	return 0
 }

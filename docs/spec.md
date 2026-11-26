@@ -940,6 +940,13 @@ names, not values. Commands use an absolute program path or an installed name in
 Names are 1–20 lowercase letters, digits or `_`, start with a letter, and have neither `__` nor a trailing `_`.
 Duplicate names in a declaration map invalidate both definitions.
 
+`ctxtra mcp add NAME URL --header NAME=VALUE --scope SCOPE` writes remote headers and OAuth scopes.
+Both flags repeat and preserve each value as text. They do not apply to local command servers.
+`ctxtra mcp add NAME --use SOURCE:SERVER` gives a source's server a new name. It writes only `use`;
+it cannot be combined with a URL, command or definition flags. It contacts no server and changes no
+credentials or approvals. `--dry-run` checks without writing. Adding the same definition or alias
+again exits 0 and changes nothing.
+
 A config server's identity is `linear`; a source `work` has `work:linear`. Each has its own sign-in.
 Bindings select them with `mcp-servers: [linear, 'work:linear']`. A binding can contain only servers.
 Adding a source or a definition alone selects nothing.

@@ -3,6 +3,14 @@ exec ctxtra collection add yes --instruction notes/*.md --instruction !notes/dra
 exec ctxtra collection list --json
 stdout '"name": "yes"'
 stdout '!~/notes/draft.md'
+exec ctxtra source add --dir source --name on
+exec ctxtra collection add in-source --source on --instruction yes --instruction null --instruction '!null'
+exec ctxtra collection list --json
+stdout '"on:yes"'
+stdout '"!on:null"'
+cp .config/ctxtra/config.yaml source-before.yaml
+! exec ctxtra collection add bad --source '!on' --instruction yes
+cmp .config/ctxtra/config.yaml source-before.yaml
 exec ctxtra binding add check --collection yes
 exec ctxtra context files
 stdout 'notes/a.md'
@@ -10,7 +18,8 @@ stdout 'notes/a.md'
 ! stdout 'old/SKILL.md'
 exec ctxtra collection add yes --instruction notes/*.md --instruction !notes/draft.md --skill skills/* --skill !skills/old --mcp-server null --mcp-server !off --collection on --collection no --collection !no
 stdout 'already'
-exec ctxtra collection add yes --replace --file replacement.yaml
+cp replacement.yaml '!entry: #1.yaml'
+exec ctxtra collection add yes --replace --file '!entry: #1.yaml'
 exec ctxtra collection remove yes
 exec ctxtra collection list --json
 ! stdout '"name": "yes"'
@@ -36,3 +45,7 @@ description: Old.
 ---
 -- replacement.yaml --
 instructions: ["~/notes/a.md"]
+-- source/yes --
+YES
+-- source/null --
+NULL

@@ -592,6 +592,15 @@ The definition, sign-in, binding and agent setup are separate. Adding another re
 and binding, but no new native agent entry. The model sees each upstream tool and description, with a prefix such
 as `linear__`, not a single opaque ctxtra tool.
 
+For fixed remote headers and OAuth scopes, repeat `--header NAME=VALUE` and `--scope SCOPE`:
+
+```bash
+ctxtra mcp add internal https://mcp.example.com/mcp --header 'X-Team=core' --scope read --scope write --no-login
+```
+
+These values are written to the config. Use `--secret-header NAME` for a header whose value should be
+stored encrypted. Quote values that contain spaces, punctuation or start with `!`.
+
 A source declares servers in top-level `ctxtra-source.yaml`, with `schema: ctxtra/source/v1` and an
 `mcp-servers` map. Your config selects a source's `linear` server as `work:linear`:
 
@@ -626,6 +635,15 @@ mcp-servers:
 The new name applies wherever the server comes from: your bindings, your collections, and a source's collection
 that adds it. `jira_iam` and `iam-team:jira` are then one server, served once. Its sign-in and approval stay with
 `iam-team:jira`, so a new name needs no new approval. Two names for one server are an error.
+
+Write that alias with:
+
+```bash
+ctxtra mcp add jira_iam --use iam-team:jira
+```
+
+This contacts no server and changes no sign-in or approval. Use `--dry-run` to preview it. The same
+definition or alias added again changes nothing.
 
 Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
 changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already

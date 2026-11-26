@@ -8,7 +8,8 @@ stdout '"!null"'
 stdout '"a: b/\*\*"'
 stdin parts.yaml
 exec ctxtra repo-set add parts --file -
-exec ctxtra repo-set add parts --replace --file parts.yaml
+cp parts.yaml '!entry: #1.yaml'
+exec ctxtra repo-set add parts --replace --file '!entry: #1.yaml'
 stdout 'already'
 exec ctxtra repo-set remove parts
 ! exec ctxtra repo-set add bad --repo github.com/a --repo github.com/b --subdir x

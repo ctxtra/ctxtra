@@ -1,0 +1,31 @@
+# Headers and scopes are text, including !, punctuation and YAML-like words.
+exec ctxtra mcp add null https://example.com/mcp --no-login --header '!X=yes' --header 'X-Notes=a: b #1' --header 'X-Equal=a=b' --scope '!off' --scope 'null' --scope '1.10' --scope 'a: b' --scope '"quoted"'
+exec ctxtra mcp list --json
+stdout '"name": "null"'
+exec ctxtra binding add check --mcp-server null
+exec ctxtra mcp add null https://example.com/mcp --no-login --header '!X=yes' --header 'X-Notes=a: b #1' --header 'X-Equal=a=b' --scope '!off' --scope 'null' --scope '1.10' --scope 'a: b' --scope '"quoted"'
+stdout 'already'
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra mcp add bad https://example.com/mcp --no-login --header '!no'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra mcp add local --scope '!off' -- echo x
+cmp .config/ctxtra/config.yaml before.yaml
+# A source's server under another name changes only the config alias.
+exec ctxtra source add --dir ./source --name on
+exec ctxtra mcp add jira_iam --use on:jira
+exec ctxtra mcp add jira_iam --use on:jira
+stdout 'already'
+exec ctxtra mcp list --json
+stdout '"id": "on:jira"'
+stdout '"name": "jira_iam"'
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra mcp add jira_other --use on:jira
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra mcp add bad --use '!on:jira'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra mcp add bad --use on:jira --header 'X=y'
+cmp .config/ctxtra/config.yaml before.yaml
+-- source/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  jira: {url: https://example.com/jira}
