@@ -271,6 +271,11 @@ func (r report) session(res *resolve.Result) {
 	} else {
 		fmt.Fprintln(r.Out, "  agent: none given (--agent): bindings with agents don't apply")
 	}
+	r.repository(res)
+}
+
+// repository prints the repository of res's folder.
+func (r report) repository(res *resolve.Result) {
 	switch {
 	case res.RepoErr != nil:
 		fmt.Fprintf(r.Out, "  repository: can't be told: %v\n", res.RepoErr)
@@ -544,10 +549,81 @@ type hookInfo struct {
 	Details []string `json:"details"`
 }
 
+// agentRun is what a session of one agent gets in doctor's folder; agent
+// is "" when no agent is set up.
+type agentRun struct {
+	agent string
+	res   *resolve.Result
+}
+
+// agentRuns resolves dir once for each agent that setup set up, or once
+// for no agent when there is none.
+func (r report) agentRuns(dir string, setups state.Setups) ([]agentRun, *resolve.Env) {
+	var runs []agentRun
+	var env *resolve.Env
+	for _, a := range registry.All() {
+		if setups.Known(a.Name(), a.ConfigPath()) {
+			res, e := report{r.IO, r.version, a.Name()}.resolve(dir)
+			runs, env = append(runs, agentRun{a.Name(), res}), e
+		}
+	}
+	if len(runs) == 0 {
+		res, e := r.resolve(dir)
+		runs, env = []agentRun{{"", res}}, e
+	}
+	return runs, env
+}
+
+// byAgent are msgs of each run, once each in first-seen order, with the
+// agents that have them when agents are set up; unless always, only those
+// that some agents don't have.
+func byAgent(runs []agentRun, always bool, msgs func(agentRun) []string) []string {
+	var order []string
+	agents := map[string][]string{}
+	for _, run := range runs {
+		for _, m := range msgs(run) {
+			if _, ok := agents[m]; !ok {
+				order = append(order, m)
+			}
+			if run.agent != "" && !slices.Contains(agents[m], run.agent) {
+				agents[m] = append(agents[m], run.agent)
+			}
+		}
+	}
+	out := make([]string, len(order))
+	for i, m := range order {
+		out[i] = m
+		if as := agents[m]; len(as) > 0 && (always || len(as) < len(runs)) {
+			out[i] += " (" + strings.Join(as, ", ") + ")"
+		}
+	}
+	return out
+}
+
+// sessionLines are what doctor prints of a session's files, skills, drops
+// and notices.
+func sessionLines(res *resolve.Result) []string {
+	var out []string
+	for _, h := range res.Files {
+		out = append(out, fmt.Sprintf("file: %s (%d chars, %s)", h.Path, resolve.Chars(h.Content), h.Origin))
+	}
+	for _, h := range res.Skills {
+		out = append(out, fmt.Sprintf("skill: %s (%s, %s)", h.Name, h.Path, h.Origin))
+	}
+	for _, s := range res.MCPServers {
+		out = append(out, fmt.Sprintf("mcp: %s (%s)", s.ID, s.Origin))
+	}
+	for _, h := range res.Dropped {
+		out = append(out, fmt.Sprintf("DROPPED (over %s): %s", h.Over, h.Path))
+	}
+	return out
+}
+
 func (r report) doctor(dir string, asJSON bool) int {
 	ok := true
-	res, env := r.resolve(dir)
-	others := errorTexts(env.OtherErrors(res))
+	setups, _, _ := state.LoadSetups()
+	runs, env := r.agentRuns(dir, setups)
+	res := runs[0].res
 	notes := mcpOrphans(env)
 	servers, _ := env.Catalog.AllServers()
 	for _, s := range servers {
@@ -559,7 +635,6 @@ func (r report) doctor(dir string, asJSON bool) int {
 		notes = append(notes, "~/.ctxtra can be deleted once every agent is set up again with ctxtra setup")
 	}
 	_, statErr := os.Stat(env.Path)
-	setups, _, _ := state.LoadSetups()
 	bin := running()
 	var agents []hookInfo
 	// A config that can't be used is reported where it is read.
@@ -582,29 +657,69 @@ func (r report) doctor(dir string, asJSON bool) int {
 	if res.Repo != nil {
 		repo = res.Repo.Root
 	}
-	runs := hook.LastRuns(res.Dir, repo)
-	ok = ok && status(res) == 0 && r.overCapacity(res) == 0 && len(others) == 0
+	hookRuns := hook.LastRuns(res.Dir, repo)
+	// Errors of the session, for each agent that has them; then errors of
+	// bindings that apply to no agent here.
+	errs := byAgent(runs, true, func(run agentRun) []string {
+		return slices.Concat(errorTexts(run.res.Errors), report{r.IO, r.version, run.agent}.capacityErrors(run.res))
+	})
+	inSession := map[string]bool{}
+	for _, run := range runs {
+		for _, e := range run.res.Errors {
+			inSession[e.Error()] = true
+		}
+	}
+	var others []string
+	for _, run := range runs {
+		for _, e := range errorTexts(env.OtherErrors(run.res)) {
+			if !inSession[e] && !slices.Contains(others, e) {
+				others = append(others, e)
+			}
+		}
+	}
+	notices := byAgent(runs, false, func(run agentRun) []string { return oneLine(run.res.Notices) })
+	for _, run := range runs {
+		rr := report{r.IO, r.version, run.agent}
+		ok = ok && status(run.res) == 0 && rr.overCapacity(run.res) == 0
+	}
+	ok = ok && len(others) == 0
 	checks := update.FromConfig(env.Config, env.Lock)
 	if asJSON {
 		sources := []sourceInfo{}
 		for _, cs := range env.Catalog.Sources() {
 			sources = append(sources, info(env, cs))
 		}
-		if runs == nil {
-			runs = []hook.Entry{}
+		if hookRuns == nil {
+			hookRuns = []hook.Entry{}
+		}
+		sessions := []map[string]any{}
+		over := []agentDrop{}
+		for _, run := range runs {
+			rr := report{r.IO, r.version, run.agent}
+			sessions = append(sessions, map[string]any{"agent": run.agent, "files": hits(run.res.Files, false), "skills": hits(run.res.Skills, true)})
+			over = append(over, rr.agentDrops(run.res)...)
 		}
 		out := map[string]any{
 			"folders": map[string]string{"config": paths.ConfigDir(), "data": paths.DataDir(), "state": paths.StateDir(), "cache": paths.CacheDir()},
 			"ctxtra":  releaseInfo(checks, state.Load(), r.version),
 			"config":  map[string]any{"file": env.Path, "exists": statErr == nil, "bindings": len(env.Config.Bindings)},
-			"sources": sources, "session": r.sessionInfo(res),
-			"files": hits(res.Files, false), "skills": hits(res.Skills, true), "agents_over": r.agentDrops(res),
-			"hooks": agents, "last_hook_runs": runs,
+			"sources": sources, "session": r.sessionInfo(res), "sessions": sessions, "agents_over": over,
+			"hooks": agents, "last_hook_runs": hookRuns,
 		}
 		if len(servers) > 0 {
 			out["mcp"] = map[string]any{"key": keyLocation(), "servers": mcpInfos(servers)}
 		}
-		writeJSON(r.Out, out, slices.Concat(sessionDiagnostics(res), diagnostics("error", r.capacityErrors(res)), diagnostics("error", others), diagnostics("notice", notes)))
+		var drops []diagnostic
+		for _, d := range byAgent(runs, true, func(run agentRun) []string {
+			var out []string
+			for _, h := range run.res.Dropped {
+				out = append(out, fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path))
+			}
+			return out
+		}) {
+			drops = append(drops, diagnostic{"error", d})
+		}
+		writeJSON(r.Out, out, slices.Concat(diagnostics("error", errs), drops, diagnostics("error", others), diagnostics("notice", notices), diagnostics("notice", notes)))
 		if ok {
 			return 0
 		}
@@ -623,24 +738,14 @@ func (r report) doctor(dir string, asJSON bool) int {
 	for _, n := range notes {
 		fmt.Fprintf(r.Out, "  NOTE: %s\n", n)
 	}
-	for _, e := range slices.Concat(errorTexts(res.Errors), others) {
+	for _, e := range slices.Concat(errs, others) {
 		fmt.Fprintf(r.Out, "  ERROR: %s\n", e)
 	}
 	fmt.Fprintln(r.Out)
-	r.session(res)
-	for _, h := range res.Files {
-		fmt.Fprintf(r.Out, "  file: %s (%d chars, %s)\n", h.Path, resolve.Chars(h.Content), h.Origin)
-	}
-	for _, h := range res.Skills {
-		fmt.Fprintf(r.Out, "  skill: %s (%s, %s)\n", h.Name, h.Path, h.Origin)
-	}
-	for _, h := range res.Dropped {
-		fmt.Fprintf(r.Out, "  DROPPED (over %s): %s\n", h.Over, h.Path)
-	}
-	for _, n := range oneLine(res.Notices) {
+	r.doctorSessions(runs)
+	for _, n := range notices {
 		fmt.Fprintf(r.Out, "  NOTICE: %s\n", n)
 	}
-	r.sizeWarnings(res, "  ")
 
 	if len(servers) > 0 {
 		fmt.Fprintln(r.Out, "\nMCP servers:")
@@ -662,10 +767,10 @@ func (r report) doctor(dir string, asJSON bool) int {
 		}
 	}
 	fmt.Fprintln(r.Out, "\nlast hook runs here:")
-	if len(runs) == 0 {
+	if len(hookRuns) == 0 {
 		fmt.Fprintln(r.Out, "  none yet")
 	}
-	for _, e := range runs {
+	for _, e := range hookRuns {
 		status := fmt.Sprintf("files=%d skills=%d errors=%d", len(e.Files), len(e.Skills), len(e.Errors))
 		if e.Error != "" {
 			status = "error: " + e.Error
@@ -679,6 +784,46 @@ func (r report) doctor(dir string, asJSON bool) int {
 		return 0
 	}
 	return 1
+}
+
+// doctorSessions prints the session folder and what each set-up agent's
+// session gets there: once for agents whose sessions get the same.
+func (r report) doctorSessions(runs []agentRun) {
+	var names []string
+	var groups [][]string
+	lines := map[string][]string{}
+	for _, run := range runs {
+		l := sessionLines(run.res)
+		key := strings.Join(l, "\n")
+		if _, ok := lines[key]; !ok {
+			groups = append(groups, nil)
+			names = append(names, key)
+			lines[key] = l
+		}
+		i := slices.Index(names, key)
+		if run.agent != "" {
+			groups[i] = append(groups[i], run.agent)
+		}
+	}
+	res := runs[0].res
+	fmt.Fprintf(r.Out, "session folder: %s\n", res.Dir)
+	switch {
+	case runs[0].agent == "":
+		fmt.Fprintln(r.Out, "  agent: none set up: bindings with agents don't apply")
+	case len(groups) == 1:
+		fmt.Fprintf(r.Out, "  agents: %s\n", strings.Join(groups[0], ", "))
+	}
+	r.repository(res)
+	for i, key := range names {
+		indent := "  "
+		if len(groups) > 1 {
+			fmt.Fprintf(r.Out, "  %s:\n", strings.Join(groups[i], ", "))
+			indent = "    "
+		}
+		for _, l := range lines[key] {
+			fmt.Fprintf(r.Out, "%s%s\n", indent, l)
+		}
+	}
 }
 
 // oneLine is notices with their command on the same line, for reports.

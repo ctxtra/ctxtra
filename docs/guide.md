@@ -380,7 +380,8 @@ ctxtra doctor [DIR]            # config errors, setup state, Codex trust, recent
 ```
 
 They exit with 1 when a session wouldn't get everything it should, and take `--json` (except
-`context show`). `doctor` checks every binding, also those that don't match DIR. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
+`context show`). `doctor` checks every binding, also those that don't match DIR. It checks a session once for
+each agent you set up, and each error names its agents, such as `(codex)`. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
 
 If you maintain a source, `ctxtra source validate DIR` checks `DIR/ctxtra-source.yaml` without reading
 your config, trust records or credentials and without network access. It validates YAML, keys, names,

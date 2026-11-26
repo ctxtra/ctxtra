@@ -68,6 +68,8 @@
   sign-in. `mcp status` gives the approve command for a server that needs approval.
 - The notice about two MCP servers with one name suggests the config line that gives the source's server a new
   name. Of two skills with one name, Claude Code's slash commands offer the second as `/SOURCE-NAME`.
+- `doctor` checks a session once for each agent that setup set up, so bindings with `agents` are checked too. Each
+  error names the agents that have it. `doctor --json` lists each agent's files and skills in `sessions`.
 
 ## v0.6.0
 

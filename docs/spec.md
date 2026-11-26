@@ -576,6 +576,13 @@ An unknown ID leaves out the binding with an error. A subagent has its parent's 
 `agents: ['!cursor']` selects every other agent. `context files`, `context show`, `context explain`
 and `mcp status` take `--agent ID`. Without it, bindings with agents do not apply.
 
+`doctor` checks a session in its folder once for each agent that setup set up, with that agent's capacity.
+Each session error ends with the agents that have it, such as `(codex)`; errors of bindings that apply to no
+agent there have none. Agents whose sessions get the same files, skills and servers are listed together;
+otherwise each agent's are listed under its name. With no agent set up, it checks a session of no agent, where
+bindings with agents don't apply. `doctor --json` has the list in `sessions`, each with its `agent`, `files` and
+`skills`.
+
 `profiles` uses case-sensitive names and the same positive and negative rule. Profile selection and
 profile commands are not available yet. Sessions currently resolve with no active profiles, so a positive
 profile condition does not hold and an exclusion-only profile condition holds.
