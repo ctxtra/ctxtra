@@ -49,6 +49,10 @@ func (r report) resolve(dir string) (*resolve.Result, *resolve.Env) {
 	}
 	env := loadEnv()
 	res := env.Resolve(resolve.Input{Dir: dir, Agent: r.agent})
+	// A session of a known agent gets what fits in it.
+	if a, ok := registry.Get(r.agent); ok {
+		a.Delivery().Fit(res)
+	}
 	if n := update.ReleaseNotice(update.FromConfig(env.Config), state.Load(), r.version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
@@ -77,7 +81,11 @@ func errorTexts(errs []*catalog.Error) []string {
 func sessionDiagnostics(res *resolve.Result) []diagnostic {
 	d := diagnostics("error", errorTexts(res.Errors))
 	for _, h := range res.Dropped {
-		d = append(d, diagnostic{"warning", fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
+		severity := "error"
+		if h.Over == "max-ctx-chars" {
+			severity = "warning"
+		}
+		d = append(d, diagnostic{severity, fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
 	}
 	return append(d, diagnostics("notice", oneLine(res.Notices))...)
 }
@@ -369,11 +377,32 @@ func traces(res *resolve.Result) []traceInfo {
 	return out
 }
 
+// overCapacity is the exit code of res's agent capacity: 1 when an agent
+// wouldn't get all of it.
+func (r report) overCapacity(res *resolve.Result) int {
+	if len(r.agentDrops(res)) > 0 {
+		return 1
+	}
+	return 0
+}
+
+// capacityErrors are the errors of the agents that wouldn't get all of res.
+func (r report) capacityErrors(res *resolve.Result) []string {
+	var out []string
+	for _, d := range r.agentDrops(res) {
+		out = append(out, fmt.Sprintf("over %s, %s sessions don't get %s", d.Over, d.Agent, agent.Names(d.Dropped)))
+	}
+	return out
+}
+
 // agentDrops are the agents that wouldn't get all of res, with the files
 // their sessions don't get.
-func agentDrops(res *resolve.Result) []agentDrop {
+func (r report) agentDrops(res *resolve.Result) []agentDrop {
 	out := []agentDrop{}
 	for _, a := range registry.All() {
+		if r.agent != "" && a.Name() != r.agent {
+			continue
+		}
 		d := a.Delivery()
 		c := *res
 		c.Dropped = nil
@@ -402,9 +431,9 @@ func (r report) explain(dir string, asJSON bool) int {
 		writeJSON(r.Out, map[string]any{
 			"config": env.Path, "session": r.sessionInfo(res), "bindings": traces(res),
 			"total":         map[string]int{"files": len(res.Files), "skills": len(res.Skills), "chars": total, "tokens": total / 4},
-			"max_ctx_chars": res.MaxChars, "agents_over": agentDrops(res),
-		}, sessionDiagnostics(res))
-		return status(res)
+			"max_ctx_chars": res.MaxChars, "agents_over": r.agentDrops(res),
+		}, slices.Concat(sessionDiagnostics(res), diagnostics("error", r.capacityErrors(res))))
+		return max(status(res), r.overCapacity(res))
 	}
 	fmt.Fprintf(r.Out, "config: %s\n", env.Path)
 	r.session(res)
@@ -471,14 +500,14 @@ func (r report) explain(dir string, asJSON bool) int {
 	}
 	fmt.Fprintln(r.Out)
 	r.sizeWarnings(res, "")
-	return status(res)
+	return max(status(res), r.overCapacity(res))
 }
 
 // sizeWarnings reports each agent that wouldn't get all of res: the files
 // its sessions don't get. Over capacity is an error.
 func (r report) sizeWarnings(res *resolve.Result, indent string) {
-	for _, d := range agentDrops(res) {
-		fmt.Fprintf(r.Out, "%serror: over %s, %s sessions don't get %s\n", indent, d.Over, d.Agent, agent.Names(d.Dropped))
+	for _, e := range r.capacityErrors(res) {
+		fmt.Fprintf(r.Out, "%serror: %s\n", indent, e)
 	}
 }
 
@@ -529,7 +558,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 		repo = res.Repo.Root
 	}
 	runs := hook.LastRuns(res.Dir, repo)
-	ok = ok && status(res) == 0 && len(others) == 0
+	ok = ok && status(res) == 0 && r.overCapacity(res) == 0 && len(others) == 0
 	checks := update.FromConfig(env.Config)
 	if asJSON {
 		sources := []sourceInfo{}
@@ -544,13 +573,13 @@ func (r report) doctor(dir string, asJSON bool) int {
 			"ctxtra":  releaseInfo(checks, state.Load(), r.version),
 			"config":  map[string]any{"file": env.Path, "exists": statErr == nil, "bindings": len(env.Config.Bindings)},
 			"sources": sources, "session": r.sessionInfo(res),
-			"files": hits(res.Files, false), "skills": hits(res.Skills, true), "agents_over": agentDrops(res),
+			"files": hits(res.Files, false), "skills": hits(res.Skills, true), "agents_over": r.agentDrops(res),
 			"hooks": agents, "last_hook_runs": runs,
 		}
 		if len(servers) > 0 {
 			out["mcp"] = map[string]any{"key": keyLocation(), "servers": mcpInfos(servers)}
 		}
-		writeJSON(r.Out, out, slices.Concat(sessionDiagnostics(res), diagnostics("error", others), diagnostics("notice", notes)))
+		writeJSON(r.Out, out, slices.Concat(sessionDiagnostics(res), diagnostics("error", r.capacityErrors(res)), diagnostics("error", others), diagnostics("notice", notes)))
 		if ok {
 			return 0
 		}

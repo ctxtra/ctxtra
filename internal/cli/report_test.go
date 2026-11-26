@@ -195,7 +195,7 @@ func TestAgentDropsSameNames(t *testing.T) {
 		{Path: filepath.Join(h, "b", "style.md"), Content: big},
 		{Path: filepath.Join(h, "b", "other.md"), Content: big},
 	}}
-	for _, d := range agentDrops(res) {
+	for _, d := range (report{}).agentDrops(res) {
 		if d.Agent == "github-copilot" {
 			if want := []string{"~/b/style.md", "other.md"}; !slices.Equal(d.Dropped, want) {
 				t.Errorf("dropped %v, want %v", d.Dropped, want)
