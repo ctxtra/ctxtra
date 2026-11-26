@@ -1,0 +1,38 @@
+# A source the session can't read is named in the session message, with the
+# command that makes it readable again.
+
+gitrepo srv/team
+gitrepo srv/moved
+gitrepo srv/gone
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart notes
+stdout 'CTXMARK-ME'
+stdout '3 errors \(run ctxtra doctor\)'
+stdout '⚠ source team: ctxtra.lock has no accepted commit of it; run ctxtra source update team'
+stdout '⚠ source moved: ctxtra.lock has a commit accepted for another branch, tag or rev; run ctxtra source update moved to review it'
+stdout '⚠ source gone: the accepted commit 1111111 is not downloaded on this machine; run ctxtra source download'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+sources:
+  team: {repo: ~/srv/team, branch: main}
+  moved: {repo: ~/srv/moved, branch: main}
+  gone: {repo: ~/srv/gone, branch: main}
+bindings:
+  - name: me
+    instructions: [~/ctx/me.md, team:AGENTS.md, moved:AGENTS.md, gone:AGENTS.md]
+-- .config/ctxtra/ctxtra.lock --
+schema: ctxtra/lock/v1
+sources:
+  gone:
+    repo: ~/srv/gone
+    branch: main
+    commit: 1111111111111111111111111111111111111aaa
+  moved:
+    repo: ~/srv/moved
+    branch: other
+    commit: 2222222222222222222222222222222222222aaa
+-- ctx/me.md --
+CTXMARK-ME
+-- notes/todo.md --
+todo

@@ -15,12 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // Agent is one supported coding agent.
@@ -332,7 +334,7 @@ func Summary(res *resolve.Result) string {
 		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
-	signIn := needSignIn(res.MCPServers)
+	signIn := append(inactiveSources(res.Errors), needSignIn(res.MCPServers)...)
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 {
 		return ""
 	}
@@ -362,6 +364,26 @@ func Summary(res *resolve.Result) string {
 		}
 	}
 	return s
+}
+
+// inactiveSources are the sources that can't be read, each with what
+// makes it readable again: source update, source download or source
+// trust. The first summaryNames are named.
+func inactiveSources(errs []*catalog.Error) []string {
+	var out []string
+	n := 0
+	for _, e := range errs {
+		if e.Err.Mistake != yamlx.Inactive || e.Err.Part.Kind != "source" {
+			continue
+		}
+		if n++; n <= summaryNames {
+			out = append(out, "source "+e.Err.Part.Name+": "+strings.ReplaceAll(e.Err.Msg, "`", ""))
+		}
+	}
+	if n > summaryNames {
+		out = append(out, fmt.Sprintf("%d more sources can't be read (run ctxtra doctor)", n-summaryNames))
+	}
+	return out
 }
 
 // needSignIn reads approval and sign-in state locally, never the keychain.
