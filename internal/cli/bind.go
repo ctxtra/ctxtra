@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -198,6 +199,14 @@ func checkBinding(file string, data []byte, name string) error {
 		for _, u := range t.Unavailable {
 			problems = append(problems, "source "+u+": "+env.Catalog.Source(u).Why)
 		}
+	}
+	// The capacity of each agent the binding reaches: all of them without
+	// an agents condition.
+	for _, a := range registry.All() {
+		if len(b.Agents) > 0 && !slices.ContainsFunc(b.Agents, func(e config.Entry) bool { return !e.Not && e.Value == a.Name() }) {
+			continue
+		}
+		problems = append(problems, report{agent: a.Name()}.capacityErrors(res)...)
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("sessions wouldn't get the binding as asked; nothing changed:\n  %s", strings.Join(problems, "\n  "))

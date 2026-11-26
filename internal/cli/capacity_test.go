@@ -112,3 +112,35 @@ func TestCapacityErrorsFromSkills(t *testing.T) {
 		t.Errorf("doctor: exit %d\n%s", code, out)
 	}
 }
+
+// binding add refuses content that an agent the binding reaches can't
+// get, also with --dry-run, and changes nothing.
+func TestBindingAddOverCapacity(t *testing.T) {
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "big.md"), strings.Repeat("x", 400000))
+	for i := range 300 {
+		testenv.Skill(t, filepath.Join(h, "skills", fmt.Sprintf("s%03d", i)), fmt.Sprintf("name: s%03d\ndescription: %s", i, strings.Repeat("d", 2000)))
+	}
+	file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--instruction", "~/big.md"}, "sessions don't get big.md"},
+		{[]string{"--skill", "~/skills/*"}, "even without instruction files"},
+	} {
+		for _, dry := range []bool{true, false} {
+			args := append([]string{"binding", "add", "big"}, c.args...)
+			if dry {
+				args = append(args, "--dry-run")
+			}
+			code, out, errOut := run(args...)
+			if code != 1 || !strings.Contains(errOut, c.want) || !strings.Contains(errOut, "claude-code") {
+				t.Errorf("%v: exit %d\n%s%s", args, code, out, errOut)
+			}
+			if b, _ := os.ReadFile(file); string(b) != "schema: ctxtra/config/v1\n" {
+				t.Errorf("%v: the config changed:\n%s", args, b)
+			}
+		}
+	}
+}
