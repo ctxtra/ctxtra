@@ -79,3 +79,11 @@ func TestEachCollectionIsExpandedOnce(t *testing.T) {
 		}
 	})
 }
+
+func TestPatternMatchesItsOwnCollection(t *testing.T) {
+	c, list := collectionsOf(t, "  all: {collections: ['*'], instructions: [a.md]}\n", "['team:all']")
+	x, _ := c.Expand(list)
+	if len(x.Files) != 0 || len(x.Errors) != 1 || !strings.Contains(x.Errors[0].Error(), "collection all nests itself") {
+		t.Errorf("files %v, errors %v", refs(x.Files), x.Errors)
+	}
+}

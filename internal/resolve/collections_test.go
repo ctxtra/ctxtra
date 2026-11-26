@@ -114,11 +114,12 @@ func TestCollections(t *testing.T) {
 		h := newHome(t)
 		h.write("iam/a.md", "A")
 		h.iamManifest("collections:\n  a: {collections: [a], instructions: [a.md]}\n  all: {collections: ['*'], instructions: [a.md]}\n")
-		res := start(h.load(iamSource+"bindings:\n  - {name: iam, collections: ['iam-team:all']}\n"), h.dir, "")
-		// A pattern doesn't match its own collection: all nests a, which
-		// nests itself.
-		eq(t, "files", refsOf(res.Files), "iam-team:a.md")
-		oneError(t, res, "collection a nests itself")
+		// The pattern matches all too, as any name: all nests itself.
+		for _, coll := range []string{"a", "all"} {
+			res := start(h.load(iamSource+"bindings:\n  - {name: iam, collections: ['iam-team:"+coll+"']}\n"), h.dir, "")
+			eq(t, coll, refsOf(res.Files))
+			oneError(t, res, "collection "+coll+" nests itself")
+		}
 	})
 
 	t.Run("missing collection at session start", func(t *testing.T) {

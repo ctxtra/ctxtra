@@ -272,8 +272,8 @@ func (c *Catalog) Collection(src, name string) (*Expansion, bool) {
 
 // lookup is the collections that entry e of a collections list names, as
 // the config would write it, read and expanded; from is the collection
-// whose entry it is, nil for a binding's. A pattern doesn't match from
-// itself. manifests are the sources whose manifests it read.
+// whose entry it is, nil for a binding's. manifests are the sources whose
+// manifests it read.
 func (c *Catalog) lookup(e config.Entry, from *coll) (found []*coll, manifests []string, err error) {
 	var defs []*config.Collection
 	var src *Source
@@ -310,11 +310,7 @@ func (c *Catalog) lookup(e config.Entry, from *coll) (found []*coll, manifests [
 			}
 			continue
 		}
-		k := c.coll(src, d)
-		if pattern && k == from {
-			continue
-		}
-		found = append(found, k)
+		found = append(found, c.coll(src, d))
 	}
 	if !matched {
 		if pattern {

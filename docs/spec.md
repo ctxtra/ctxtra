@@ -626,8 +626,8 @@ bindings:
 - Errors in a collection leave out only the entry: a path that matches nothing, a nested collection that
   doesn't exist, a `!` entry that excludes nothing, an entry that names another source in a manifest. A
   collection with an unknown key adds nothing. Collections that nest each other form a cycle: each adds
-  nothing, and the error names them. A pattern in a collection's `collections` doesn't match that
-  collection itself.
+  nothing, and the error names them. A pattern in a collection's `collections` matches that collection
+  too: `all: {collections: ['*']}` nests itself.
 - A binding entry that names a collection the source doesn't have, or a source without a manifest, is an
   error, and the rest of the binding applies.
 - Each collection is read once per session, however many bindings and collections nest it, and expanded
