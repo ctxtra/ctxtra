@@ -447,6 +447,11 @@ func TestServers(t *testing.T) {
 		{"a number in env", "s: {command: [x], env: {PORT: 8080}}", "quote it: env.PORT: '8080'"},
 		{"true as a variable name", "s: {command: [x], env: {true: x}}", "YAML reads true as true or false, not text; quote it: 'true'"},
 		{"a number as a header name", "s: {url: 'https://x.example', headers: {1: x}}", "YAML reads 1 as a number, not text; quote it: '1'"},
+		{"no url and no command", "s: {notes: hi}", "a server needs url (a remote server) or command (a local one)"},
+		{"headers on a local server", "s: {command: [x], headers: {A: b}}", "headers doesn't apply to a local server"},
+		{"a bad pass-env name", "s: {command: [x], pass-env: [1A]}", `pass-env: "1A" is not a valid name`},
+		{"env and secret-env", "s: {command: [x], env: {A: b}, secret-env: [A]}", "the variable A is set twice"},
+		{"an unknown key", "s: {url: 'https://x.example', nope: 1}", `unknown key "nope"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
