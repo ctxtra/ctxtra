@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
+	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -413,4 +416,38 @@ func TestDirSourceSkillLoop(t *testing.T) {
 	if e := oneError(t, res, "skills/bad/SKILL.md"); e.Err.Mistake != yamlx.UnreadableFile {
 		t.Errorf("mistake %v", e.Err.Mistake)
 	}
+}
+
+// A dir source in a repository with remotes is read live only after
+// source trust recorded them, and stops when they change.
+func TestDirSourceTrust(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("dotfiles/agents/me.md", "ME")
+	cfg := "sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/*.md']}\n"
+	res := start(h.load(cfg), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "remotes github.com/me/dotfiles", "ctxtra source trust dotfiles")
+
+	if err := state.Trust(paths.Real(h.path("dotfiles")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	res = start(h.load(cfg), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "me.md")
+
+	testenv.Run(t, h.path("dotfiles"), "git", "remote", "add", "fork", "git@github.com:other/dotfiles.git")
+	res = start(h.load(cfg), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "remotes of ~/dotfiles changed", "github.com/me/dotfiles, github.com/other/dotfiles", "ctxtra source trust dotfiles")
+}
+
+// A folder without a remote is read live without trust.
+func TestDirSourceWithoutRemote(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "")
+	h.write("dotfiles/agents/me.md", "ME")
+	res := start(h.load("sources: {dotfiles: {dir: ~/dotfiles}}\nbindings:\n  - {name: b, instructions: ['dotfiles:agents/*.md']}\n"), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "me.md")
 }

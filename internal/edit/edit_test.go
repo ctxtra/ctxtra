@@ -415,3 +415,35 @@ func TestLockThatCantBeWritten(t *testing.T) {
 		}
 	})
 }
+
+// A commit that fails after the write puts both files back as they were:
+// a config that existed, and a lock that didn't.
+func TestCommitThatFailsRestores(t *testing.T) {
+	const before = "schema: ctxtra/config/v1\n# mine\n"
+	f := files(t, before, "")
+	failed := errors.New("the credentials can't be saved")
+	err := f.RunCommit(func(tx *Tx) error {
+		if _, err := tx.Config.Add(config.Sources, "team", node(t, source("https://h/team")), config.Place{}); err != nil {
+			return err
+		}
+		tx.SetLockEntry(entry("team", "https://h/team", strings.Repeat("a", 40)))
+		return nil
+	}, func(write func() error) error {
+		if err := write(); err != nil {
+			return err
+		}
+		if !strings.Contains(read(t, f.Config), "team") || read(t, lock.Path(f.Config)) == "" {
+			t.Error("the write didn't happen before the commit failed")
+		}
+		return failed
+	})
+	if !errors.Is(err, failed) {
+		t.Fatalf("error %v", err)
+	}
+	if got := read(t, f.Config); got != before {
+		t.Errorf("config %q", got)
+	}
+	if _, err := os.Stat(lock.Path(f.Config)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the lock file stays: %v", err)
+	}
+}
