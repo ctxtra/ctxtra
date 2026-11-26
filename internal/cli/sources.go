@@ -911,7 +911,9 @@ func (s *sources) trust(name string, dryRun bool) error {
 	case len(remotes) == 0:
 		fmt.Fprintf(s.Out, "%s has no remotes: it is read live without trust\n", src.Dir)
 		return nil
-	case dryRun:
+	}
+	fmt.Fprintf(s.Out, "%s: its files, servers and repo sets will be used as they are, without review, including other people's changes pulled into the folder\n", src.Dir)
+	if dryRun {
 		fmt.Fprintf(s.Out, "would trust %s with the remotes %s\nnothing changed (--dry-run)\n", name, strings.Join(remotes, ", "))
 		return nil
 	}

@@ -1,0 +1,54 @@
+# A folder gets a remote later. The hook's actual answer, doctor and explain
+# name the trust command and the option to read reviewed commits instead.
+gitrepo dotfiles
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+exec git -C dotfiles remote add origin git@github.com:me/dotfiles.git
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout '⚠ source dotfiles: .*remotes github.com/me/dotfiles.*ctxtra source trust dotfiles.*ctxtra source add --repo ~/dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes github.com/me/dotfiles.*ctxtra source trust dotfiles.*ctxtra source add --repo ~/dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes github.com/me/dotfiles.*ctxtra source trust dotfiles.*ctxtra source add --repo ~/dotfiles'
+
+# Trusted remote: dry-run explains the decision and changes no trust state.
+exec ctxtra source trust dotfiles --dry-run
+stdout 'files, servers and repo sets.*without review'
+! exists .local/state/ctxtra/trusted-dirs.json
+exec ctxtra source trust dotfiles
+stdout 'files, servers and repo sets.*without review'
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+# A changed remote stops reading, and trusting again restores it.
+exec git -C dotfiles remote set-url origin git@github.com:other/dotfiles.git
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*github.com/other/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes of ~/dotfiles changed.*ctxtra source trust dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes of ~/dotfiles changed.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+# An additional URL in the same remote is a change too.
+exec git -C dotfiles remote set-url --add origin git@github.com:third/dotfiles.git
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*github.com/third/dotfiles.*ctxtra source trust dotfiles'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+sources:
+  dotfiles: {dir: ~/dotfiles}
+bindings:
+  - name: me
+    instructions: [dotfiles:rules.md]
+-- dotfiles/rules.md --
+CTXMARK-LIVE
+-- notes/.keep --

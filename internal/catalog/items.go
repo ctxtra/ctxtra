@@ -44,8 +44,7 @@ type Item struct {
 	// Source is the source it is in, and Rel its slash-separated path from
 	// the source's top; both "" for a path on disk.
 	Source, Rel string
-	// stored: in ctxtra's store, which has no symlinks; read without the
-	// trust check.
+	// stored: in ctxtra's store; read only through paths without symlinks.
 	stored bool
 	// fsys has it at Rel when the source is read from git; Path is then
 	// only its name in messages.
@@ -177,6 +176,8 @@ func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error)
 		if err := c.trust.Check(p); err != nil {
 			return nil, &Untrusted{err}
 		}
+	} else if err := trust.Stored(c.sources[it.Source].Top, p); err != nil {
+		return nil, err
 	}
 	if rd == nil {
 		return fsutil.ReadBounded(p, limit)
@@ -326,7 +327,7 @@ func (t *tree) cycle(name string) bool {
 // to.
 func (t *tree) match(p string, kind Kind) bool {
 	full := filepath.Join(t.root, filepath.FromSlash(p))
-	stat := os.Lstat
+	stat := t.statStored
 	switch {
 	case t.virtual:
 		stat = t.statFS
@@ -362,6 +363,17 @@ func (t *tree) statFS(full string) (fs.FileInfo, error) {
 	return fs.Stat(t.FS, filepath.ToSlash(rel))
 }
 
+func (t *tree) statStored(full string) (fs.FileInfo, error) {
+	parent := t.root
+	if full != t.root {
+		parent = filepath.Dir(full)
+	}
+	if err := trust.Stored(t.root, parent); err != nil {
+		return nil, err
+	}
+	return os.Lstat(full)
+}
+
 func (t *tree) spend(n int) error {
 	t.left -= n
 	if t.left < 0 {
@@ -385,11 +397,11 @@ func (t *tree) Stat(name string) (fs.FileInfo, error) {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
-	stat := os.Lstat
+	stat := t.statStored
 	switch {
 	case t.virtual:
 		stat = t.statFS
-	case name == "." || t.live:
+	case t.live:
 		stat = os.Stat
 	}
 	fi, err := stat(full)
@@ -452,6 +464,12 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
+	if !t.live && !t.virtual {
+		if err := trust.Stored(t.root, full); err != nil {
+			t.skip(full, err)
+			return nil, nil
+		}
+	}
 	f, err := t.FS.Open(name)
 	if err != nil {
 		t.skip(full, err)

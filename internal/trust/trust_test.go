@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -160,6 +161,8 @@ func TestParseRemotes(t *testing.T) {
 		{"[core]\n\tbare = false\n", "", false, false},
 		{"[remote \"origin\"]\n\turl = https://GitHub.com/a/b.git\n", "github.com/a/b", true, false},
 		{"[Remote \"x\"]\nURL=\"git@h:a/b\"\n", "h/a/b", true, false},
+		{"[remote \"x\"]\nurl = \"https://github.com/me/\"other.git\n", "github.com/me/other", true, false},
+		{"[remote \"x\"]\nurl = https://github.com/me/\"other.git\"\n", "github.com/me/other", true, false},
 		{"[remote.old]\n", "(unknown)", true, false},
 		{"  [ remote \"y\" ] url = h:c/d\n", "h/c/d", true, false},
 		{"[remote \"a]b\\\"c\"]\n\turl = h:a/b # comment\n", "h/a/b", true, false},
@@ -181,6 +184,17 @@ func TestParseRemotes(t *testing.T) {
 		if url != c.url || has != c.has || (err != nil) != c.err {
 			t.Errorf("%q: %q %v %v", c.config, url, has, err)
 		}
+	}
+}
+
+func TestTrustedRemoteWithSeveralURLs(t *testing.T) {
+	h := testenv.Home(t)
+	repo := testenv.Repo(t, filepath.Join(h, "dotfiles"), "git@github.com:me/dotfiles.git")
+	testenv.Run(t, repo, "git", "remote", "set-url", "--add", "origin", "https://github.com/other/dotfiles.git")
+	_, got, err := Remotes(repo)
+	want := []string{"github.com/me/dotfiles", "github.com/other/dotfiles"}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("remotes %v, %v; want %v", got, err, want)
 	}
 }
 

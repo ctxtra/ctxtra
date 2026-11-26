@@ -222,9 +222,14 @@ ctxtra binding add personal --instruction dotfiles:agents/me.md --skill 'dotfile
 This accepts whatever is in that folder, including other people's changes pulled into it.
 With no remotes, a dir source needs no trust step. If its remotes change later, ctxtra stops reading it
 until you trust it again. Files outside git and in repositories without remotes need no source.
+The session message, `doctor` and `context explain` give the command to trust the source again.
+When a folder gets its first remote, they also show how to add a repo source for reviewed commits.
+`ctxtra source trust dotfiles --dry-run` explains the decision without recording trust.
 A symlink is followed only when every link and its destination pass the same trust check.
 A dir source's path can lead through a symlink in another repository with remotes only when that folder is a
 trusted dir source too. Otherwise name the folder the link leads to.
+Live patterns can follow links to your own files and folders. Repo sources leave all symlinks out,
+including symlinks in an explicit path or at the manifest.
 
 ### Reviewed source content
 

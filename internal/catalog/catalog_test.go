@@ -162,6 +162,55 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	}
 }
 
+func TestRepoSourceLeavesSymlinksOut(t *testing.T) {
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
+	c, h := catalog(t, conf, lockFile, func(h string) {
+		gen := source.GenDir("https://github.com/acme/team.git", "", commitA)
+		testenv.Write(t, filepath.Join(gen, "ok.md"), "OK")
+		testenv.Write(t, filepath.Join(h, "outside", "rules.md"), "OUTSIDE")
+		if err := os.Symlink(filepath.Join(h, "outside"), filepath.Join(gen, "link")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, pattern := range []string{"team:link/rules.md", "team:link/*.md", "team:**/*.md"} {
+		t.Run(pattern, func(t *testing.T) {
+			items, _ := expand(c, pattern, Files)
+			for _, it := range items {
+				if strings.Contains(it.Rel, "link/") {
+					t.Errorf("a repo source followed a folder symlink: %s", it.Ref())
+				}
+			}
+		})
+	}
+	gen := c.Source("team").Top
+	if data, err := c.Read(Item{Path: filepath.Join(gen, "link", "rules.md"), Source: "team", Rel: "link/rules.md", stored: true}, nil); err == nil {
+		t.Errorf("read %q through symlink to %s", data, h)
+	}
+	testenv.Write(t, filepath.Join(h, "manifest.yaml"), "schema: ctxtra/source/v1\nmcp-servers: {outside: {command: [outside]}}\n")
+	if err := os.Symlink(filepath.Join(h, "manifest.yaml"), filepath.Join(gen, "ctxtra-source.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if m, errs := c.Manifest(c.Source("team")); m != nil || len(errs) == 0 {
+		t.Errorf("a repo source read a symlinked manifest: %v, %v", m, errs)
+	}
+}
+
+func TestLiveSourceSymlinkInANestedRepository(t *testing.T) {
+	c, _ := catalog(t, "sources: {notes: {dir: ~/team/local/notes}}\n", "", func(h string) {
+		outer := testenv.Repo(t, filepath.Join(h, "team"), "git@github.com:acme/team.git")
+		inner := testenv.Repo(t, filepath.Join(outer, "local"), "")
+		testenv.Write(t, filepath.Join(h, "notes", "rules.md"), "MINE")
+		if err := os.Symlink(filepath.Join(h, "notes"), filepath.Join(inner, "notes")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	s := c.Source("notes")
+	if s.State != Inactive || !strings.Contains(s.Why, "github.com/acme/team") {
+		t.Fatalf("an untrusted outer repository controls the source's symlink: %v, %s", s.State, s.Why)
+	}
+}
+
 func TestStoreReadOnlyBySourcePath(t *testing.T) {
 	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)

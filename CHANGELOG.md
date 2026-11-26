@@ -43,6 +43,9 @@
 - `source update --dry-run` writes only to the cache. The review reads commits from the cache, and also
   shows a newly matched skill whose `SKILL.md` is invalid, and a `!` entry that a commit leaves matching nothing.
 - Collections and repo sets are parsed but not implemented yet: they are errors.
+- Live-folder trust notices give the trust command and the option to use reviewed commits. `source trust`
+  explains that files, servers and repo sets apply without review. Trust checks include every URL of a
+  remote. Repo sources refuse symlinks in explicit paths and manifests as well as in patterns.
 
 ## v0.6.0
 
