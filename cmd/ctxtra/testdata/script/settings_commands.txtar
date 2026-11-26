@@ -1,0 +1,24 @@
+# Turning off release checks; unset brings back the default.
+exec ctxtra config set check-releases false
+exec ctxtra config set max-ctx-chars 40000
+exec ctxtra config set session-message.max-skills 0
+exec ctxtra config set session-message.max-instructions 7
+exec ctxtra config unset session-message.max-skills
+exec ctxtra config unset check-releases
+exec ctxtra config unset check-releases
+grep '^max-ctx-chars: 40000$' .config/ctxtra/config.yaml
+grep '^  max-instructions: 7$' .config/ctxtra/config.yaml
+! grep 'max-skills|check-releases' .config/ctxtra/config.yaml
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra config set max-ctx-chars !no
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra config set session-message.max-skills '1.10'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra config set session-message.max-skills 'a: b'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra config set check-releases '!true'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra config set sources x
+cmp .config/ctxtra/config.yaml before.yaml
+exec ctxtra binding list --json
+stdout '"diagnostics": \[\]'

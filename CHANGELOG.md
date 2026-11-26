@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `collection` and `repo-set` have `add`, `remove` and `list --json` commands. Add accepts entry flags,
+  `--file FILE|-` and `--replace`; add and remove accept `--dry-run`.
+- `config set KEY VALUE` and `config unset KEY` change program settings and restore their defaults.
+
 - `binding add` writes every key of a binding: `--repo-set`, `--profile`, `--agent` and `--collection` next to
   `--dir`, `--repo`, `--instruction`, `--skill` and `--mcp-server`, and `--subdir` for the one `--repo` given.
   `--source` takes a source name or a repo source's address (`URL//FOLDER` for a source's folder) and makes the

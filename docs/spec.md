@@ -70,6 +70,24 @@ session-message:
 Only `schema` is required. `ctxtra/config/v1`, `ctxtra/lock/v1` and `ctxtra/source/v1` are different
 file kinds. The earlier `ctxtra/v1` format is not read or converted.
 
+`ctxtra collection add NAME` writes a collection with `--instruction`, `--skill`, `--mcp-server`,
+`--collection` and `--source`, as `binding add` does. `ctxtra repo-set add NAME` writes a set with
+`--repo` and `--subdir`. `--subdir` needs exactly one `--repo`; for several repositories with subdirs,
+use `--file`. Both commands need at least one entry and accept `--file FILE` or `--file -` for one
+entry in YAML instead of entry flags. `--replace` changes an entry in place or adds it when missing.
+The same entry already there changes nothing; another entry with that name is an error. Each has
+`remove NAME` and `list`; add and remove accept `--dry-run`.
+
+`ctxtra config set KEY VALUE` changes `check-releases` (true or false), `max-ctx-chars`,
+`session-message.max-skills` or `session-message.max-instructions` (whole numbers of 0 or more).
+`ctxtra config unset KEY` removes the setting, so its default applies. Other keys and values of the
+wrong type are errors and change nothing. A missing setting already uses its default.
+
+Every `list` accepts `--json`. Commands exit 0 on success, 1 on a mistake or refused change, and 2
+on bad flags or arguments. Config writes take the same lock, re-read the files, and change only their
+own entries. The writer preserves untouched text and comments. It refuses layouts it cannot edit as
+text, such as a flow-style root or section, and tells you to use block style or edit by hand.
+
 Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
 Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
 

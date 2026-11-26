@@ -1,0 +1,38 @@
+# Quoted exclusions and YAML-like text survive collection flags and --file.
+exec ctxtra collection add yes --instruction notes/*.md --instruction !notes/draft.md --skill skills/* --skill !skills/old --mcp-server null --mcp-server !off --collection on --collection no --collection !no
+exec ctxtra collection list --json
+stdout '"name": "yes"'
+stdout '!~/notes/draft.md'
+exec ctxtra binding add check --collection yes
+exec ctxtra context files
+stdout 'notes/a.md'
+! stdout 'draft.md'
+! stdout 'old/SKILL.md'
+exec ctxtra collection add yes --instruction notes/*.md --instruction !notes/draft.md --skill skills/* --skill !skills/old --mcp-server null --mcp-server !off --collection on --collection no --collection !no
+stdout 'already'
+exec ctxtra collection add yes --replace --file replacement.yaml
+exec ctxtra collection remove yes
+exec ctxtra collection list --json
+! stdout '"name": "yes"'
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+mcp-servers:
+  'null': {url: https://example.com/null}
+  'off': {url: https://example.com/off}
+collections:
+  'on': {mcp-servers: ['off']}
+  'no': {mcp-servers: ['off']}
+-- notes/a.md --
+A
+-- notes/draft.md --
+DRAFT
+-- skills/new/SKILL.md --
+---
+description: New.
+---
+-- skills/old/SKILL.md --
+---
+description: Old.
+---
+-- replacement.yaml --
+instructions: ["~/notes/a.md"]

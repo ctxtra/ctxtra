@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
@@ -35,27 +36,16 @@ type newBinding struct {
 // with dirs, repos and repo-sets, the conditions, then the content lists.
 // Subdirs go to the one repository, which a caller has checked.
 func (b newBinding) node() *yaml.Node {
-	list := func(values []string) *yaml.Node {
-		n := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, v := range values {
-			n.Content = append(n.Content, yamlx.Text(v))
-		}
-		return n
-	}
 	add := func(m *yaml.Node, key string, values []string) {
 		if len(values) > 0 {
-			m.Content = append(m.Content, yamlx.Text(key), list(values))
+			m.Content = append(m.Content, yamlx.Text(key), textListNode(values))
 		}
 	}
 	n := &yaml.Node{Kind: yaml.MappingNode}
 	loc := &yaml.Node{Kind: yaml.MappingNode}
 	add(loc, "dirs", b.Dirs)
-	if len(b.Subdirs) > 0 && len(b.Repos) == 1 {
-		entry := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{yamlx.Text("repo"), yamlx.Text(b.Repos[0])}}
-		add(entry, "subdirs", b.Subdirs)
-		loc.Content = append(loc.Content, yamlx.Text("repos"), &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{entry}})
-	} else {
-		add(loc, "repos", b.Repos)
+	if len(b.Repos) > 0 {
+		loc.Content = append(loc.Content, yamlx.Text("repos"), b.reposNode())
 	}
 	add(loc, "repo-sets", b.RepoSets)
 	if len(loc.Content) > 0 {
@@ -68,6 +58,24 @@ func (b newBinding) node() *yaml.Node {
 	add(n, "skills", b.Skills)
 	add(n, "mcp-servers", b.MCPServers)
 	return n
+}
+
+func textListNode(values []string) *yaml.Node {
+	n := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, v := range values {
+		n.Content = append(n.Content, yamlx.Text(v))
+	}
+	return n
+}
+
+func (b newBinding) reposNode() *yaml.Node {
+	if len(b.Subdirs) == 0 || len(b.Repos) != 1 {
+		return textListNode(b.Repos)
+	}
+	entry := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+		yamlx.Text("repo"), yamlx.Text(b.Repos[0]), yamlx.Text("subdirs"), textListNode(b.Subdirs),
+	}}
+	return &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{entry}}
 }
 
 // entryFlags reports whether b has any flag that writes an entry.
@@ -170,7 +178,7 @@ func diskPath(wd, p string) string {
 	return abs
 }
 
-// addFlags are how binding add writes the binding.
+// addFlags are how an add command writes its entry.
 type addFlags struct {
 	source  string // --source
 	file    string // --file, "-" for stdin
@@ -181,6 +189,25 @@ type addFlags struct {
 
 // maxEntryBytes is the largest entry --file reads.
 const maxEntryBytes = 1 << 20
+
+func (o *addFlags) flags(f *pflag.FlagSet, kind string) {
+	f.StringVar(&o.file, "file", "", "read the "+kind+" from `FILE` in YAML, - for stdin, instead of the entry flags")
+	f.BoolVar(&o.replace, "replace", false, "change the "+kind+" in its place if it exists")
+	f.BoolVar(&o.dryRun, "dry-run", false, "check and show the change; change nothing")
+}
+
+func (b *newBinding) contentFlags(f *pflag.FlagSet, o *addFlags) {
+	f.StringArrayVar(&b.Collections, "collection", nil, "add the collection `NAME`: the config's, or SOURCE:COLLECTION")
+	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE`; !FILE leaves files out")
+	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md; !DIR leaves skills out")
+	f.StringArrayVar(&b.MCPServers, "mcp-server", nil, "add the MCP server `NAME`: the config's, or SOURCE:SERVER")
+	f.StringVar(&o.source, "source", "", "make collection, repo set, server, file and skill values names or paths in `SOURCE`, a name or a repository address")
+}
+
+func (b *newBinding) repoFlags(f *pflag.FlagSet) {
+	f.StringArrayVar(&b.Repos, "repo", nil, "match the repository `PATTERN`, such as github.com/acme/**")
+	f.StringArrayVar(&b.Subdirs, "subdir", nil, "match folders of the one --repo by `PATTERN`, relative to its root")
+}
 
 // readEntry is the entry of --file: from file, or stdin for "-".
 func readEntry(in io.Reader, file string) (*yaml.Node, error) {
@@ -209,7 +236,7 @@ func readEntry(in io.Reader, file string) (*yaml.Node, error) {
 // session it applies to would get all it names.
 func bindingAdd(stdio IO, b newBinding, o addFlags) error {
 	if err := config.CheckName(b.Name); err != nil {
-		return err
+		return code(newSources(stdio).fail("binding add", err))
 	}
 	switch {
 	case o.file != "" && (b.entryFlags() || o.source != ""):
@@ -585,10 +612,7 @@ func bindingList(stdio IO, asJSON bool) int {
 	for _, b := range env.Config.Bindings {
 		out = append(out, bindingOf(b))
 	}
-	var errs []string
-	for _, e := range env.Config.Errors {
-		errs = append(errs, paths.Tilde(env.Path)+": "+e.Error())
-	}
+	errs := errorTexts(env.Errors)
 	if asJSON {
 		writeJSON(stdio.Out, out, diagnostics("error", errs))
 	} else {
@@ -707,21 +731,14 @@ in its place, and adds it when there is none.`,
 	}
 	f := add.Flags()
 	f.StringArrayVar(&b.Dirs, "dir", nil, "apply in folders that match `PATTERN`")
-	f.StringArrayVar(&b.Repos, "repo", nil, "apply in repositories whose remote matches `PATTERN`, such as github.com/acme/**")
-	f.StringArrayVar(&b.Subdirs, "subdir", nil, "apply only in folders of the one --repo that match `PATTERN`, relative to its root")
+	b.repoFlags(f)
 	f.StringArrayVar(&b.RepoSets, "repo-set", nil, "apply in the repositories of the repo set `NAME`: the config's, or SOURCE:SET")
 	f.StringArrayVar(&b.Profiles, "profile", nil, "apply while the profile `NAME` is active; !NAME while it isn't")
 	f.StringArrayVar(&b.Agents, "agent", nil, "apply in sessions of the agent `NAME`; !NAME in all others")
-	f.StringArrayVar(&b.Collections, "collection", nil, "add the collection `NAME`: the config's, or SOURCE:COLLECTION")
-	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE`; !FILE leaves files out")
-	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md; !DIR leaves skills out")
-	f.StringArrayVar(&b.MCPServers, "mcp-server", nil, "add the MCP server `NAME`: the config's, or SOURCE:SERVER")
-	f.StringVar(&o.source, "source", "", "make collection, repo set, server, file and skill values names or paths in `SOURCE`, a name or a repository address")
-	f.StringVar(&o.file, "file", "", "read the binding from `FILE` in YAML, - for stdin, instead of the entry flags")
-	f.BoolVar(&o.replace, "replace", false, "change the binding in its place if it exists")
+	b.contentFlags(f, &o)
+	o.flags(f, "binding")
 	f.StringVar(&o.at.Before, "before", "", "put the new binding before the binding `NAME`")
 	f.StringVar(&o.at.After, "after", "", "put the new binding after the binding `NAME`")
-	f.BoolVar(&o.dryRun, "dry-run", false, "check the binding and show it; change nothing")
 	var asJSON bool
 	list := &cobra.Command{
 		Use:     "list",

@@ -1,0 +1,22 @@
+# My own set from the command line; a set of two monorepo parts.
+exec ctxtra repo-set add yes --repo github.com/acme/** --repo !github.com/acme/null
+exec ctxtra repo-set list --json
+stdout '!github.com/acme/null'
+exec ctxtra repo-set add on --repo github.com/acme/1.10 --subdir yes --subdir !null --subdir 'a: b/**' --subdir '#old/**'
+exec ctxtra repo-set list --json
+stdout '"!null"'
+stdout '"a: b/\*\*"'
+stdin parts.yaml
+exec ctxtra repo-set add parts --file -
+exec ctxtra repo-set add parts --replace --file parts.yaml
+stdout 'already'
+exec ctxtra repo-set remove parts
+! exec ctxtra repo-set add bad --repo github.com/a --repo github.com/b --subdir x
+stderr 'exactly one --repo'
+exec ctxtra repo-set list --json
+! stdout '"name": "bad"'
+-- parts.yaml --
+- repo: github.com/acme/a
+  subdirs: [api/**]
+- repo: github.com/acme/b
+  subdirs: [web/**, '!web/old/**']

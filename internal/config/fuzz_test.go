@@ -63,10 +63,11 @@ func FuzzEditor(f *testing.F) {
 			text("skills"), list(a),
 			text("mcp-servers"), list(b),
 		)
-		collection := pairs(text("instructions"), list(a), text("collections"), list(b))
+		collection := pairs(text("instructions"), list(a), text("skills"), list(b), text("mcp-servers"), list(a), text("collections"), list(b))
 		source := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{text("repo"), text(a), text("branch"), text(b)}}
+		server := pairs(text("url"), text(a), text("headers"), pairs(text(a), text(b)), text("scopes"), list(a, b))
 		added := map[Section]*yaml.Node{}
-		for s, n := range map[Section]*yaml.Node{Bindings: binding, Sources: source, RepoSets: list(a, b), Collections: collection} {
+		for s, n := range map[Section]*yaml.Node{Bindings: binding, Sources: source, RepoSets: {Kind: yaml.SequenceNode, Content: []*yaml.Node{text(a), pairs(text("repo"), text(b), text("subdirs"), list(a, b))}}, Collections: collection, MCPServers: server} {
 			ok, err := e.Add(s, name, n, Place{})
 			if err != nil || !ok {
 				continue
@@ -105,12 +106,40 @@ func FuzzEditor(f *testing.F) {
 				}
 			}
 		}
-		for _, s := range []Section{Sources, RepoSets, Collections, Bindings} {
+		for _, s := range []Section{Sources, RepoSets, Collections, Bindings, MCPServers} {
 			if added[s] == nil {
 				continue
 			}
 			if err := e.Remove(s, name); err != nil {
 				t.Fatalf("remove %s %q: %v\n%s", s.Kind(), name, err, e.Bytes())
+			}
+		}
+		if _, _, err := e.Put(MCPServers, "alias", pairs(text("use"), text(a)), Place{}); err == nil {
+			got, _ := e.Entry(MCPServers, "alias")
+			if !yamlx.Same(got, pairs(text("use"), text(a))) {
+				t.Fatalf("use lost text %q\n%s", a, e.Bytes())
+			}
+		}
+		for _, setting := range []struct{ key, value string }{{"check-releases", a}, {"max-ctx-chars", b}, {"session-message.max-skills", a}, {"session-message.max-instructions", b}} {
+			d, err := yamlx.ParseEntry([]byte(setting.value))
+			if err != nil {
+				continue
+			}
+			before := slices.Clone(e.Bytes())
+			if err := e.Setting(setting.key, d.Root); err != nil {
+				if !slices.Equal(e.Bytes(), before) {
+					t.Fatal("a refused setting changed the config")
+				}
+				continue
+			}
+			if _, perr := yamlx.Parse(e.Bytes(), yamlx.ConfigKind); perr != nil {
+				t.Fatalf("written setting: %v\n%s", perr, e.Bytes())
+			}
+			if slices.Equal(e.Bytes(), before) {
+				continue
+			}
+			if err := e.Setting(setting.key, nil); err != nil {
+				t.Fatalf("remove written setting: %v", err)
 			}
 		}
 		if len(added) > 0 {

@@ -342,6 +342,12 @@ bindings:
 
 Your config can have its own `collections` too, for one set in several places:
 
+```bash
+ctxtra collection add go-kit --instruction ~/agent-context/go.md --skill ~/agent-context/skills/go
+ctxtra collection list --json
+ctxtra collection remove go-kit
+```
+
 ```yaml
 collections:
   go-kit:
@@ -373,6 +379,18 @@ bindings:
 Your config can have its own `repo-sets`, bound by its bare name. A `!` entry leaves out every repository
 of a set:
 
+```bash
+ctxtra repo-set add clients --repo 'github.com/acme/client-*' --repo '!github.com/acme/client-demo'
+ctxtra repo-set add billing --repo github.com/acme/mono --subdir 'services/billing/**'
+ctxtra repo-set list --json
+```
+
+For either collections or repo sets, `add NAME --file entry.yaml` reads one entry in YAML, without its
+name; `--file -` reads stdin. Entry flags cannot be combined with `--file`. `--replace` changes an
+entry in its place, or adds it when missing. The same entry again changes nothing. Add and remove
+accept `--dry-run`. Relative file and skill flags start at the current folder; paths in YAML start
+at the config's real folder. Quote exclusions and patterns.
+
 ```yaml
 repo-sets:
   clients: [github.com/acme/client-*]
@@ -385,6 +403,21 @@ leaves out the binding, so it never reaches the repositories you excluded. `cont
 set and which of its entries matched. `source update` shows what a commit changes in a set you use, tells
 you when it removes one, and warns about an entry such as `github.com/**`, which matches every repository on
 the host.
+
+### Program settings
+
+```bash
+ctxtra config set check-releases false
+ctxtra config set max-ctx-chars 40000
+ctxtra config set session-message.max-skills 0
+ctxtra config unset session-message.max-skills
+```
+
+Only `check-releases`, `max-ctx-chars`, `session-message.max-skills` and
+`session-message.max-instructions` can be set. Counts are whole numbers of 0 or more.
+`unset` restores the default. `ctxtra help config` still shows the config format.
+Every list command accepts `--json`. Exit codes are 0 for success, 1 for a mistake or refused change,
+and 2 for bad flags or arguments.
 
 ### Profiles and agents
 
