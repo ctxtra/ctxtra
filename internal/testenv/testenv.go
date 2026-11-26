@@ -31,6 +31,9 @@ func Home(t testing.TB) string {
 		t.Setenv(k, "") // restores the old value after the test
 		os.Unsetenv(k)
 	}
+	// Set, even empty, it would replace the stored profile selection.
+	t.Setenv("CTXTRA_PROFILES", "")
+	os.Unsetenv("CTXTRA_PROFILES")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_AUTHOR_NAME", "t")
