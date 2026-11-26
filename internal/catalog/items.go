@@ -84,7 +84,7 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 			root, pattern = doublestar.SplitPattern(rest)
 		}
 		dir := filepath.Join(base, filepath.FromSlash(root))
-		found, errs := c.glob(nil, dir, pattern, e.Value, kind, true)
+		found, errs := c.glob(nil, dir, pattern, e.Value, kind, true, nil)
 		items := make([]Item, len(found))
 		for i, rel := range found {
 			items[i] = Item{Path: filepath.Join(dir, filepath.FromSlash(rel))}
@@ -104,7 +104,11 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 	if err := c.use(s); err != nil {
 		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
 	}
-	found, errs := c.glob(s.fsys, s.Top, pattern, s.Name+":"+pattern, kind, s.Live())
+	_, err := s.symlinkPaths()
+	if err != nil {
+		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
+	}
+	found, errs := c.glob(s.fsys, s.Top, pattern, s.Name+":"+pattern, kind, s.Live(), s.linkTree)
 	if !s.Live() {
 		for _, err := range errs {
 			var u *Unreadable
@@ -170,6 +174,11 @@ func (c *Catalog) Read(it Item, rd *fsutil.Reader) ([]byte, string, error) {
 // readMax is read with at most limit bytes for this file.
 func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, string, error) {
 	p := it.Path
+	if it.Source != "" {
+		if err := c.sources[it.Source].repoPathError(it.Rel); err != nil {
+			return nil, "", err
+		}
+	}
 	if it.fsys != nil {
 		data, err := readFS(it, rd, limit)
 		return data, p, err
@@ -244,9 +253,12 @@ func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 // there are no symlinks, and none is followed. With fsys, the files are
 // there, not in root, which only names them in messages. ref is the pattern
 // as the config names it.
-func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bool) ([]string, []error) {
+func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bool, links *symlinkTree) ([]string, []error) {
 	t := &tree{FS: fsys, root: root, trust: c.trust, live: live, virtual: fsys != nil, left: maxGlobEntries,
 		ids: map[string]fileID{}, skippedPaths: map[string]bool{}}
+	if links != nil {
+		t.links, t.extraDirs = links.links, links.extraDirs
+	}
 	if fsys == nil {
 		t.FS = os.DirFS(root)
 	}
@@ -288,8 +300,10 @@ type tree struct {
 	trust *trust.Policy
 	live  bool
 	// virtual: the files are in FS only, not under root.
-	virtual bool
-	left    int
+	virtual   bool
+	links     map[string]bool
+	extraDirs map[string]map[string]fs.DirEntry
+	left      int
 	// skipped are the errors of entries left out, once each: folders the
 	// trust rules refuse, and entries that can't be read, such as a symlink
 	// to itself.
@@ -370,18 +384,37 @@ func (t *tree) statFS(full string) (fs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fs.Stat(t.FS, filepath.ToSlash(rel))
+	rel = filepath.ToSlash(rel)
+	if err := t.repoPathError(rel); err != nil {
+		return nil, err
+	}
+	fi, err := fs.Stat(t.FS, rel)
+	if os.IsNotExist(err) && t.extraDirs[rel] != nil {
+		return virtualDir(path.Base(rel)), nil
+	}
+	return fi, err
 }
 
 func (t *tree) statStored(full string) (fs.FileInfo, error) {
+	rel, _ := filepath.Rel(t.root, full)
+	rel = filepath.ToSlash(rel)
+	if err := t.repoPathError(rel); err != nil {
+		return nil, err
+	}
 	parent := t.root
 	if full != t.root {
 		parent = filepath.Dir(full)
 	}
 	if _, err := trust.Stored(t.root, parent); err != nil {
+		if os.IsNotExist(err) && t.extraDirs[rel] != nil {
+			return virtualDir(path.Base(rel)), nil
+		}
 		return nil, err
 	}
 	fi, err := os.Lstat(full)
+	if os.IsNotExist(err) && t.extraDirs[rel] != nil {
+		return virtualDir(path.Base(rel)), nil
+	}
 	if err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return nil, errSymlink
 	}
@@ -486,26 +519,51 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
+	if err := t.repoPathError(name); err != nil {
+		t.skip(full, err)
+		return nil, nil
+	}
 	if !t.live && !t.virtual {
 		if _, err := trust.Stored(t.root, full); err != nil {
+			if !os.IsNotExist(err) || t.extraDirs[name] == nil {
+				t.skip(full, err)
+				return nil, nil
+			}
+		}
+	}
+	f, err := t.FS.Open(name)
+	var entries []fs.DirEntry
+	if err != nil {
+		if !os.IsNotExist(err) || t.extraDirs[name] == nil {
+			t.skip(full, err)
+			return nil, nil
+		}
+	} else {
+		defer f.Close()
+		d, ok := f.(fs.ReadDirFile)
+		if !ok {
+			return nil, nil
+		}
+		entries, err = d.ReadDir(max(t.left, 0) + 1)
+		if err != nil && err != io.EOF {
 			t.skip(full, err)
 			return nil, nil
 		}
 	}
-	f, err := t.FS.Open(name)
-	if err != nil {
-		t.skip(full, err)
-		return nil, nil
+	seen := map[string]bool{}
+	for i, entry := range entries {
+		seen[entry.Name()] = true
+		if !t.live && entry.Type()&fs.ModeSymlink != 0 {
+			entries[i] = virtualDir(entry.Name())
+		}
 	}
-	defer f.Close()
-	d, ok := f.(fs.ReadDirFile)
-	if !ok {
-		return nil, nil
+	for child, entry := range t.extraDirs[name] {
+		if !seen[child] {
+			entries = append(entries, entry)
+		}
 	}
-	entries, err := d.ReadDir(max(t.left, 0) + 1)
-	if err != nil && err != io.EOF {
-		t.skip(full, err)
-		return nil, nil
+	if !t.live {
+		entries = slices.DeleteFunc(entries, func(d fs.DirEntry) bool { return strings.EqualFold(d.Name(), ".git") })
 	}
 	if err := t.spend(len(entries) + 1); err != nil {
 		return nil, err

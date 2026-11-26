@@ -176,6 +176,8 @@ trusted without it. Trusting the folder a link leads to doesn't cover the link, 
 Otherwise the source is not read, `source trust` refuses it, and the error names the folder the link leads to.
 A repo source leaves symlinks and submodules out, including links in an explicit path or at its manifest.
 A matched symlink is an error that names its source and path. Other files a glob matches still load.
+The store records omitted symlink paths with the accepted files. Sessions use that record offline,
+without reading the links or their targets. Checkout validation and update review use the same matching rule.
 Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.

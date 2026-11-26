@@ -110,6 +110,7 @@ type checkoutFile struct {
 func (f *checkoutFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	entries, err := f.File.ReadDir(n)
 	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool {
-		return f.fs.check(path.Join(f.name, e.Name())) != nil
+		err := f.fs.check(path.Join(f.name, e.Name()))
+		return err != nil && !errors.Is(err, errSymlink)
 	}), err
 }

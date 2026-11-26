@@ -175,7 +175,10 @@ func TestRepoSourceLeavesSymlinksOut(t *testing.T) {
 	})
 	for _, pattern := range []string{"team:link/rules.md", "team:link/*.md", "team:**/*.md"} {
 		t.Run(pattern, func(t *testing.T) {
-			items, _ := expand(c, pattern, Files)
+			items, err := expand(c, pattern, Files)
+			if err == nil || !strings.Contains(err.Error(), "team:link") || !strings.Contains(err.Error(), "symlink") {
+				t.Errorf("symlink error for %s: %v", pattern, err)
+			}
 			for _, it := range items {
 				if strings.Contains(it.Rel, "link/") {
 					t.Errorf("a repo source followed a folder symlink: %s", it.Ref())

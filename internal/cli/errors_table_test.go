@@ -1,13 +1,19 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -27,6 +33,8 @@ func TestErrorTableReports(t *testing.T) {
 	type row struct {
 		name, top, bindings, raw, manifest, lock string
 		prepare                                  func(*testing.T, string)
+		check                                    func(*testing.T, string)
+		forbidden                                []string
 		want                                     []string
 		files                                    []string
 		profiles                                 []string
@@ -35,14 +43,26 @@ func TestErrorTableReports(t *testing.T) {
 		repoFiles                                bool
 	}
 	rows := []row{
-		{name: "unreadable config", raw: "schema: ctxtra/config/v1\nbindings: [\n", want: []string{"YAML"}, whole: true},
+		{name: "unreadable config", raw: "schema: ctxtra/config/v1\nbindings:\n  - {name: valid, instructions: [~/good.md]}\nunknown: [\n", want: []string{"YAML"}, whole: true},
 		{name: "duplicate key", bindings: "  - name: affected\n    instructions: [~/suspect.md]\n    instructions: [~/rest.md]\n", want: []string{"instructions is there twice"}},
 		{name: "unknown top-level key", top: "unknown: true\n", bindings: "  - {name: affected, instructions: [~/rest.md]}\n", want: []string{`unknown key "unknown"`}, files: []string{"rest.md"}},
 		{name: "broken source", top: "sources: {team: {dir: ~/team, unknown: true}}\n", bindings: sourceBinding, want: []string{`unknown key "unknown"`}, files: []string{"rest.md"}},
 		{name: "source not on this machine", top: "sources: {team: {dir: ~/missing}}\n", bindings: sourceBinding, unavailable: true, files: []string{"rest.md"}},
 		{name: "missing lock entry", top: repoSource, bindings: sourceBinding, want: []string{"ctxtra.lock has no accepted commit", "ctxtra source update team"}, files: []string{"rest.md"}},
 		{name: "commit not downloaded", top: repoSource, bindings: sourceBinding, lock: "schema: ctxtra/lock/v1\nsources:\n  team:\n    repo: https://github.com/example/team.git\n    branch: main\n    commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", want: []string{"not downloaded", "ctxtra source download"}, files: []string{"rest.md"}},
-		{name: "unreadable lock", top: repoSource + "collections: {own: {instructions: [~/rest.md]}}\n", bindings: "  - {name: affected, instructions: ['team:a.md'], collections: [own]}\n", lock: "schema: ctxtra/lock/v1\nsources: [\n", want: []string{"ctxtra.lock", "YAML"}, files: []string{"rest.md"}},
+		{name: "unreadable lock", top: "sources:\n  team: {repo: 'https://github.com/example/team.git', branch: main, check-updates: false}\n  other: {repo: 'https://github.com/example/other.git', branch: main, check-updates: false}\n  live: {dir: ~/team}\n", bindings: "  - {name: affected, instructions: ['team:a.md', 'other:x.md', 'live:a.md', ~/rest.md]}\n", lock: "schema: ctxtra/lock/v1\nsources: [\n", prepare: func(t *testing.T, h string) {
+			bad, err := os.ReadFile(filepath.Join(h, ".config", "ctxtra", "ctxtra.lock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "ctxtra.lock"), string(bad))
+			team := lockedSource(t, "team", "https://github.com/example/team.git", map[string]string{"a.md": "LOCKED-TEAM-CONTENT"})
+			other := lockedSource(t, "other", "https://github.com/example/other.git", map[string]string{"x.md": "LOCKED-OTHER-CONTENT"})
+			writeLock(t, paths.ConfigPath(), team, other)
+			if code, out, errOut := run("context", "files", filepath.Join(h, "work")); code != 0 || !strings.Contains(out, "/x.md") || !strings.Contains(out, source.GenDir("https://github.com/example/team.git", "", strings.Repeat("a", 40))) {
+				t.Fatalf("readable lock control: exit %d\n%s%s", code, out, errOut)
+			}
+		}, want: []string{"ctxtra.lock", "YAML"}, files: []string{"team/a.md", "rest.md"}, forbidden: []string{"LOCKED-TEAM-CONTENT", "LOCKED-OTHER-CONTENT"}},
 		{name: "broken binding", bindings: "  - {name: affected, instructions: [~/suspect.md], unknown: true}\n", want: []string{`unknown key "unknown"`}},
 		{name: "duplicate binding names", bindings: "  - {name: affected, instructions: [~/suspect.md]}\n  - {name: affected, instructions: [~/rest.md]}\n", want: []string{"2 bindings are named affected"}},
 		{name: "broken content entry", bindings: "  - {name: affected, instructions: [~/missing.md, ~/rest.md]}\n", want: []string{"missing.md is not a file"}, files: []string{"rest.md"}},
@@ -56,14 +76,27 @@ func TestErrorTableReports(t *testing.T) {
 		{name: "broken manifest entry", top: dirSource, manifest: "schema: ctxtra/source/v1\ncollections: {offered: {instructions: [/outside.md, a.md]}}\n", bindings: "  - {name: affected, collections: ['team:offered']}\n", want: []string{"relative to the top of this source"}, files: []string{"team/a.md"}},
 		{name: "unknown collection key", top: "collections: {offered: {instructions: [~/suspect.md], unknown: true}, own: {instructions: [~/rest.md]}}\n", bindings: "  - {name: affected, collections: [offered, own]}\n", want: []string{`unknown key "unknown"`}, files: []string{"rest.md"}},
 		{name: "collection cycle", top: "collections:\n  a: {collections: [b], instructions: [~/suspect.md]}\n  b: {collections: [a], instructions: [~/suspect.md]}\n  own: {collections: [a], instructions: [~/rest.md]}\n", bindings: "  - {name: affected, collections: [own, b]}\n", want: []string{"collections a and b nest each other"}, files: []string{"rest.md"}},
-		{name: "unapproved source server", top: repoSource, bindings: "  - {name: affected, instructions: [~/rest.md], mcp-servers: ['team:deploy']}\n", prepare: func(t *testing.T, h string) {
+		{name: "unapproved source server", top: repoSource, bindings: "  - {name: affected, instructions: [~/rest.md], mcp-servers: ['team:deploy', healthy]}\n", prepare: func(t *testing.T, h string) {
+			bin, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition := func(name string) string {
+				command, _ := json.Marshal([]string{bin, "-pidfile", filepath.Join(h, name+"-started")})
+				return "{command: " + string(command) + ", env: {CTXTRA_TEST_MCPSERVER: '1'}}"
+			}
 			entry := lockedSource(t, "team", "https://github.com/example/team.git", map[string]string{
-				"ctxtra-source.yaml": "schema: ctxtra/source/v1\nmcp-servers: {deploy: {command: [unapproved-program]}}\n",
+				"ctxtra-source.yaml": "schema: ctxtra/source/v1\nmcp-servers: {deploy: " + definition("rejected") + "}\n",
 			})
 			writeLock(t, paths.ConfigPath(), entry)
-		}, want: []string{"ctxtra mcp approve team:deploy"}, files: []string{"rest.md"}},
+			conf, err := os.ReadFile(paths.ConfigPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			testenv.Write(t, paths.ConfigPath(), string(conf)+"mcp-servers: {healthy: "+definition("healthy")+"}\n")
+		}, check: checkErrorTableApproval, want: []string{"ctxtra mcp approve team:deploy"}, files: []string{"rest.md"}},
 		{name: "over capacity", top: "max-ctx-chars: 1000\n", bindings: "  - {name: affected, instructions: [~/suspect.md]}\n", prepare: func(t *testing.T, h string) {
-			testenv.Write(t, filepath.Join(h, "suspect.md"), strings.Repeat("large", 400))
+			testenv.Write(t, filepath.Join(h, "suspect.md"), "MARKER-suspect.md\n"+strings.Repeat("large", 400))
 		}, want: []string{"over max-ctx-chars"}},
 		{name: "unreadable stored profiles", bindings: "  - {name: affected, profiles: [work], instructions: [~/suspect.md]}\n", prepare: func(t *testing.T, h string) {
 			testenv.Write(t, profile.StoredPath(), `{"profiles":["work"],`)
@@ -96,27 +129,14 @@ func TestErrorTableReports(t *testing.T) {
 			testenv.Repo(t, filepath.Join(h, "work"), "https://github.com/example/app.git")
 		}, want: []string{"a set lists repositories only"}, files: []string{"rest.md"}},
 		{name: "unknown manifest collection key", top: dirSource, manifest: "schema: ctxtra/source/v1\ncollections: {broken: {instructions: [b.md], unknown: true}, offered: {instructions: [a.md]}}\n", bindings: "  - {name: affected, collections: ['team:broken', 'team:offered']}\n", want: []string{`unknown key "unknown"`}, files: []string{"team/a.md"}},
-		{name: "unknown config repo set key", top: "repo-sets: {broken: [{repo: github.com/example/app, unknown: true}]}\n", bindings: "  - {name: affected, location: {repo-sets: [broken]}, instructions: [~/suspect.md]}\n", want: []string{`unknown key "unknown"`}},
-		{name: "unknown manifest repo set key", top: dirSource, manifest: "schema: ctxtra/source/v1\nrepo-sets: {broken: [{repo: github.com/example/app, unknown: true}]}\n", bindings: "  - {name: affected, location: {repo-sets: ['team:broken']}, instructions: [~/suspect.md]}\n", want: []string{`unknown key "unknown"`}},
+		{name: "unknown config repo set key", top: "repo-sets: {broken: [{repo: github.com/example/app, unknown: true}], healthy: [github.com/example/app]}\n", bindings: "  - {name: affected, location: {repo-sets: [broken]}, instructions: [~/suspect.md]}\n  - {name: healthy-set, location: {repo-sets: [healthy]}, instructions: [~/rest.md]}\n", prepare: matchingErrorTableRepo, want: []string{`unknown key "unknown"`}, files: []string{"rest.md"}},
+		{name: "unknown manifest repo set key", top: dirSource, manifest: "schema: ctxtra/source/v1\nrepo-sets: {broken: [{repo: github.com/example/app, unknown: true}], healthy: [github.com/example/app]}\n", bindings: "  - {name: affected, location: {repo-sets: ['team:broken']}, instructions: [~/suspect.md]}\n  - {name: healthy-set, location: {repo-sets: ['team:healthy']}, instructions: [~/rest.md]}\n", prepare: matchingErrorTableRepo, want: []string{`unknown key "unknown"`}, files: []string{"rest.md"}},
 		{name: "agent capacity", bindings: "  - {name: affected, instructions: [~/suspect.md]}\n", prepare: func(t *testing.T, h string) {
-			testenv.Write(t, filepath.Join(h, "suspect.md"), strings.Repeat("large", 80000))
+			testenv.Write(t, filepath.Join(h, "suspect.md"), "MARKER-suspect.md\n"+strings.Repeat("large", 80000))
 		}, want: []string{"limit of"}},
-		{name: "repo source symlink in glob", top: repoSource, bindings: "  - {name: affected, instructions: ['team:*.md', ~/rest.md]}\n", prepare: func(t *testing.T, h string) {
-			entry := lockedSource(t, "team", "https://github.com/example/team.git", map[string]string{"a.md": "MARKER-team/a.md\n"})
-			writeLock(t, paths.ConfigPath(), entry)
-			gen := source.GenDir("https://github.com/example/team.git", "", strings.Repeat("a", 40))
-			if err := os.Symlink(filepath.Join(h, "suspect.md"), filepath.Join(gen, "link.md")); err != nil {
-				t.Fatal(err)
-			}
-		}, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
-		{name: "repo source symlink named directly", top: repoSource, bindings: "  - {name: affected, instructions: ['team:link.md', 'team:a.md', ~/rest.md]}\n", prepare: func(t *testing.T, h string) {
-			entry := lockedSource(t, "team", "https://github.com/example/team.git", map[string]string{"a.md": "MARKER-team/a.md\n"})
-			writeLock(t, paths.ConfigPath(), entry)
-			gen := source.GenDir("https://github.com/example/team.git", "", strings.Repeat("a", 40))
-			if err := os.Symlink(filepath.Join(h, "suspect.md"), filepath.Join(gen, "link.md")); err != nil {
-				t.Fatal(err)
-			}
-		}, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
+		{name: "repo source symlink in glob", top: repoSource, bindings: "  - {name: affected, instructions: ['team:*.md', ~/rest.md]}\n", prepare: downloadErrorTableSymlinks, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
+		{name: "repo source symlink named directly", top: repoSource, bindings: "  - {name: affected, instructions: ['team:link.md', 'team:a.md', ~/rest.md]}\n", prepare: downloadErrorTableSymlinks, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
+		{name: "repo source folder symlink in glob", top: repoSource, bindings: "  - {name: affected, instructions: ['team:linked/*.md', 'team:a.md', ~/rest.md]}\n", prepare: downloadErrorTableSymlinks, want: []string{"team:linked", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -149,7 +169,7 @@ func TestErrorTableReports(t *testing.T) {
 			dir := filepath.Join(h, "work")
 			filePath := func(f string) string {
 				if r.repoFiles && strings.HasPrefix(f, "team/") {
-					return filepath.Join(source.GenDir("https://github.com/example/team.git", "", strings.Repeat("a", 40)), strings.TrimPrefix(f, "team/"))
+					return filepath.Join(loadEnv().Catalog.Source("team").Top, strings.TrimPrefix(f, "team/"))
 				}
 				return filepath.Join(h, f)
 			}
@@ -177,6 +197,11 @@ func TestErrorTableReports(t *testing.T) {
 				want := slices.Contains(wantFiles, filePath(f))
 				if strings.Contains(answer.HookSpecificOutput.AdditionalContext, "MARKER-"+f) != want {
 					t.Errorf("session content for %s: want present %v", f, want)
+				}
+			}
+			for _, marker := range r.forbidden {
+				if strings.Contains(answer.HookSpecificOutput.AdditionalContext, marker) {
+					t.Errorf("omitted content was delivered: %s", marker)
 				}
 			}
 			if !slices.Equal(entry.Profiles, r.profiles) {
@@ -225,6 +250,101 @@ func TestErrorTableReports(t *testing.T) {
 					}
 				}
 			}
+			if r.check != nil {
+				r.check(t, h)
+			}
 		})
+	}
+}
+
+func matchingErrorTableRepo(t *testing.T, h string) {
+	t.Helper()
+	testenv.Repo(t, filepath.Join(h, "work"), "https://github.com/example/app.git")
+}
+
+func downloadErrorTableSymlinks(t *testing.T, h string) {
+	t.Helper()
+	repo := testenv.Repo(t, filepath.Join(h, "srv", "team"), "")
+	if err := os.Remove(filepath.Join(repo, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Write(t, filepath.Join(repo, "a.md"), "MARKER-team/a.md\n")
+	for name, target := range map[string]string{"link.md": "a.md", "linked": "."} {
+		if err := os.Symlink(target, filepath.Join(repo, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testenv.Run(t, repo, "git", "add", "-A")
+	testenv.Run(t, repo, "git", "commit", "-qm", "add content")
+	commit, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	url, stop, err := testenv.StartGitServer(filepath.Join(h, "srv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	t.Setenv("GIT_SSL_NO_VERIFY", "1")
+	url += "/team"
+	conf, err := os.ReadFile(paths.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	testenv.Write(t, paths.ConfigPath(), strings.ReplaceAll(string(conf), "https://github.com/example/team.git", url))
+	writeLock(t, paths.ConfigPath(), fmt.Sprintf("  team: {repo: '%s', branch: main, commit: %s}\n", url, strings.TrimSpace(string(commit))))
+	if code, out, errOut := run("source", "download"); code != 0 {
+		t.Fatalf("download: exit %d\n%s%s", code, out, errOut)
+	}
+	if err := os.RemoveAll(source.GitDir()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkErrorTableApproval(t *testing.T, h string) {
+	t.Helper()
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "mcp", "proxy", "codex", agent.SetupVersionArg)
+	cmd.Dir = filepath.Join(h, "work")
+	cmd.Env = append(os.Environ(), "CTXTRA_TEST_HOOK=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "approval-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	tools, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthy := false
+	for _, tool := range tools.Tools {
+		healthy = healthy || tool.Name == "healthy__echo"
+		if strings.HasPrefix(tool.Name, "deploy__") {
+			t.Errorf("unapproved tool exposed: %s", tool.Name)
+		}
+	}
+	if !healthy {
+		t.Fatal("the healthy server has no echo tool")
+	}
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "healthy__echo", Arguments: map[string]any{"value": "works"}})
+	if err != nil || result.IsError || len(result.Content) != 1 || result.Content[0].(*mcp.TextContent).Text != `echo {"value":"works"}` {
+		t.Errorf("healthy tool: %v, %+v", err, result)
+	}
+	if result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "deploy__echo", Arguments: map[string]any{}}); err == nil && !result.IsError {
+		t.Errorf("unapproved tool succeeded: %+v", result)
+	}
+	if err := client.Close(); err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Stat(filepath.Join(h, "healthy-started")); err != nil {
+		t.Errorf("healthy server never started: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h, "rejected-started")); !os.IsNotExist(err) {
+		t.Errorf("unapproved server started: %v", err)
 	}
 }

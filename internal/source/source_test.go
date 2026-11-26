@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,9 @@ func TestFetchAndMaterialize(t *testing.T) {
 	}
 	if Exists(filepath.Join(gen, "link.md")) {
 		t.Error("a symlink entry was written")
+	}
+	if links, err := StoredSymlinks(gen); err != nil || !slices.Equal(links, []string{"link.md"}) {
+		t.Errorf("stored symlink paths: %v, %v", links, err)
 	}
 	if !Has(url, "", first) || gen != GenDir(url, "", first) {
 		t.Errorf("Has %v, gen %s", Has(url, "", first), gen)
