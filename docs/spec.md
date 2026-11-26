@@ -118,9 +118,9 @@ remote. A source covers its folder, not another clone or a worktree elsewhere.
 Symlinks in live paths are followed only when every link and the destination pass the same trust check.
 A link in a trusted folder cannot make an untrusted file readable. Each symlink on the way to a `dir` passes
 the check at its own location: outside git, in a repository without remotes, or in another dir source that is
-trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository. Otherwise the source is not read, `source trust` refuses it, and
-the error names the folder the link leads to. A repo source leaves symlinks and
-submodules out. Repository trust is checked without running git; git config includes are not followed.
+trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository.
+Otherwise the source is not read, `source trust` refuses it, and the error names the folder the link leads to.
+A repo source leaves symlinks and submodules out. Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
 `doctor` and `context explain` list it as not on this machine; the session message says nothing about it.
