@@ -66,6 +66,24 @@ func configError(env *resolve.Env) error {
 	return nil
 }
 
+// fatalErrors are the errors of the config and the lock that leave out the
+// whole file, with the file: a command that reads the config reports them
+// and fails.
+func fatalErrors(env *resolve.Env) []string {
+	var out []string
+	for _, e := range env.Config.Errors {
+		if e.Out() == yamlx.OutFile {
+			out = append(out, paths.Tilde(env.Path)+": "+e.Error())
+		}
+	}
+	for _, e := range env.Lock.Errors {
+		if e.Out() == yamlx.OutFile {
+			out = append(out, paths.Tilde(lock.Path(env.Path))+": "+e.Error())
+		}
+	}
+	return out
+}
+
 // load is the config for a command that changes it or its sources.
 func (s *sources) load() (*resolve.Env, error) {
 	env := resolve.Load(s.file, registry.Names())

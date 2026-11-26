@@ -515,6 +515,16 @@ func (a *app) mcpListCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE: a.run(func(*cobra.Command, []string) error {
 			env := loadEnv()
+			if fatal := fatalErrors(env); len(fatal) > 0 {
+				if asJSON {
+					writeJSON(a.Out, []mcpInfo{}, diagnostics("error", fatal))
+				} else {
+					for _, p := range fatal {
+						fmt.Fprintf(term.Writer{W: a.Err}, "error: %s\n", p)
+					}
+				}
+				return exitCode(1)
+			}
 			servers, merrs := env.Catalog.AllServers()
 			out := mcpInfos(servers)
 			var problems []string
