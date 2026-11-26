@@ -7,24 +7,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
-const head = "schema: ctxtra/v1\nbindings:\n"
+const head = "bindings:\n"
 
-func load(t *testing.T, h, bindings, budget string) *config.Config {
+// load writes the config, with settings before the bindings, and loads
+// it.
+func loadConfig(t *testing.T, h, bindings, settings string) *Env {
 	t.Helper()
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), bindings)
-	return config.Load(testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n"+budget),
-		fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+	return Load(testenv.Config(t, h, "schema: ctxtra/config/v1\n"+settings+bindings), agentNames)
 }
 
-func run(dir string, cfg *config.Config) *Result {
-	return Resolve(dir, cfg, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+func run(dir string, env *Env) *Result { return env.Resolve(Input{Dir: dir}) }
+
+// messages are the errors' messages.
+func messages(errs []*catalog.Error) []string {
+	var out []string
+	for _, e := range errs {
+		out = append(out, e.Err.Msg)
+	}
+	return out
 }
 
 func names(hits []Hit) []string {
@@ -41,16 +48,16 @@ func TestOrderDedupeAndMissing(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		testenv.Write(t, filepath.Join(h, "n", n+".md"), strings.ToUpper(n))
 	}
-	cfg := load(t, h, head+`  - {name: one, match: {global: true}, instructions: [~/n/b.md, ~/n/a.md]}
-  - {name: two, match: {repos: [github.com/acme/svc]}, instructions: [~/n/a.md, ~/n/c.md, ~/n/gone.md]}
-  - {name: three, match: {repos: [{remote: github.com/other/x}]}, instructions: [~/n/c.md]}
+	cfg := loadConfig(t, h, head+`  - {name: one, instructions: [~/n/b.md, ~/n/a.md]}
+  - {name: two, location: {repos: [github.com/acme/svc]}, instructions: [~/n/a.md, ~/n/c.md, ~/n/gone.md]}
+  - {name: three, location: {repos: [github.com/other/x]}, instructions: [~/n/c.md]}
 `, "")
 	res := run(r, cfg)
 	if got := names(res.Files); !slices.Equal(got, []string{"b.md", "a.md", "c.md"}) {
 		t.Errorf("files %v", got)
 	}
-	if len(res.Missing) != 1 || !strings.HasSuffix(res.Missing[0], "gone.md") {
-		t.Errorf("missing %v", res.Missing)
+	if got := messages(res.Errors); len(got) != 1 || !strings.Contains(got[0], "gone.md is not a file") {
+		t.Errorf("errors %v", got)
 	}
 	if len(res.Trace) != 3 || res.Trace[2].Matched {
 		t.Errorf("trace %+v", res.Trace)
@@ -70,10 +77,10 @@ func TestRender(t *testing.T) {
 	}
 	testenv.Write(t, filepath.Join(h, "g.md"), "G\n\n")
 	testenv.Write(t, filepath.Join(h, "s.md"), "S")
-	cfg := load(t, h, head+"  - {name: g, match: {global: true}, instructions: [~/g.md]}\n  - {name: s, match: {dirs: [~/**]}, instructions: [~/s.md]}\n", "")
+	cfg := loadConfig(t, h, head+"  - {name: g, instructions: [~/g.md]}\n  - {name: s, location: {dirs: [~/**]}, instructions: [~/s.md]}\n", "")
 	text := run(r, cfg).Render()
 	for _, want := range []string{
-		"Contents of " + filepath.Join(h, "g.md") + " (instructions added by ctxtra for every session; binding: g (~/.config/ctxtra/b.yaml)):\n\nG\n\n",
+		"Contents of " + filepath.Join(h, "g.md") + " (instructions added by ctxtra for every session; binding: g):\n\nG\n\n",
 		"for this repository, ~/svc, and all its worktrees",
 	} {
 		if !strings.Contains(text, want) {
@@ -92,12 +99,12 @@ func TestBudgetDropsFromTheEnd(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		testenv.Write(t, filepath.Join(h, n+".md"), strings.Repeat("é", 500))
 	}
-	cfg := load(t, h, head+"  - {name: x, match: {global: true}, instructions: [~/a.md, ~/b.md, ~/c.md], skills: [~/s/deploy]}\n", "budget: {max-chars: 1800}\n")
+	cfg := loadConfig(t, h, head+"  - {name: x, instructions: [~/a.md, ~/b.md, ~/c.md], skills: [~/s/deploy]}\n", "max-ctx-chars: 1800\n")
 	res := run(h, cfg)
 	if got := names(res.Files); !slices.Equal(got, []string{"a.md"}) {
 		t.Errorf("kept %v, dropped %v, %d chars", got, names(res.Dropped), Chars(res.Render()))
 	}
-	if len(res.Dropped) != 2 || res.Dropped[0].Over != "budget.max-chars" {
+	if len(res.Dropped) != 2 || res.Dropped[0].Over != "max-ctx-chars" {
 		t.Errorf("dropped %+v", res.Dropped)
 	}
 	if len(res.Skills) != 1 || Chars(res.Render()) > 1800 || len(res.Render()) <= 1800 {
@@ -109,7 +116,7 @@ func TestBudgetDropsFromTheEnd(t *testing.T) {
 // text it keeps is the same as without them.
 func TestFit(t *testing.T) {
 	res := &Result{Dir: "/x", Skills: []Hit{{Name: "s", Description: "d", Path: "/s/SKILL.md"}},
-		Dropped: []Hit{{Path: "/n/e.md", Over: "budget.max-chars"}}}
+		Dropped: []Hit{{Path: "/n/e.md", Over: "max-ctx-chars"}}}
 	for _, n := range []string{"a", "b", "c", "d"} {
 		res.Files = append(res.Files, Hit{Path: "/n/" + n + ".md", Content: strings.Repeat(n, 100), Global: true})
 	}
@@ -122,7 +129,7 @@ func TestFit(t *testing.T) {
 	for _, h := range res.Dropped {
 		over = append(over, filepath.Base(h.Path)+": "+h.Over)
 	}
-	if want := []string{"b.md: Codex's limit", "c.md: Codex's limit", "d.md: Codex's limit", "e.md: budget.max-chars"}; !slices.Equal(over, want) {
+	if want := []string{"b.md: Codex's limit", "c.md: Codex's limit", "d.md: Codex's limit", "e.md: max-ctx-chars"}; !slices.Equal(over, want) {
 		t.Errorf("dropped %v", over)
 	}
 	if text := res.Render(); !strings.Contains(text, "aaa") || strings.Contains(text, "bbb") || !strings.Contains(text, "<name>s</name>") {
@@ -143,8 +150,7 @@ func TestSkills(t *testing.T) {
 	testenv.Skill(t, filepath.Join(h, "s", "nodesc"), "name: nodesc")
 	testenv.Write(t, filepath.Join(h, "s", "nofront", "SKILL.md"), "# no frontmatter\n")
 	testenv.Skill(t, filepath.Join(h, "s", "long"), "description: "+strings.Repeat("é", 600))
-	cfg := load(t, h, head+`  - name: x
-    match: {global: true}
+	cfg := loadConfig(t, h, head+`  - name: x
     skills: [~/s/deploy, ~/s/unnamed, ~/t/deploy, ~/s/nodesc, ~/s/nofront, ~/s/long, ~/s/missing]
 `, "")
 	res := run(h, cfg)
@@ -152,13 +158,15 @@ func TestSkills(t *testing.T) {
 	for _, s := range res.Skills {
 		got = append(got, s.Name)
 	}
-	if !slices.Equal(got, []string{"deploy", "unnamed", "long"}) {
-		t.Errorf("skills %v, problems %v", got, res.Problems)
+	// Two skills with one name both reach the session, as the agent would
+	// get them by hand.
+	if !slices.Equal(got, []string{"deploy", "unnamed", "deploy", "long"}) {
+		t.Errorf("skills %v, errors %v", got, messages(res.Errors))
 	}
-	if res.Skills[0].Description != "Deploy it <now>." || len(res.Problems) != 3 || len(res.Missing) != 1 {
-		t.Errorf("description %q, problems %v, missing %v", res.Skills[0].Description, res.Problems, res.Missing)
+	if res.Skills[0].Description != "Deploy it <now>." || len(res.Errors) != 3 || len(res.SameSkills) != 1 {
+		t.Errorf("description %q, errors %v, same names %v", res.Skills[0].Description, messages(res.Errors), res.SameSkills)
 	}
-	if d := res.Skills[2].Description; !strings.HasSuffix(d, "…") || !strings.HasPrefix(d, "é") || len(d) > maxSkillDesc {
+	if d := res.Skills[3].Description; !strings.HasSuffix(d, "…") || !strings.HasPrefix(d, "é") || len(d) > maxSkillDesc {
 		t.Errorf("long description %d bytes", len(d))
 	}
 	if text := res.Render(); !strings.Contains(text, "<description>Deploy it &lt;now&gt;.</description>") {
@@ -173,34 +181,10 @@ func TestLoadLimits(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(h, "dir.md"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := load(t, h, head+"  - {name: x, match: {global: true}, instructions: [~/big.md, ~/dir.md]}\n", "")
+	cfg := loadConfig(t, h, head+"  - {name: x, instructions: [~/big.md, ~/dir.md]}\n", "")
 	res := run(h, cfg)
-	if len(res.Files) != 0 || len(res.Problems) != 2 {
-		t.Errorf("files %v problems %v", names(res.Files), res.Problems)
-	}
-}
-
-// The total read limit covers the config and binding files too.
-func TestTotalLimitCoversConfig(t *testing.T) {
-	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, "a.md"), "A")
-	testenv.Write(t, filepath.Join(h, "b.md"), strings.Repeat("B", 10))
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		head+"  - {name: x, match: {global: true}, instructions: [~/a.md, ~/b.md]}\n")
-	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
-	size := func(p string) int {
-		st, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return int(st.Size())
-	}
-	total := size(cfgPath) + size(filepath.Join(h, ".config", "ctxtra", "b.yaml")) + 1 + 5
-	rd := fsutil.NewReader(config.MaxFileBytes, total)
-	res := Resolve(h, config.Load(cfgPath, rd), rd)
-	if got := names(res.Files); !slices.Equal(got, []string{"a.md"}) || len(res.Problems) != 1 ||
-		!strings.Contains(res.Problems[0], "total read limit") {
-		t.Errorf("files %v, problems %v", got, res.Problems)
+	if len(res.Files) != 0 || len(res.Errors) != 2 {
+		t.Errorf("files %v errors %v", names(res.Files), messages(res.Errors))
 	}
 }
 
@@ -208,20 +192,20 @@ func TestTotalLimitCoversConfig(t *testing.T) {
 func TestFileAndSkillAreDedupedApart(t *testing.T) {
 	h := testenv.Home(t)
 	testenv.Skill(t, filepath.Join(h, "s", "deploy"), "description: Deploy it.")
-	cfg := load(t, h, head+"  - {name: x, match: {global: true}, instructions: [~/s/deploy/SKILL.md], skills: [~/s/deploy]}\n", "")
+	cfg := loadConfig(t, h, head+"  - {name: x, instructions: [~/s/deploy/SKILL.md], skills: [~/s/deploy]}\n", "")
 	if res := run(h, cfg); len(res.Files) != 1 || len(res.Skills) != 1 {
-		t.Errorf("files %v, skills %v, problems %v", names(res.Files), names(res.Skills), res.Problems)
+		t.Errorf("files %v, skills %v, errors %v", names(res.Files), names(res.Skills), messages(res.Errors))
 	}
 }
 
-// Without git (or when git doesn't answer), repos bindings don't match
-// but every other binding still applies.
+// Without git (or when git doesn't answer), repos bindings don't apply
+// but every other binding still does.
 func TestWithoutGit(t *testing.T) {
 	h := testenv.Home(t)
 	r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
 	testenv.Write(t, filepath.Join(h, "a.md"), "A")
 	testenv.Write(t, filepath.Join(h, "b.md"), "B")
-	cfg := load(t, h, head+"  - {name: g, match: {global: true}, instructions: [~/a.md]}\n  - {name: r, match: {repos: [{remote: github.com/acme/svc}]}, instructions: [~/b.md]}\n", "")
+	cfg := loadConfig(t, h, head+"  - {name: g, instructions: [~/a.md]}\n  - {name: r, location: {repos: [github.com/acme/svc]}, instructions: [~/b.md]}\n", "")
 	if got := names(run(r, cfg).Files); !slices.Equal(got, []string{"a.md", "b.md"}) {
 		t.Fatalf("with git: %v", got)
 	}
@@ -248,48 +232,50 @@ func TestParseSkillDelimiters(t *testing.T) {
 	}
 }
 
-// Sessions that use a pinned source say when it wasn't checked for new
-// commits for a while, and when a newer commit wasn't accepted.
+// A file of a source is named by its SOURCE:PATH; a file on disk by its
+// path.
 func TestRefs(t *testing.T) {
-	h := testenv.Home(t)
-	url, commit := "https://h/team", strings.Repeat("a", 40)
-	gen := source.GenDir(url, commit)
-	testenv.Write(t, filepath.Join(gen, "x", "a.md"), "A")
-	testenv.Write(t, filepath.Join(gen, "b.yaml"), head+"  - {name: rel, match: {global: true}, instructions: [x/b.md]}\n")
-	testenv.Write(t, filepath.Join(gen, "x", "b.md"), "B")
-	testenv.Write(t, filepath.Join(h, "n", "me.md"), "me")
-	// The same commit of the same repository: the first reference names the file.
-	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  one: {git: '"+url+"', branch: main, commit: '"+commit+"'}\n  two: {git: '"+url+"', branch: dev, commit: '"+commit+"'}\n"+
-		"include: [ctxtra://one/b.yaml]\nbindings:\n  - {name: me, match: {global: true}, instructions: [ctxtra://two/x/a.md, ctxtra://one/x/a.md, ~/n/me.md]}\n")
-	res, _ := Session(h, cfgPath)
-	if len(res.Problems) > 0 {
-		t.Fatalf("problems %v", res.Problems)
-	}
+	h := newHome(t)
+	h.write("n/me.md", "me")
+	one := h.accept("one", "https://h/team", "branch: main", "", commit("a"), map[string]string{"x/a.md": "A", "x/b.md": "B"})
+	two := h.accept("two", "https://h/team", "branch: dev", "", commit("a"), nil)
+	env := h.load(`sources:
+  one: {repo: 'https://h/team', branch: main}
+  two: {repo: 'https://h/team', branch: dev}
+bindings:
+  - {name: me, instructions: ['two:x/a.md', 'one:x/a.md', ~/n/me.md, 'one:x/b.md']}
+`, one, two)
+	res := env.Resolve(Input{Dir: h.dir})
+	noErrors(t, res)
 	var got []string
 	for _, f := range res.Files {
 		got = append(got, f.Ref)
 	}
-	if want := []string{"ctxtra://two/x/a.md", "", "ctxtra://one/x/b.md"}; !slices.Equal(got, want) {
+	// The same commit of the same repository: the first reference names the file.
+	if want := []string{"two:x/a.md", "", "one:x/b.md"}; !slices.Equal(got, want) {
 		t.Errorf("refs %q, want %q", got, want)
 	}
 }
 
+// Sessions that use a repo source say when it has new commits, and when a
+// newer commit wasn't accepted.
 func TestNotices(t *testing.T) {
 	h := testenv.Home(t)
 	url, commit := "https://h/team", strings.Repeat("a", 40)
-	testenv.Write(t, filepath.Join(source.GenDir(url, commit), "a.md"), "A")
+	hh := &home{t, h}
+	entry := hh.accept("team", url, "branch: main", "", commit, map[string]string{"a.md": "A"})
 	testenv.Write(t, filepath.Join(h, "n", "me.md"), "me")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		head+"  - {name: team, match: {dirs: [~/work]}, instructions: [ctxtra://team/a.md]}\n  - {name: me, match: {global: true}, instructions: [~/n/me.md]}\n")
-	config := func(check string) string {
-		return testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: '"+url+"', branch: main, commit: '"+commit+"'"+check+"}\ninclude: [b.yaml]\n")
+	var env *Env
+	config := func(check string) {
+		env = hh.load("sources:\n  team: {repo: '"+url+"', branch: main"+check+"}\n"+
+			head+"  - {name: team, location: {dirs: [~/work]}, instructions: ['team:a.md']}\n  - {name: me, instructions: [~/n/me.md]}\n", entry)
 	}
-	cfgPath := config("")
+	config("")
 	notices := func(dir string) []string {
 		t.Helper()
-		res, _ := Session(dir, cfgPath)
-		if len(res.Problems) > 0 {
-			t.Fatalf("problems %v", res.Problems)
+		res := env.Resolve(Input{Dir: dir})
+		if len(res.Errors) > 0 {
+			t.Fatalf("errors %v", messages(res.Errors))
 		}
 		return res.Notices
 	}
@@ -325,7 +311,7 @@ func TestNotices(t *testing.T) {
 	// With checks disabled, a commit that an earlier check or fetch found
 	// is no notice.
 	state.Update(id, url, "main", func(e *state.Source) { e.Head = strings.Repeat("c", 40); e.Dismissed = "" })
-	cfgPath = config(", check-updates: false")
+	config(", check-updates: false")
 	if got := notices(work); len(got) != 0 {
 		t.Errorf("checks off: %v", got)
 	}
@@ -351,20 +337,19 @@ func TestMCPServers(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Load(testenv.Config(t, h, `schema: ctxtra/v1
-mcp-servers:
+	cfg := loadConfig(t, h, `mcp-servers:
   everywhere: {command: [a]}
   linear_work: {url: https://mcp.linear.app/mcp}
   billing: {command: [b]}
   svc: {command: [c]}
 bindings:
-  - {name: g, match: {global: true}, mcp-servers: [everywhere]}
-  - {name: work, match: {dirs: ['~/dev/**']}, mcp-servers: [linear_work, everywhere]}
-  - {name: bill, match: {repos: [{remote: github.com/acme/mono, subpath: services/billing/**}]}, mcp-servers: [billing, linear_work]}
-  - {name: s, match: {dirs: ['~/dev/svc/**']}, mcp-servers: [svc]}
-`), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	if len(cfg.Problems) > 0 {
-		t.Fatal(cfg.Problems)
+  - {name: g, mcp-servers: [everywhere]}
+  - {name: work, location: {dirs: ['~/dev/**']}, mcp-servers: [linear_work, everywhere]}
+  - {name: bill, location: {repos: [{repo: github.com/acme/mono, subdirs: [services/billing/**]}]}, mcp-servers: [billing, linear_work]}
+  - {name: s, location: {dirs: ['~/dev/svc/**']}, mcp-servers: [svc]}
+`, "")
+	if len(cfg.Errors) > 0 {
+		t.Fatal(messages(cfg.Errors))
 	}
 	for _, tc := range []struct {
 		dir  string
