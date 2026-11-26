@@ -1,0 +1,33 @@
+# From ssh to https: the source stays active, the same source, and the next
+# download uses the new address. Git maps each spelling to its own
+# repository, so a download from the old one would fail.
+expand gitconfig.in gitconfig
+env GIT_CONFIG_GLOBAL=$WORK/gitconfig
+gitrepo srv/old/iam-ctx.git
+mkdir srv/new
+exec cp -R srv/old/iam-ctx.git srv/new/iam-ctx
+exec ctxtra source add --repo git@github.com:acme/iam-ctx.git --name iam-team
+exec ctxtra binding add b --instruction iam-team:go.md
+exec ctxtra context files
+stdout 'go.md'
+
+exec sh -c 'sed -i.bak "s|git@github.com:acme/iam-ctx.git|https://github.com/acme/iam-ctx|" .config/ctxtra/config.yaml'
+grep 'https://github.com/acme/iam-ctx$' .config/ctxtra/config.yaml
+exec ctxtra context files
+stdout 'go.md'
+exec ctxtra source list
+stdout 'iam-team'
+
+rm srv/old .local/share/ctxtra .cache/ctxtra
+exec ctxtra source download
+stdout '^iam-team: downloaded [0-9a-f]+ \(the commit in ctxtra.lock\)$'
+exec ctxtra context files
+stdout 'go.md'
+
+-- gitconfig.in --
+[url "${GITSRV}/old/"]
+	insteadOf = git@github.com:acme/
+[url "${GITSRV}/new/"]
+	insteadOf = https://github.com/acme/
+-- srv/old/iam-ctx.git/go.md --
+Go rules.

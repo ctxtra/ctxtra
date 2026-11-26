@@ -81,6 +81,19 @@ stdout '^tool notes__echo'
 exec ctxtra mcp status dev/app
 stdout 'binding: notes; tool prefix: notes; approval not required'
 
+# The user changes the address: the update shows a new source, and its
+# server needs approval again.
+exec cp -R srv/iam-team srv/iam-moved
+exec sh -c 'sed -i.bak "s|/iam-team|/iam-moved|" .config/ctxtra/config.yaml'
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'a new source'
+stdout 'its MCP servers need approval and sign-in again'
+mcp dev/app
+! stdout 'deploy_iam__'
+! exec ctxtra mcp status dev/app
+stdout 'approval needed: run ctxtra mcp approve iam-team:deploy'
+
 -- yes.txt --
 y
 -- no.txt --

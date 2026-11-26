@@ -542,7 +542,7 @@ func (r *session) repoSets(b *config.Binding, t *Trace) (sets []repoSet, left st
 			}
 		}
 		unreadable := func() {
-			r.res.UnreadableSets = append(r.res.UnreadableSets, UnreadableSet{Binding: b.Name, Entry: e.Text, Why: err.Error()})
+			r.res.UnreadableSets = append(r.res.UnreadableSets, UnreadableSet{Binding: b.Name, Entry: e.Text, Why: err.Error(), Err: t.Errors[len(t.Errors)-1]})
 		}
 		switch {
 		case !e.Not && u != nil:

@@ -31,8 +31,11 @@ The hook, MCP proxy and background checks use the same folders. `ctxtra doctor` 
 
 Each variable supplies the parent folder; ctxtra appends `ctxtra`. Relative and empty values use the default.
 Sessions never read the cache. Deleting it changes no session content; the next fetch downloads again.
-Deleting data removes downloaded content and installed skills. Deleting state removes approvals,
-credentials, setup records and update results. `CTXTRA_LOG` still overrides the log file.
+Deleting data removes downloaded content and installed skills until `ctxtra source download` and
+`ctxtra skill install`. Deleting state removes the stored profile selection, session records, trusted remotes,
+server approvals, sign-ins and secret values, setup records and update results: select profiles, trust folders,
+approve servers and sign in again. The session message says what to run. `CTXTRA_LOG` still overrides the log
+file.
 
 ## Config
 
@@ -90,11 +93,10 @@ source availability. This includes collection `--replace`. A config or lock that
 still stops the command.
 
 Every `list` accepts `--json`. Commands exit 0 on success, 1 on a mistake or refused change, and 2
-on bad flags or arguments. Config writes take the same lock, re-read the files, and change only their
-own entries. The writer preserves untouched text and comments. It refuses layouts it cannot edit as
-text, such as a flow-style root or section, and tells you to use block style or edit by hand.
+on bad flags or arguments.
 
-Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
+Names of sources, bindings, collections, repo sets and profiles are 1–64 letters, digits, `.`, `_` or `-`,
+starting with a letter.
 Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
 
 `ctxtra binding add NAME` writes a binding from flags, one per key, each repeatable:
@@ -136,6 +138,18 @@ Config and lock writes share an operating-system lock in the state folder. Each 
 changes its own entries and replaces each file atomically. A symlinked config stays a symlink.
 A lock with invalid YAML or another schema stops every write, also one that changes only the config, until
 it is fixed or removed. A broken lock entry stops only writes that change the lock.
+
+A changed config is checked before it is written, written atomically, and the
+old one is kept in `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original
+file, pruning only after the config is successfully replaced or removed. Cleanup is best effort: a
+cleanup error can leave extra copies, but does not turn a completed config change into a failed one.
+If the latest backup has the same content, it is reused. New backup names contain a SHA-256 hash of the
+absolute original path, a short readable name and a UTC nanosecond timestamp. Parent-directory symlinks
+are resolved before hashing. Timestamps advance even if the clock moves backward; names break ties.
+A symlinked config stays a symlink, and its target path identifies its backups. Import backups and
+unrelated files are not pruned. Older config backups lack the full-path identity and are left alone,
+because their names can refer to several original paths. Remove them manually when no longer needed;
+agent config backups may contain tokens.
 
 ## Sources and trust
 
@@ -185,7 +199,7 @@ A local repo path or dir folder missing on this machine is not an error. Its ent
 and update checks skip it.
 A path that exists but is not a folder, or a repo path that is not a repository, is an error.
 
-## Pinned sources
+## Repo sources
 
 ```bash
 ctxtra source add --repo git@github.com:acme/team-ctx.git
@@ -400,7 +414,7 @@ that these patterns weren't found. Read what you accept.
 
 ### Notices
 
-A session that uses a pinned source says when the last
+A session that uses a repo source says when the last
 [update check](#update-checks) found new commits, or that a tag moved. It also says when you dismissed a
 commit:
 
@@ -420,18 +434,6 @@ commits: run `ctxtra source update` when you want to look.
 
 When a new commit doesn't continue the accepted one, `source update` warns: the branch was force-pushed.
 Accepting it is still your choice.
-
-A changed config is checked before it is written, written atomically, and the
-old one is kept in `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original
-file, pruning only after the config is successfully replaced or removed. Cleanup is best effort: a
-cleanup error can leave extra copies, but does not turn a completed config change into a failed one.
-If the latest backup has the same content, it is reused. New backup names contain a SHA-256 hash of the
-absolute original path, a short readable name and a UTC nanosecond timestamp. Parent-directory symlinks
-are resolved before hashing. Timestamps advance even if the clock moves backward; names break ties.
-A symlinked config stays a symlink, and its target path identifies its backups. Import backups and
-unrelated files are not pruned. Older config backups lack the full-path identity and are left alone,
-because their names can refer to several original paths. Remove them manually when no longer needed;
-agent config backups may contain tokens. If the source or its lock entry changed while review waited for an answer, nothing is accepted.
 
 ### Store
 
@@ -473,7 +475,7 @@ agent config backups may contain tokens. If the source or its lock entry changed
 
 ## Update checks
 
-ctxtra can tell you about a new ctxtra release, and about new commits or a moved tag of a pinned source. A
+ctxtra can tell you about a new ctxtra release, and about new commits or a moved tag of a repo source. A
 check reads only a version number or a commit ID, changes nothing in the config, and accepts nothing: you
 still upgrade ctxtra and review commits yourself. For a branch source with `subdir`, a check that finds a new
 commit also fetches the branch into ctxtra's cache, to tell whether anything changed under `subdir`.
@@ -511,13 +513,13 @@ The notices go only to you, never to the model, in the agents that show a messag
   is a commit that changes nothing under the source's `subdir`.
 - A failed check adds no notice and never counts as up to date: the notice from the last check that worked
   stays. `doctor` shows why the check failed, or couldn't start, and when the last one that worked ran and
-  what it found. For a pinned source with `check-updates: false`, `doctor` says that its update checks
+  what it found. For a repo source with `check-updates: false`, `doctor` says that its update checks
   are off.
 - `ctxtra check-updates` runs the checks now and shows their results. It exits with 1 when a check fails,
   or when it can't save the results for sessions.
 - `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start when the hook inherits the variable.
   Muse clears its hook environment: use top-level `check-releases: false` for release checks and
-  `check-updates: false` on each pinned source instead. Notices from earlier checks still show.
+  `check-updates: false` on each repo source instead. Notices from earlier checks still show.
 - Only the config can turn checks on or off. A config that is
   ignored as a whole (see [Validation](#validation)) runs no checks, because its `check-releases: false`
   may be what failed.
@@ -620,8 +622,8 @@ bindings:
   leaves out the binding, so the binding never reaches the repositories it excludes, also on a new machine
   before `source download`. A set of a source that is not on this machine does the same, without an error.
 - `context explain` names the set and the set entry that matched or left out the session. The session
-  message names each set that can't be read, with its binding and what that does to it; past three, it
-  counts the rest.
+  message names each set that can't be read, with its binding and what that does to it, among the first
+  three errors it names (see [Validation](#validation)).
 
 ### Profiles and agents
 
@@ -748,7 +750,7 @@ Where a session's profiles can differ from what you expect:
   with `!`, write `./!name`.
 - An exclusion that leaves nothing out is reported, and the binding still applies. A list of only
   exclusions without `collections` in the binding, and an exclusion that can't be resolved (an unknown source, a source that isn't available,
-  a path outside the pinned source), are errors, and the binding is skipped: without the exclusion, it
+  a path outside the repo source), are errors, and the binding is skipped: without the exclusion, it
   would add more than intended. `context explain` lists the paths that exclusions left out.
 - Live glob expansion follows symlinks only when each link and destination pass the trust check.
   An untrusted folder is left out with an error; other matches remain. Repo sources never follow symlinks.
@@ -757,7 +759,7 @@ Where a session's profiles can differ from what you expect:
   Recorded symlink paths under each visited directory count against this budget before its children
   are built. Links outside that directory cost only one index lookup. Named paths check link membership
   without expanding directories.
-- Pinned-source patterns expand only against the selected commit. `source update` reviews matching files from
+- Repo-source patterns expand only against the selected commit. `source update` reviews matching files from
   both the old and proposed commits, including newly matched files. Local patterns are expanded live:
   new matching files apply immediately. Use `context files`, `context show` or `context explain` to inspect the result.
 - Each file is added once per session, at its first position, and the same for each skill. Two different skills with
@@ -927,9 +929,8 @@ alone that has a ctxtra hook changed by hand, and says so, instead of adding a s
 ## MCP servers
 
 ctxtra gives sessions MCP servers, scoped by folder like instructions and skills.
-No experimental opt-in is required.
 
-`ctxtra setup` adds one MCP server named `ctxtra-proxy` to each agent. The agent starts it like any local MCP server.
+`ctxtra setup` adds one MCP server named `ctxtra-proxy` to each agent that supports MCP (see [Setup](#setup)). The agent starts it like any local MCP server.
 It gives the session the tools of the MCP servers bound to the session folder, and forwards each call.
 
 ### Declarations and references
@@ -978,13 +979,13 @@ the other; the server keeps its own name. A `use` of a server the source doesn't
 bindings that select it.
 
 The catalog is loaded on demand. Sessions read the manifests their bindings reference; list, doctor and setup
-can enumerate all sources. Pinned manifests use the accepted generation and store touch/size limits, never a fetch.
+can enumerate all sources. Repo-source manifests use the accepted commit and store touch/size limits, never a fetch.
 `source validate` validates the manifest and references without user config, credentials or network access. A source
 used only for MCP servers still participates in source-update notices.
 
-### Pinned-server approval
+### Approval of repo-source servers
 
-Every pinned-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
+Every repo-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
 execution, even a remote endpoint needing no authentication. Until then, and after its definition changes, the
 server is an error of the binding that selects it, with its `ctxtra mcp approve` command: in the session message,
 the log, `context explain`, `doctor` and `mcp status`, which exit 1. The session keeps its name, so a server with
@@ -1009,7 +1010,7 @@ selection and definitions.
 
 `ctxtra mcp revoke REF` withdraws approval, not credentials or provider grants. New connections refuse it. Close
 existing sessions to stop their connections; immediate live revocation is not guaranteed. Logout does not revoke
-approval. Trusted sources read their manifests live without either pinned-source acceptance or this approval layer.
+approval. Trusted sources read their manifests live without either commit acceptance or this approval.
 
 ### The session's servers
 
@@ -1148,7 +1149,14 @@ the [notices](#notices):
 ```
 
 The hook reads only the state files: no key, no keychain, no network. A server that no session has tried yet
-has no state, and no line.
+has no state, and no line. A server that needs approval has its approval line instead. For a remote server, or
+one with `secret-env`, that line also says it may need sign-in, since only a request tells whether it uses OAuth,
+and names `ctxtra mcp login`, which asks for approval first. Deleting the state folder removes both approval and
+sign-in:
+
+```text
+⚠ iam-team:jira needs approval and may need sign-in: run ctxtra mcp login iam-team:jira
+```
 
 The proxy records, per session folder, what the last session started there got from each bound server: its
 tools in the first tool list, later (too slow for it, or signed in during the session; Codex and Muse don't
@@ -1173,7 +1181,7 @@ The records are in `~/.local/state/ctxtra/mcp/status`, one per folder, so a sess
 The agent learns it too: the proxy's instructions (the MCP `instructions` field, which it sends after waiting
 at most half a second for the folder's servers) name the bound servers and say to run `ctxtra mcp status` when
 a tool of theirs is missing, and name each server whose state says it needs sign-in. Claude Code shows them in
-the system prompt; Codex in the description of the `ctxtra` server's tools, so only when the session has at least
+the system prompt; Codex in the description of the `ctxtra-proxy` server's tools, so only when the session has at least
 one of them.
 `ctxtra mcp list` and `doctor` show each server's sign-in state and where the key of the credentials is, with the
 warning for a key file.
@@ -1266,7 +1274,10 @@ a newer format fails that server's calls with an upgrade hint, and changes nothi
 ### Setup
 
 `ctxtra setup` always adds the entry to each MCP-supported agent it sets up, even with no servers in the
-config or sources. A server bound later reaches the next session without another setup. Setup never copies
+config or sources. A server bound later reaches the next session without another setup, with one exception:
+Codex passes the proxy only the variables in its entry's `env_vars`, so a local server with a new `pass-env`
+variable needs `ctxtra setup --agent codex` again. The Codex session message, the setup notices and `doctor` say
+so; the hook reads only Codex's config file for it. Setup never copies
 the user's servers into agent configs. `--remove` removes the entry.
 
 | Agent | File | Entry |
@@ -1332,7 +1343,7 @@ The setup notices and `doctor` report the entry:
 | A hook setup is missing its proxy | `claude-code: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude-code` |
 | The entry runs another binary | `claude-code: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
 | The entry is gone from its file | `claude-code: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; ...` |
-| Codex's entry doesn't pass a local server's `pass-env` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
+| Codex's entry doesn't pass a local server's `pass-env` variable | `codex: the ctxtra MCP entry doesn't pass DBHOST to the proxy; run ctxtra setup --agent codex` |
 | The entry has its old name | `claude-code: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude-code` |
 | An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude-code` |
 
@@ -1359,9 +1370,10 @@ doesn't:
 - **`ctxtra mcp show` prints a local server's stderr** in the terminal, which can hold secrets. An agent that
   runs it reads that output. `ctxtra mcp status`, which the proxy's instructions point agents to, shows only
   a server's origin or program name, never a URL's path, its query or a command's arguments.
-- **Pinned commands need local approval.** A source catalog can declare programs. The proxy runs them only
-  after explicit machine-local consent to the operational definition. Binding files can name servers but cannot
-  declare or override them. Trusted source and config definitions do not need this extra approval.
+- **Repo-source servers need local approval.** A source catalog can declare programs. The proxy runs them only
+  after explicit machine-local consent to the operational definition. Bindings, in the user's config, and source
+  collections select servers but cannot declare or override them. Config and dir-source definitions do not need
+  this extra approval.
 - **A problem in the proxy never fails a session:** a broken config, a failing server or missing credentials
   cost the tools they concern. Only a proxy that can't start at all, such as a moved ctxtra binary, stops a
   Codex session, whose entry is required.
@@ -1477,7 +1489,12 @@ setup can't write it, setup fails with exit code 1, and the config changes it ma
 ## Validation
 
 Every mistake is an error, reported in the session message where available, the log, `context explain`
-and `doctor`. Doctor exits 1. A bad entry leaves out the smallest usable part:
+and `doctor`. Doctor exits 1. The session message counts the errors and names the first three, each on a line
+that starts with ⚠: first those with a command that fixes them (a profile, a source that can't be read, a repo set,
+a server to approve), then the others as `doctor` writes them, with their file and line. A last line says how many
+more errors `doctor` shows. Each line is one line of at most 240 characters, with control characters escaped. A longer
+line is cut before its end, which keeps the command to run or what is left out; a name too long to repeat there is
+left out of it ("the binding is left out"). `doctor` and the log have the whole text. A bad entry leaves out the smallest usable part:
 
 | Error | Left out |
 |---|---|
@@ -1509,7 +1526,8 @@ A command that would write an error exits 1 and changes nothing.
 
 `ctxtra help` lists the commands, and `ctxtra help COMMAND` (the same as `ctxtra COMMAND --help`) shows one
 with its flags and examples. The commands that change the config are grouped by what they change:
-`source`, `binding` and `mcp`, each with `add`, `list` and `remove`.
+`source`, `binding`, `collection`, `repo-set` and `mcp`, each with `add`, `list` and `remove`, and
+`config set` and `unset` for program settings. `profile` changes the stored selection, never the config.
 
 - Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor`, `mcp status` or a `context`
   command found that a session wouldn't get everything it should (for `doctor`, a session in any folder),
@@ -1583,6 +1601,7 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | `sources.NAME.dir` | A live folder; mutually exclusive with repo. |
 | `sources.NAME.check-updates` | Repo-source checks; default true. |
 | `mcp-servers` | The config's own server definitions. |
+| `mcp-servers.NAME.use` | A new name for a source's server: `'SOURCE:SERVER'`, with no other key. |
 | `bindings` | Ordered bindings with unique names. |
 | `max-ctx-chars` | Integer at least 0; 0 means no configured limit. |
 | `check-releases` | Release checks; default true. |

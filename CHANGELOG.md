@@ -2,10 +2,62 @@
 
 ## Unreleased
 
+### Breaking changes
+
+This release starts over. It reads nothing that v0.6 and earlier wrote. To move:
+
+1. Write the config again in the new format, `schema: ctxtra/config/v1`, in `~/.config/ctxtra/config.yaml`
+   (`ctxtra help config`). The `ctxtra/v1` format is not read or converted.
+2. Add each git source again with `ctxtra source add --repo URL`, so its accepted commit goes into
+   `ctxtra.lock` next to the config.
+3. Run `ctxtra setup` for each agent. Earlier hooks and MCP proxy entries add nothing; setup replaces them,
+   and `ctxtra doctor` lists the ones left.
+4. Trust live folders, approve source servers and sign in to MCP servers again: the new state folder starts
+   empty. Then delete `~/.ctxtra`.
+
+What changed:
+
+- Files follow the XDG folders on Linux and macOS: config in `~/.config/ctxtra`, data in
+  `~/.local/share/ctxtra`, state in `~/.local/state/ctxtra` and clones in `~/.cache/ctxtra`. `~/.ctxtra` is
+  not read. `CTXTRA_CONFIG` and `--config` are gone.
+- Bindings are only in the config, as a list with unique names. `include`, binding files, `match` and
+  `global` are gone: a binding has `location` (`dirs`, `repos`, `repo-sets`), `profiles` and `agents`, and
+  one without `location` applies everywhere. Entries that start with `!` must be quoted.
+- Sources are `repo` (with `branch`, `tag` or `rev`) or `dir`. Accepted commits are in `ctxtra.lock`, not in
+  the config: `commit:` is gone. Source servers move from `mcp-servers.yaml` to the source's
+  `ctxtra-source.yaml`. Files of a source are `SOURCE:PATH`, which replaces `ctxtra://SOURCE/PATH`.
+- A local repo source (`repo: ~/dev/team-ctx`, formerly `local-git`) follows a named branch, by default the
+  clone's checked-out branch, not the clone's committed `HEAD`.
+- Agent IDs `claude`, `copilot` and `hermes` are now `claude-code`, `github-copilot` and `hermes-agent`, with
+  no aliases.
+- Renamed config keys: `check-updates` at the top is `check-releases`, `budget.max-chars` is
+  `max-ctx-chars`, `summary-message` is `session-message` (without `show-skills` and `show-instructions`:
+  0 leaves a list out), and a server's `env-pass` is `pass-env`.
+- Renamed commands: `source add git URL` and `source add trusted-path DIR` are `source add --repo URL` and
+  `source add --dir DIR`, `source update --check` is `source update --dry-run`, `source check` is
+  `source validate`, `source restore` is `source download`, `binding add --mcp` is `--mcp-server`, and
+  `mcp add --env-pass` is `--pass-env`. `source add local-git DIR` is `source add --repo DIR`.
+  `source add git DIR --remote REMOTE` is gone: give the remote's address, `source add --repo URL`.
+  `binding add --global` is gone.
+- `source trust NAME` records the remotes of an existing `dir` source, so that it is read live. It no longer
+  turns a pinned source into a live one, and takes no DIR: to read a clone live, add it with
+  `source add --dir DIR`.
+- Every mistake is an error that `doctor` reports with exit 1, and the part with the mistake is left out.
+  A YAML tag, an anchor, a duplicate key, or a number where text is expected (`tag: 1.10`) is an error.
+
+### Changes
+
 - Symlink metadata traversal stays within each pattern's budget and skips links outside visited directories.
   Named reads avoid directory expansion.
 - Repo source symlinks matched by a glob or named directly are errors, including paths omitted during download.
   Other matching files still load.
+- The session message names the first three errors, with their line in the config or the command that
+  fixes them, and counts the rest. Each is one line of at most 240 characters, with control characters
+  escaped; a cut line keeps its command.
+- A source server that needs approval and is remote, or has `secret-env`, says it may need sign-in and
+  names `ctxtra mcp login ID`, which asks for approval first.
+- In Codex, the session message says to run `ctxtra setup --agent codex` when a bound local server takes a
+  `pass-env` variable that Codex's MCP entry doesn't pass yet.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
 - Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
   including collection `--replace`. New and changed entries still validate their content.

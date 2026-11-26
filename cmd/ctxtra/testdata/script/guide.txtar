@@ -1,0 +1,175 @@
+# The commands of docs/guide.md, in its order, work as the guide shows them.
+# Repository addresses point at the test's own repositories ($GITSRV), and
+# a name the guide uses twice, in separate examples, gets a suffix.
+mkdir work dev/billing
+gitrepo srv/team-ctx
+gitrepo srv/iam-ctx
+gitrepo srv/observability-ctx
+exec git -C srv/observability-ctx tag v1.4.0
+gitrepo srv/security-guidelines
+gitrepo srv/agent-context
+gitrepo dev/team-ctx
+gitrepo dev/dotfiles git@github.com:me/dotfiles.git
+
+# Install.
+exec ctxtra setup --dry-run
+exec ctxtra setup --agent claude-code
+
+# Let your agent help.
+exec ctxtra skill show ctxtra
+stdout 'name: ctxtra'
+exec ctxtra skill install ctxtra
+exec ctxtra binding list
+stdout 'ctxtra'
+
+# Configure.
+exec ctxtra binding add work --repo 'github.com/acme/**' --instruction ~/agent-context/work.md --skill ~/agent-context/skills/deploy
+stdout 'github.com/acme/\*\*'
+exec ctxtra binding add obs --file obs.yaml
+exec ctxtra binding add obs --replace --file obs.yaml
+exec ctxtra binding add oncall --profile '!oncall' --instruction ~/agent-context/work.md
+exec ctxtra binding add mono --repo github.com/acme/mono --subdir 'services/billing/**' --instruction ~/agent-context/work.md
+exec ctxtra binding list
+stdout 'obs'
+exec ctxtra binding remove mono
+
+# Your live folder.
+exec ctxtra source add --dir ~/dev/dotfiles
+exec ctxtra source trust dotfiles --dry-run
+stdin yes.txt
+exec ctxtra-tty source trust dotfiles
+exec ctxtra binding add personal --instruction dotfiles:agents/me.md --skill 'dotfiles:skills/*'
+
+# Reviewed source content.
+exec ctxtra source add --repo $GITSRV/team-ctx
+exec ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
+exec ctxtra source update --dry-run team-ctx
+exec ctxtra-tty source update team-ctx
+stdout 'up to date'
+
+# A team's README.
+exec ctxtra source add --repo $GITSRV/iam-ctx
+stdout 'ctxtra binding add'
+exec ctxtra binding add iam-work --source $GITSRV/iam-ctx --repo-set services --collection essentials
+stdout 'iam-ctx:services'
+
+# A local clone, a tag, a rev and one folder of a shared repository.
+exec ctxtra source add --repo ~/dev/team-ctx --name preview
+exec ctxtra binding add preview --instruction preview:services-overview.md
+exec ctxtra source add --repo $GITSRV/observability-ctx --tag v1.4.0
+exec sh -c 'ctxtra source add --repo $GITSRV/security-guidelines --rev $(git -C srv/security-guidelines rev-parse --short HEAD)'
+grep 'rev: [0-9a-f]{40}$' .config/ctxtra/config.yaml
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/billing
+exec ctxtra binding add billing-team --skill 'agent-context-billing:skills/*'
+
+# On another machine.
+exec ctxtra source download
+exec ctxtra check-updates
+exec ctxtra source list
+exec ctxtra source show team-ctx
+
+# Collections.
+exec ctxtra collection add go-kit --instruction ~/agent-context/go.md --skill ~/agent-context/skills/go
+exec ctxtra collection list --json
+stdout 'go-kit'
+exec ctxtra collection remove go-kit
+
+# Repo sets.
+exec ctxtra repo-set add clients --repo 'github.com/acme/client-*' --repo '!github.com/acme/client-demo'
+exec ctxtra repo-set add billing --repo github.com/acme/mono --subdir 'services/billing/**'
+exec ctxtra repo-set list --json
+stdout 'clients'
+
+# Program settings.
+exec ctxtra config set check-releases false
+exec ctxtra config set max-ctx-chars 40000
+exec ctxtra config set session-message.max-skills 0
+exec ctxtra config unset session-message.max-skills
+
+# Profiles and agents.
+exec ctxtra context explain dev/billing --agent codex
+exec ctxtra binding add iam-profile --profile iam --instruction ~/agent-context/iam.md
+exec ctxtra context explain --profile iam
+exec ctxtra profile set iam oncall
+exec ctxtra profile list
+stdout 'iam \(active\)'
+exec ctxtra profile clear
+
+# Check.
+exec ctxtra context files dev/billing
+exec ctxtra context show dev/billing
+exec ctxtra context explain dev/billing
+exec ctxtra doctor dev/billing
+exec ctxtra source validate srv/iam-ctx
+
+# Follow the agent to another folder.
+exec ctxtra skill install ctxtra-follow
+
+# MCP servers.
+exec ctxtra mcp add internal https://mcp.example.com/mcp --header 'X-Team=core' --scope read --scope write --no-login
+exec ctxtra binding add work-internal --dir '~/work/**' --mcp-server internal
+exec ctxtra mcp add jira_iam --use iam-ctx:jira
+stdin yes.txt
+exec ctxtra-tty mcp approve iam-ctx:jira
+exec ctxtra binding add tracker --repo 'github.com/acme/**' --mcp-server iam-ctx:jira
+exec ctxtra mcp list
+stdout 'internal'
+exec ctxtra mcp status work
+
+-- yes.txt --
+y
+-- obs.yaml --
+# observability, only in company repos
+location:
+  repos: ['github.com/acme/**']
+instructions: [~/agent-context/obs.md]
+-- agent-context/work.md --
+Work rules.
+-- agent-context/obs.md --
+Observability rules.
+-- agent-context/iam.md --
+IAM rules.
+-- agent-context/go.md --
+Go rules.
+-- agent-context/skills/deploy/SKILL.md --
+---
+description: Deploy.
+---
+-- agent-context/skills/go/SKILL.md --
+---
+description: Go.
+---
+-- dev/dotfiles/agents/me.md --
+My rules.
+-- dev/dotfiles/skills/review/SKILL.md --
+---
+description: Review.
+---
+-- srv/team-ctx/services-overview.md --
+Services.
+-- srv/team-ctx/skills/deploy/SKILL.md --
+---
+description: Team deploy.
+---
+-- dev/team-ctx/services-overview.md --
+Services, in my clone.
+-- srv/iam-ctx/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+repo-sets:
+  services: [github.com/acme/iam-*]
+mcp-servers:
+  jira:
+    url: https://mcp.example.com/jira
+-- srv/iam-ctx/docs/a.md --
+IAM docs.
+-- srv/observability-ctx/README.md --
+Observability.
+-- srv/security-guidelines/README.md --
+Security.
+-- srv/agent-context/teams/billing/skills/invoice/SKILL.md --
+---
+description: Invoices.
+---
