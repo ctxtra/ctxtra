@@ -3,6 +3,9 @@
 # the other content flags. It shows the binding as written, where it
 # applies, and what a session there gets.
 exec ctxtra source add --dir team --name iam-team
+stdout '^collections: essentials$'
+stdout '^repo sets: services$'
+stdout '^bind it, for example: ctxtra binding add iam-team --source iam-team --repo-set services --collection essentials$'
 cp .config/ctxtra/config.yaml empty.yaml
 
 # Profile-only binding from the command line.

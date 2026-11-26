@@ -268,7 +268,8 @@ ctxtra binding add iam-work --source git@github.com:acme/iam-ctx.git --repo-set 
 `--source` takes a source name or its repository's address, in any form (`https://github.com/acme/iam-ctx`
 works too), and makes `--collection`, `--repo-set`, `--mcp-server`, `--instruction` and `--skill` refer to that
 source. For one folder of a shared repository, write `URL//teams/obs`. `binding add` shows content warnings
-for the source's files that it binds for the first time.
+for the source's files that it binds for the first time. A source without a README still tells you how to
+bind it: `source add` lists its collections and repo sets, and prints a `binding add` line that uses them.
 
 Read the repository before adding it: its first commit is accepted without review.
 Later commits reach sessions only after you review and accept them in your terminal.

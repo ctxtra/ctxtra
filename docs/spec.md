@@ -354,6 +354,9 @@ for example.
 - `source add --repo` checks the files the source offers: every file of its manifest's collections, nested
   ones and the files of their skills included, and files that config bindings already reference under that
   source name. Other files of the repository are not checked. It also shows errors in the collections.
+  Then it lists the manifest's collections and repo sets, and one `binding add` line that uses them.
+- `binding add` checks the files and skills of a repo source that it binds and no other binding used before:
+  `warning: SOURCE:PATH:LINE: CHECK: TEXT`.
 - A file that isn't UTF-8 text, or has a NUL byte, is not checked, and the review says so:
   `note: not checked for content warnings: binary or not UTF-8`.
 - At most 50 warnings about a file's text are shown. A file with more gets a note with their number. A URL

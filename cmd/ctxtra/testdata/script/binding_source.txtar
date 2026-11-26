@@ -5,12 +5,19 @@
 gitrepo srv/iam-ctx
 gitrepo srv/agent-context
 gitrepo srv/catalog
+# source add shows what the source offers, and one binding add line.
 exec ctxtra source add --repo $GITSRV/iam-ctx --name acme-iam
+stdout '^collections: essentials$'
+stdout '^repo sets: services$'
+stdout '^bind it, for example: ctxtra binding add acme-iam --source acme-iam --repo-set services --collection essentials$'
 exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/iam
 stdout '^added source agent-context-iam'
 exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/obs
 stdout '^added source agent-context-obs'
+stdout '^bind it, for example: ctxtra binding add agent-context-obs --source agent-context-obs --collection essentials$'
 exec ctxtra source add --repo $GITSRV/catalog --name cat
+! stdout '^collections:'
+stdout '^bind it, for example: ctxtra binding add cat --source cat --instruction PATH$'
 
 # A team's README: the URL in another form still finds the source.
 exec ctxtra binding add iam --source $GITSRV/iam-ctx.git --repo-set services --collection essentials
