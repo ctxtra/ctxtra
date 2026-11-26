@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
-	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/jsonorder"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/testenv"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // A long summary is cut, so the answer stays within what Muse takes.
@@ -26,7 +27,7 @@ func TestClip(t *testing.T) {
 }
 
 func TestLongSummaryLists(t *testing.T) {
-	res := &resolve.Result{Notices: []string{"source needs checking"}, Skills: []resolve.Hit{{Name: "deploy", Source: "team"}}, Summary: config.DefaultSummaryMessage}
+	res := &resolve.Result{Notices: []string{"source needs checking"}, Skills: []resolve.Hit{{Name: "deploy", Source: "team"}}, Summary: resolve.DefaultSessionMessage}
 	for i := 0; i < 16; i++ {
 		res.Files = append(res.Files, resolve.Hit{Path: "/notes/" + strings.Repeat("a", 140) + ".md"})
 	}
@@ -44,28 +45,28 @@ func TestLongSummaryLists(t *testing.T) {
 
 // Long paths of same-named files don't hide the problems: those in a list
 // are omitted first, and dropped ones come after the count of problems.
-func TestLongPathsKeepProblems(t *testing.T) {
+func TestLongPathsKeepErrors(t *testing.T) {
 	long := func(i int) resolve.Hit {
 		return resolve.Hit{Path: fmt.Sprintf("/%d/%s/style.md", i, strings.Repeat("é", 400)), Over: "budget.max-chars"}
 	}
-	res := &resolve.Result{Problems: []string{"p"}, Notices: []string{"source needs checking"}, Summary: config.DefaultSummaryMessage}
+	res := &resolve.Result{Errors: []*catalog.Error{{Err: &yamlx.Error{Msg: "p"}}}, Notices: []string{"source needs checking"}, Summary: resolve.DefaultSessionMessage}
 	for i := range 15 {
 		h := long(i)
 		h.Over = ""
 		res.Files = append(res.Files, h)
 	}
-	if got := clip(agent.Summary(res)); !strings.Contains(got, "1 problem (run ctxtra doctor)") || !strings.Contains(got, "\n\nℹ source needs checking") {
+	if got := clip(agent.Summary(res)); !strings.Contains(got, "1 error (run ctxtra doctor)") || !strings.Contains(got, "\n\nℹ source needs checking") {
 		t.Errorf("long list: %q", got)
 	}
 	res.Dropped = []resolve.Hit{long(20), long(21), long(22)}
 	got := clip(agent.Summary(res))
-	if b, _ := jsonorder.Marshal(got); len(b)-2 > maxSummary || !strings.Contains(got, "; 1 problem, dropped /20/") {
+	if b, _ := jsonorder.Marshal(got); len(b)-2 > maxSummary || !strings.Contains(got, "; 1 error, dropped /20/") {
 		t.Errorf("long dropped names (%d JSON bytes): %q", len(b)-2, got)
 	}
 }
 
 func TestLiteralOverflowName(t *testing.T) {
-	res := &resolve.Result{Summary: config.DefaultSummaryMessage}
+	res := &resolve.Result{Summary: resolve.DefaultSessionMessage}
 	for i := 0; i < 14; i++ {
 		res.Files = append(res.Files, resolve.Hit{Source: "notes", SourcePath: strings.Repeat("a", 140) + ".md"})
 	}
@@ -89,12 +90,12 @@ func TestLiteralOverflowName(t *testing.T) {
 
 // Many groups with long names: whole groups are omitted, counted in one line
 // per list, before the end is cut, so the notices stay. Also when the lists
-// show only the number of entries of each group.
+// show one entry of each group.
 func TestManyLongGroups(t *testing.T) {
-	counts := config.DefaultSummaryMessage
-	counts.MaxInstructions, counts.MaxSkills = 0, 0
-	for _, s := range []config.SummaryMessage{config.DefaultSummaryMessage, counts} {
-		res := &resolve.Result{Problems: []string{"p"}, Notices: []string{"team has new commits on main"}, Summary: s}
+	counts := resolve.DefaultSessionMessage
+	counts.MaxInstructions, counts.MaxSkills = 1, 1
+	for _, s := range []resolve.SessionMessage{resolve.DefaultSessionMessage, counts} {
+		res := &resolve.Result{Errors: []*catalog.Error{{Err: &yamlx.Error{Msg: "p"}}}, Notices: []string{"team has new commits on main"}, Summary: s}
 		for i := range 20 {
 			src := fmt.Sprintf("%02d-%s", i, strings.Repeat("s", 100))
 			res.Files = append(res.Files, resolve.Hit{Source: src, SourcePath: "a.md"}, resolve.Hit{Source: src, SourcePath: "b.md"})
@@ -102,7 +103,7 @@ func TestManyLongGroups(t *testing.T) {
 		}
 		got := clip(agent.Summary(res))
 		b, _ := jsonorder.Marshal(got)
-		if len(b)-2 > maxSummary || strings.HasSuffix(got, "…") || !strings.Contains(got, "; 1 problem (run ctxtra doctor)\n") ||
+		if len(b)-2 > maxSummary || strings.HasSuffix(got, "…") || !strings.Contains(got, "; 1 error (run ctxtra doctor)\n") ||
 			!strings.HasSuffix(got, "\n"+agent.FullList+"\n\nℹ team has new commits on main") {
 			t.Fatalf("%+v: lost summary information (%d JSON bytes): %q", s, len(b)-2, got)
 		}

@@ -61,6 +61,10 @@ type Tx struct {
 	// lockFile is false when the lock file doesn't exist.
 	lockFile bool
 	set      []*lock.Entry
+	// The files as read, nil when missing, and which ones the write
+	// replaced: a failed commit puts them back.
+	oldConfig, oldLock     []byte
+	wroteConfig, wroteLock bool
 }
 
 // LockEntry is the usable lock entry of source name as read, nil when
@@ -109,7 +113,42 @@ func (f Files) RunCommit(fn func(tx *Tx) error, commit func(write func() error) 
 	if err := fn(tx); err != nil {
 		return err
 	}
-	return commit(func() error { return f.write(tx) })
+	wrote := false
+	err = commit(func() error {
+		err := f.write(tx)
+		wrote = err == nil
+		return err
+	})
+	if err == nil || !wrote {
+		return err
+	}
+	if rerr := f.restore(tx); rerr != nil {
+		return errors.Join(err, rerr)
+	}
+	return err
+}
+
+// restore puts back the files that a write replaced.
+func (f Files) restore(tx *Tx) error {
+	var errs []error
+	put := func(path string, old []byte) {
+		if old == nil {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("could not restore %s: %w", paths.Tilde(path), err))
+			}
+			return
+		}
+		if _, _, err := writeFile(path, old, f.Backups, false); err != nil {
+			errs = append(errs, fmt.Errorf("could not restore %s: %w", paths.Tilde(path), err))
+		}
+	}
+	if tx.wroteConfig {
+		put(f.Config, tx.oldConfig)
+	}
+	if tx.wroteLock {
+		put(lock.Path(f.Config), tx.oldLock)
+	}
+	return errors.Join(errs...)
 }
 
 // Locked runs fn under the lock that every write takes: what fn reads from
@@ -138,8 +177,9 @@ func (f Files) read() (*Tx, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", paths.Tilde(f.Config), err)
 	}
-	tx := &Tx{Config: ed, before: config.Parse(ed.Bytes(), f.Options), lock: &lock.Lock{}}
+	tx := &Tx{Config: ed, before: config.Parse(ed.Bytes(), f.Options), lock: &lock.Lock{}, oldConfig: data}
 	data, err = readFile(lock.Path(f.Config))
+	tx.oldLock = data
 	switch {
 	case err != nil:
 		return nil, err
@@ -173,11 +213,13 @@ func (f Files) write(tx *Tx) error {
 		if _, _, err := writeFile(lock.Path(f.Config), lockData, f.Backups, false); err != nil {
 			return err
 		}
+		tx.wroteLock = true
 	}
 	if tx.Config.Changed() {
 		if _, _, err := writeFile(f.Config, tx.Config.Bytes(), f.Backups, false); err != nil {
 			return err
 		}
+		tx.wroteConfig = true
 	}
 	return nil
 }

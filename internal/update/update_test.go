@@ -21,13 +21,18 @@ import (
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
-func load(t *testing.T, path string) *config.Config {
+// load is what the checks need from the config at path.
+func load(t *testing.T, path string) Config {
 	t.Helper()
-	cfg := config.Load(path, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	if len(cfg.Problems) > 0 {
-		t.Fatalf("problems %v", cfg.Problems)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return cfg
+	cfg := config.Parse(data, config.Options{})
+	if len(cfg.Errors) > 0 {
+		t.Fatalf("errors %v", cfg.Errors)
+	}
+	return FromConfig(cfg)
 }
 
 func TestNewer(t *testing.T) {
@@ -242,18 +247,19 @@ func TestRun(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	accepted := headOf()
+	headOf()
 	testenv.Write(t, filepath.Join(dir, "b.md"), "B")
 	testenv.Run(t, dir, "git", "add", "-A")
 	testenv.Run(t, dir, "git", "commit", "-q", "-m", "b")
 	next := headOf()
 	release(t, 200, `{"tag_name": "v0.3.0"}`)
-	cfg := load(t, testenv.Config(t, h, `schema: ctxtra/v1
+	cfg := load(t, testenv.Config(t, h, `schema: ctxtra/config/v1
 sources:
-  team: {git: '`+url+`', branch: main, commit: '`+accepted+`'}
-  gone: {git: 'https://127.0.0.1:1/gone', branch: main, check-updates: true}
-  quiet: {git: 'https://127.0.0.1:1/quiet', branch: main, check-updates: false}
-  local: {local-git: '`+dir+`'}
+  team: {repo: '`+url+`', branch: main}
+  gone: {repo: 'https://127.0.0.1:1/gone', branch: main, check-updates: true}
+  quiet: {repo: 'https://127.0.0.1:1/quiet', branch: main, check-updates: false}
+  local: {repo: '`+dir+`', branch: main}
+  own: {dir: '`+dir+`'}
 `))
 	results, err := Run(context.Background(), cfg, "v0.2.3", nil)
 	if err != nil {
@@ -273,7 +279,7 @@ sources:
 	if e := st.Get(source.ID(url), url, "main"); e.Head != next || e.Checked.IsZero() || e.Error != "" || !e.LastCheck.IsZero() {
 		t.Errorf("team state %+v", e)
 	}
-	if e := st.Get(source.ID(dir), dir, ""); e.Head != next || e.Error != "" {
+	if e := st.Get(source.ID(dir), dir, "main"); e.Head != next || e.Error != "" {
 		t.Errorf("local state %+v", e)
 	}
 	gone := st.Get(source.ID("https://127.0.0.1:1/gone"), "https://127.0.0.1:1/gone", "main")
@@ -310,7 +316,7 @@ func TestStartDue(t *testing.T) {
 	at := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	now = func() time.Time { return at }
 	t.Cleanup(func() { spawn, now = oldSpawn, oldNow })
-	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\n")
+	cfgPath := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	want := func(name, version string, args ...string) {
 		t.Helper()
 		n := len(started)
@@ -337,18 +343,19 @@ func TestStartDue(t *testing.T) {
 	want(EnvOff, "v0.2.3")
 	t.Setenv(EnvOff, "")
 	want("a dev build without source checks", "dev")
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\n")
-	want("check-updates: false", "v0.2.3")
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n")
+	want("check-releases: false", "v0.2.3")
 	// A config that can't be used is no consent to a check: its
-	// check-updates: false may be what failed.
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\nbudget: {max-chars: -1}\n")
-	if err := StartDue(config.Load(cfgPath, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes)), "v0.2.3"); err != nil || len(started) != 2 {
+	// check-releases: false may be what failed.
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n: [\n")
+	data, _ := os.ReadFile(cfgPath)
+	if err := StartDue(FromConfig(config.Parse(data, config.Options{})), "v0.2.3"); err != nil || len(started) != 2 {
 		t.Errorf("an ignored config: %q, %v", started, err)
 	}
 
 	// A source with check-updates on is due on its own, also in a dev build,
 	// and the check checks only that source.
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: 'https://h/team', branch: main}\n")
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  team: {repo: 'https://h/team', branch: main}\n")
 	want("a source to check", "dev", "check-updates", "--background", "--source", "team")
 	want("the source was just claimed", "dev")
 	at = at.Add(Interval)
@@ -382,9 +389,9 @@ func TestStartDue(t *testing.T) {
 
 	// Saving the error doesn't make the session wait for a held lock, also
 	// with many sources.
-	many := "schema: ctxtra/v1\nsources:\n"
+	many := "schema: ctxtra/config/v1\nsources:\n"
 	for i := range 20 {
-		many += fmt.Sprintf("  s%d: {git: 'https://h/s%d', branch: main, check-updates: true}\n", i, i)
+		many += fmt.Sprintf("  s%d: {repo: 'https://h/s%d', branch: main, check-updates: true}\n", i, i)
 	}
 	cfgPath = testenv.Config(t, h, many)
 	var unlock func()
@@ -430,7 +437,7 @@ func TestClaimOrder(t *testing.T) {
 
 func TestReleaseNotice(t *testing.T) {
 	h := testenv.Home(t)
-	on := load(t, testenv.Config(t, h, "schema: ctxtra/v1\n"))
+	on := load(t, testenv.Config(t, h, "schema: ctxtra/config/v1\n"))
 	st := state.State{Ctxtra: state.Release{Latest: "v0.3.0"}}
 	if got := ReleaseNotice(on, st, "v0.2.3"); got != "ctxtra update v0.3.0 is available - "+Releases {
 		t.Errorf("newer: %q", got)
@@ -456,9 +463,9 @@ func TestReleaseNotice(t *testing.T) {
 	if got := ReleaseNotice(on, st, "v0.2.3"); got != "ctxtra update v0.3.0 is available - https://github.com/ctxtra/ctxtra/releases\nrun `go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest` to update." {
 		t.Errorf("Go: %q", got)
 	}
-	off := load(t, testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\n"))
+	off := load(t, testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n"))
 	if got := ReleaseNotice(off, st, "v0.2.3"); got != "" {
-		t.Errorf("check-updates: false: %q", got)
+		t.Errorf("check-releases: false: %q", got)
 	}
 
 	// A release candidate is offered only to a ctxtra from the ctxtra-rc
