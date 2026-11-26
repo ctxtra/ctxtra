@@ -48,3 +48,12 @@ func TestStatusAfterFailure(t *testing.T) {
 		t.Errorf("release: %q", got)
 	}
 }
+
+// The help of check-updates says what a check may fetch, as docs/spec.md does.
+func TestCheckUpdatesHelp(t *testing.T) {
+	testenv.Home(t)
+	_, out, _ := run("check-updates", "--help")
+	if !strings.Contains(out, "fetches the branch into ctxtra's cache") || strings.Contains(out, "fetches no files") {
+		t.Errorf("help:\n%s", out)
+	}
+}

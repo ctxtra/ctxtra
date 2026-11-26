@@ -27,13 +27,16 @@ func (a *app) checkUpdatesCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "check-updates",
-		Short: "Check for a new ctxtra release and new commits of sources",
+		Short: "Check for a new ctxtra release, new commits and moved tags of sources",
 		Long: `Check for a new ctxtra release (unless the config has check-releases: false),
-and for new commits of every repo source unless it has check-updates: false, and save
-the results for sessions. It reads only version numbers and commit IDs: it
-fetches no files, accepts nothing, and git never asks for credentials. Sessions
-run this check in the background at most once an hour; run it to check now. It exits
-with 1 when a check fails.`,
+and for new commits or a moved tag of every repo source unless it has
+check-updates: false, and save the results for sessions. A source at a rev, or
+one not on this machine, isn't checked. The checks read version numbers and the
+commit IDs of branches and tags. For a branch source with subdir, a check that
+finds a new commit also fetches the branch into ctxtra's cache, to tell whether
+anything changed under subdir. A check accepts nothing, and git never asks for
+credentials. Sessions run this check in the background at most once an hour;
+run it to check now. It exits with 1 when a check fails.`,
 		Example: "  ctxtra check-updates",
 		Args:    noArgs,
 		GroupID: "inspect",
