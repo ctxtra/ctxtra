@@ -26,9 +26,11 @@ import (
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/term"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 const (
@@ -133,17 +135,37 @@ func newer(a, b string) bool {
 	return x.rc > y.rc
 }
 
-// Sources are the sources of cfg that have check-updates on. A config that
-// is ignored as a whole has none.
-func Sources(cfg *config.Config) []config.Source {
-	if cfg.Ignored() {
-		return nil
+// Config is what the checks need from the config.
+type Config struct {
+	// Releases is false when checks for new ctxtra releases are off.
+	Releases bool
+	// Sources are the sources to check for new commits.
+	Sources []Source
+}
+
+// Source is a repo source that follows a branch, with update checks on.
+type Source struct {
+	Name, Remote, Branch string
+}
+
+// FromConfig is what the checks need from c: the release check unless
+// check-releases is false, and every repo source that follows a branch and
+// doesn't have check-updates: false. A config that can't be read checks
+// nothing: its check-releases: false may be what failed.
+func FromConfig(c *config.Config) Config {
+	if slices.ContainsFunc(c.Errors, func(e *yamlx.Error) bool { return e.Out() == yamlx.OutFile }) {
+		return Config{}
 	}
-	var out []config.Source
-	for _, s := range cfg.Sources {
-		if s.CheckUpdates && s.Remote() != "" {
-			out = append(out, s)
+	out := Config{Releases: c.CheckReleases == nil || *c.CheckReleases}
+	for _, s := range c.Sources {
+		if s.Broken() || s.Repo == "" || s.Ref.Kind != config.Branch || s.CheckUpdates != nil && !*s.CheckUpdates {
+			continue
 		}
+		remote := s.Repo
+		if config.IsLocalRepo(remote) {
+			remote = filepath.Clean(paths.Expand(remote))
+		}
+		out.Sources = append(out.Sources, Source{Name: s.Name, Remote: remote, Branch: s.Ref.Name})
 	}
 	return out
 }
@@ -152,14 +174,14 @@ func Sources(cfg *config.Config) []config.Source {
 // check is on and this is a release build, or a source has check-updates
 // on, and its last attempt is older than Interval. The background check
 // checks only what this call claimed. It returns at once.
-func StartDue(cfg *config.Config, version string) error {
+func StartDue(cfg Config, version string) error {
 	if os.Getenv(EnvOff) != "" {
 		return nil
 	}
-	release := cfg.CheckCtxtra && IsRelease(version)
+	release := cfg.Releases && IsRelease(version)
 	var claims []state.Claim
-	for _, s := range Sources(cfg) {
-		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote()), URL: s.Remote(), Branch: s.Branch})
+	for _, s := range cfg.Sources {
+		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote), URL: s.Remote, Branch: s.Branch})
 	}
 	if !release && len(claims) == 0 {
 		return nil
@@ -203,9 +225,9 @@ func StartDue(cfg *config.Config, version string) error {
 // Available is the newer ctxtra release that an earlier check found, and
 // the command that upgrades this ctxtra to it ("" when the install method
 // is unknown). latest is "" when there is none.
-func Available(cfg *config.Config, st state.State, version string) (latest, command string) {
+func Available(cfg Config, st state.State, version string) (latest, command string) {
 	latest = st.Ctxtra.Latest
-	if !cfg.CheckCtxtra || !newer(latest, version) {
+	if !cfg.Releases || !newer(latest, version) {
 		return "", ""
 	}
 	// A release candidate found by a ctxtra-rc install isn't offered to a
@@ -220,7 +242,7 @@ func Available(cfg *config.Config, st state.State, version string) (latest, comm
 // ReleaseNotice is the notice about a newer ctxtra release that an earlier
 // check found, or "". The command to upgrade, when known, is on a second
 // line.
-func ReleaseNotice(cfg *config.Config, st state.State, version string) string {
+func ReleaseNotice(cfg Config, st state.State, version string) string {
 	latest, command := Available(cfg, st, version)
 	if latest == "" {
 		return ""
@@ -306,7 +328,7 @@ type Selection struct {
 // Run checks what sel selects, or with nil everything that is on, in
 // parallel, and records the results. It returns them in config order, the
 // release first, and the first error writing them.
-func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection) ([]Result, error) {
+func Run(ctx context.Context, cfg Config, version string, sel *Selection) ([]Result, error) {
 	var (
 		results []Result
 		mu      sync.Mutex
@@ -321,7 +343,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 			werr = err
 		}
 	}
-	if cfg.CheckCtxtra && (sel == nil || sel.Release) {
+	if cfg.Releases && (sel == nil || sel.Release) {
 		wg.Go(func() {
 			at := now()
 			latest, err := latestRelease(ctx, version)
@@ -333,7 +355,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 		})
 	}
 	sem := make(chan struct{}, 4)
-	for i, s := range Sources(cfg) {
+	for i, s := range cfg.Sources {
 		if sel != nil && !slices.Contains(sel.Sources, s.Name) {
 			continue
 		}
@@ -348,9 +370,9 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 			if ctx.Err() == nil {
 				ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 				defer cancel()
-				head, err = source.Open(s.Remote()).Head(ctx, s.Branch)
+				head, err = source.Open(s.Remote).Head(ctx, s.Branch)
 			}
-			add(Result{Name: s.Name, Latest: head, At: at, Err: err, order: i}, state.UpdateWithin(resultWait, source.ID(s.Remote()), s.Remote(), s.Branch, func(e *state.Source) {
+			add(Result{Name: s.Name, Latest: head, At: at, Err: err, order: i}, state.UpdateWithin(resultWait, source.ID(s.Remote), s.Remote, s.Branch, func(e *state.Source) {
 				if Record(&e.Check, at, err) && err == nil {
 					e.Head = head
 				}

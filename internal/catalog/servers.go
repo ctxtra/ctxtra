@@ -153,3 +153,61 @@ func define(d *config.Server, name string) upstream.Server {
 		Notes:         strings.TrimSpace(d.Notes),
 	}
 }
+
+// SourceServers are every server that the manifest of source name
+// declares, without broken ones, served under the config's new names; the
+// errors are the manifest's. A source whose content can't be used has
+// none.
+func (c *Catalog) SourceServers(name string) ([]Server, []*Error) {
+	s := c.sources[name]
+	if s == nil || s.State != Active {
+		return nil, nil
+	}
+	m, errs := c.Manifest(s)
+	if m == nil {
+		return nil, errs
+	}
+	found, _ := c.sourceServers(name, "*", name+":*")
+	return found, errs
+}
+
+// AllServers are the config's own servers and every server of the
+// manifests of the sources this machine can read, in config order: what
+// commands that list, sign in to or approve servers know. The errors are
+// those of the manifests read.
+func (c *Catalog) AllServers() ([]Server, []*Error) {
+	var out []Server
+	for _, s := range c.conf.MCPServers {
+		if s.Broken() || s.Use() != "" {
+			continue
+		}
+		d := define(s, s.Name)
+		d.ID = s.Name
+		out = append(out, Server{Server: d, Refs: []string{s.Name}})
+	}
+	var errs []*Error
+	for _, src := range c.order {
+		found, e := c.SourceServers(src.Name)
+		out = append(out, found...)
+		errs = append(errs, e...)
+	}
+	return out, errs
+}
+
+// Server is the server that ref names: a config server's name, the
+// config's new name for a source's server, or SOURCE:SERVER. ok is false
+// when no usable server has that name.
+func (c *Catalog) Server(ref string) (Server, bool) {
+	if hasMeta(ref) {
+		return Server{}, false
+	}
+	e := config.Entry{Text: ref, Value: ref}
+	if source, name, found := strings.Cut(ref, ":"); found {
+		e.InSource, e.Source, e.Value = true, source, name
+	}
+	found, errs := c.Servers(e)
+	if len(found) != 1 || len(errs) > 0 {
+		return Server{}, false
+	}
+	return found[0], true
+}

@@ -45,8 +45,18 @@ type Input struct {
 // agents condition accepts. A config that doesn't exist is empty: sessions
 // get nothing from it.
 func Load(path string, agents []string) *Env {
-	env := &Env{Path: path}
 	data, err := fsutil.ReadBounded(path, config.MaxFileBytes)
+	return load(path, data, err, agents)
+}
+
+// LoadData is Load with data as the config file's content, for a command
+// that checks a change before it writes it.
+func LoadData(path string, data []byte, agents []string) *Env {
+	return load(path, data, nil, agents)
+}
+
+func load(path string, data []byte, err error, agents []string) *Env {
+	env := &Env{Path: path}
 	switch {
 	case os.IsNotExist(err):
 		env.Config = &config.Config{}

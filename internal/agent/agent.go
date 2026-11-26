@@ -302,14 +302,14 @@ func Summary(res *resolve.Result) string {
 	cut := false
 	if n := len(res.Files); n > 0 {
 		added = append(added, plural(n, "instruction"))
-		if res.Summary.ShowInstructions {
+		if res.Summary.MaxInstructions > 0 {
 			list, c := summaryList("Instructions", res.Files, fileEntry, "", res.Summary.MaxInstructions)
 			lists, cut = append(lists, list), cut || c
 		}
 	}
 	if n := len(res.Skills); n > 0 {
 		added = append(added, plural(n, "skill"))
-		if res.Summary.ShowSkills {
+		if res.Summary.MaxSkills > 0 {
 			skills := paths.Real(filepath.Join(paths.DataDir(), "skills"))
 			list, c := summaryList("Skills", res.Skills, func(h resolve.Hit) string { return h.Name }, skills, res.Summary.MaxSkills)
 			lists, cut = append(lists, list), cut || c
@@ -326,19 +326,13 @@ func Summary(res *resolve.Result) string {
 	if cut {
 		lists = append(lists, FullList)
 	}
-	if n := len(res.Missing); n > 0 {
-		issues = append(issues, fmt.Sprintf("%d not found", n))
-	}
 	// Before the dropped files, whose paths can be long: Muse cuts the end of
 	// a summary that is too long for it.
-	if n := len(res.Problems); n > 0 {
-		issues = append(issues, plural(n, "problem"))
+	if n := len(res.Errors); n > 0 {
+		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
 	signIn := needSignIn(res.MCPServers)
-	for _, conflict := range res.MCPConflicts {
-		signIn = append(signIn, fmt.Sprintf("MCP server %s is shadowed by %s (tool prefix %s); the first binding wins, without fallback", conflict.Loser, conflict.Winner, conflict.Prefix))
-	}
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 {
 		return ""
 	}

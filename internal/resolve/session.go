@@ -69,6 +69,9 @@ func (env *Env) Resolve(in Input) *Result {
 				why = append(why, c.Key+": "+c.Why)
 			}
 			t.Reason = strings.Join(why, "; ")
+			if len(t.Conditions) == 0 {
+				t.Reason = "no conditions: every session"
+			}
 			if t.Matched {
 				r.add(b, &t)
 			}
@@ -82,6 +85,8 @@ func (env *Env) Resolve(in Input) *Result {
 		}
 	}
 	r.res.Repo, r.res.RepoErr = r.repo, r.repoErr
+	r.res.sameNames()
+	r.res.updateNotices(env)
 	if m := env.Config.MaxCtxChars; m != nil && *m > 0 {
 		r.res.MaxChars = *m
 		r.res.Fit(func(res *Result) bool { return Chars(res.Render()) <= res.MaxChars }, "max-ctx-chars")
@@ -89,15 +94,14 @@ func (env *Env) Resolve(in Input) *Result {
 	return r.res
 }
 
-// summary is the config's session-message settings as SummaryMessage. 0
-// leaves a list out.
-func summary(m config.SessionMessage) config.SummaryMessage {
-	s := config.DefaultSummaryMessage
+// summary is the config's session-message settings.
+func summary(m config.SessionMessage) SessionMessage {
+	s := DefaultSessionMessage
 	if m.MaxInstructions != nil {
-		s.MaxInstructions, s.ShowInstructions = *m.MaxInstructions, *m.MaxInstructions > 0
+		s.MaxInstructions = *m.MaxInstructions
 	}
 	if m.MaxSkills != nil {
-		s.MaxSkills, s.ShowSkills = *m.MaxSkills, *m.MaxSkills > 0
+		s.MaxSkills = *m.MaxSkills
 	}
 	return s
 }
