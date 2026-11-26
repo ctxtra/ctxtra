@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,37 +179,61 @@ func TestDemoConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The demo's files are longer than its max-ctx-chars allows: with
+	// room for them, the demo shows what each binding adds.
+	roomy := strings.Replace(string(demoFile), "max-ctx-chars: 40000", "max-ctx-chars: 400000", 1)
+	in := Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles}
+	allFiles := []string{"me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md", "alerts.md", "capacity.md",
+		"errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md", "go-notes.md", "style.md", "testing.md"}
+
 	t.Run("the demo as written", func(t *testing.T) {
-		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
-		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "tracker")
-		// Repo sets are not implemented yet: the repo-sets entries of
-		// iam-repos and go-work are errors that match nothing.
+		res := Load(d.config(t, "config.yaml", roomy), agentNames).Resolve(in)
+		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "go-work", "tracker")
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), allFiles...)
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
+		eq(t, "servers", served(res), "linear")
+		if s := Load(d.config(t, "config.yaml", roomy), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
+			t.Errorf("iam-dev: %s", s.Why)
+		}
+	})
+
+	t.Run("max-ctx-chars leaves out the last files", func(t *testing.T) {
+		full := Load(d.config(t, "config.yaml", roomy), agentNames).Resolve(in)
+		// The limit is the rendered text without go-work's last two files.
+		short := *full
+		short.Files = full.Files[:len(full.Files)-2]
+		limit := Chars(short.Render())
+		res := Load(d.config(t, "config.yaml", strings.Replace(roomy, "max-ctx-chars: 400000", fmt.Sprintf("max-ctx-chars: %d", limit), 1)), agentNames).Resolve(in)
 		var errs []string
 		for _, e := range res.Errors {
 			errs = append(errs, e.Err.Msg)
 		}
-		eq(t, "errors", errs, "repo-sets iam-team:services can't be read: repo sets are not implemented yet; the entry matches nothing",
-			"repo-sets acme can't be read: repo sets are not implemented yet; the entry matches nothing")
-		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md", "alerts.md", "capacity.md",
-			"errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md")
-		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
-		eq(t, "servers", served(res), "linear")
-		if s := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
-			t.Errorf("iam-dev: %s", s.Why)
-		}
+		eq(t, "errors", errs, "the text is over max-ctx-chars; 2 files of bindings go-work are left out")
+		eq(t, "files", bases(res.Files), allFiles[:len(allFiles)-2]...)
+		eq(t, "dropped", bases(res.Dropped), "style.md", "testing.md")
 	})
 
 	t.Run("the iam profile", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.home, Agent: "codex", Profiles: []string{"iam"}})
 		eq(t, "applied", applied(res), "me", "iam", "review")
-		if len(res.Errors) != 2 {
-			t.Errorf("errors other than those of repo sets: %v", res.Errors)
-		}
+		noErrors(t, res)
 		// essentials: base's conventions, then docs/*.md without drafts,
 		// and without testing.md, which the binding leaves out.
 		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "errors.md", "naming.md", "overview.md")
 		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "login", "tokens", "go", "sql")
 		eq(t, "servers", served(res), "jira")
+	})
+
+	t.Run("iam's part of the monorepo", func(t *testing.T) {
+		dir := filepath.Join(d.home, "work", "mono", "services", "iam")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []string{string(demoFile), inlined} {
+			res := Load(d.config(t, "config.yaml", c), agentNames).Resolve(Input{Dir: dir, Agent: "codex"})
+			eq(t, "applied", applied(res), "me", "iam-repos", "security", "review", "go-work", "tracker")
+		}
 	})
 
 	t.Run("inlined", func(t *testing.T) {

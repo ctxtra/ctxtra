@@ -226,30 +226,6 @@ func TestConditions(t *testing.T) {
 		eq(t, "in ~/dev/mono", applied(start(env, h.mkdir("dev/mono/services/legacy/api"), "")), "b")
 		eq(t, "elsewhere", applied(start(env, h.mkdir("tmp/mono/services/legacy/api"), "")))
 	})
-
-	t.Run("a missing set", func(t *testing.T) {
-		h := newHome(t)
-		h.write("me.md", "me")
-		svc := h.repo("svc", "git@github.com:acme/iam-api.git")
-		env := h.load("sources: {iam-team: {dir: ~/iam}}\nbindings:\n  - {name: b, location: {repo-sets: ['iam-team:services']}, instructions: [~/me.md]}\n")
-		h.mkdir("iam")
-		res := start(env, svc, "")
-		eq(t, "applied", applied(res))
-		e := oneError(t, res, "repo-sets iam-team:services can't be read", "matches nothing")
-		if e.Err.Mistake != yamlx.BrokenLocation {
-			t.Errorf("mistake %v", e.Err.Mistake)
-		}
-	})
-
-	t.Run("a missing excluded set", func(t *testing.T) {
-		h := newHome(t)
-		h.write("me.md", "me")
-		h.mkdir("corp")
-		env := h.load("sources: {corp: {dir: ~/corp}}\nbindings:\n  - {name: b, location: {repo-sets: ['!corp:clients']}, instructions: [~/me.md]}\n")
-		res := start(env, h.dir, "")
-		eq(t, "applied", applied(res))
-		oneError(t, res, "repo-sets !corp:clients can't be read", "binding b is left out")
-	})
 }
 
 // location.dirs compares folders as the session folder's volume does.

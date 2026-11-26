@@ -54,7 +54,15 @@
 - `source add --repo` shows content warnings for the files that the manifest's collections offer.
 - `source update` reports collections in use that a commit removes, and the servers, skills and files it
   newly adds to them, with the bindings that use them.
-- Repo sets are parsed but not implemented yet: they are errors.
+- Repo sets: named lists of repositories, in a source's `ctxtra-source.yaml` or the config. A binding links
+  to one in `location.repo-sets`, as `SOURCE:SET` or the config's own by name, and follows the team's list
+  after each accepted commit. `!` entries in `repos` and `repo-sets` leave out repositories of a set. A set
+  that can't be read matches nothing, and in a `!` entry leaves out the binding; the session message names
+  it with its binding.
+- `source validate DIR` reports set entries that aren't repositories.
+- `source update` shows the entries a commit adds to or removes from the repo sets in use, the sets it
+  removes and their errors, with the bindings that use or exclude them, and warns about `HOST/**` entries.
+- `source update --json` lists the review's new errors in `diagnostics`, with the bindings they affect.
 
 ## v0.6.0
 

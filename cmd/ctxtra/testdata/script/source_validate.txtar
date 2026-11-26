@@ -22,6 +22,13 @@ stdout '^error: line 6: collection other-source: .*a manifest references only fi
 stdout '^error: line 8: collection home: .*relative'
 stdout '^error: line 10: collection outside: .*leaves its source'
 stdout '^4 errors, 0 warnings$'
+cp sets.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^validated ~/team-ctx/ctxtra-source.yaml: 0 collections, 0 MCP servers, 2 repo sets$'
+stdout '^error: line 4: repo set services: ~/work/\*\* is a folder; a set lists repositories only; the entry is left out$'
+stdout '^error: line 5: repo set services: iam-team:web is not a repository: a set lists repositories, such as github.com/acme/api, not other sets; the entry is left out$'
+stdout '^error: line 7: repo set web: unknown key "subdir"'
+stdout '^3 errors, 0 warnings$'
 cp config-only.yaml team-ctx/ctxtra-source.yaml
 ! exec ctxtra source validate team-ctx
 stdout 'a source provides content, and the user'
@@ -235,3 +242,11 @@ collections:
     instructions: [instructions/security.md, instructions/style.md]
   tools:
     skills: [skills/deploy]
+-- sets.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services:
+    - ~/work/**
+    - iam-team:web
+    - github.com/acme/iam-*
+  web: [{repo: github.com/acme/mono, subdir: web}]

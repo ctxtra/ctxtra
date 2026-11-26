@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -334,7 +335,7 @@ func Summary(res *resolve.Result) string {
 		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
-	signIn := append(inactiveSources(res.Errors), needSignIn(res.MCPServers)...)
+	signIn := slices.Concat(inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), needSignIn(res.MCPServers))
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 {
 		return ""
 	}
@@ -382,6 +383,24 @@ func inactiveSources(errs []*catalog.Error) []string {
 	}
 	if n > summaryNames {
 		out = append(out, fmt.Sprintf("%d more sources can't be read (run ctxtra doctor)", n-summaryNames))
+	}
+	return out
+}
+
+// unreadableSets names the repo sets that can't be read, with their
+// bindings and what that does to them. The first summaryNames are named.
+func unreadableSets(sets []resolve.UnreadableSet) []string {
+	var out []string
+	for i, u := range sets {
+		if i == summaryNames {
+			out = append(out, fmt.Sprintf("%d more repo sets can't be read (run ctxtra doctor)", len(sets)-summaryNames))
+			break
+		}
+		effect := "the entry matches nothing"
+		if strings.HasPrefix(u.Entry, "!") {
+			effect = "the binding is left out"
+		}
+		out = append(out, fmt.Sprintf("binding %s: repo set %s can't be read (%s); %s", u.Binding, u.Entry, strings.ReplaceAll(u.Why, "`", ""), effect))
 	}
 	return out
 }

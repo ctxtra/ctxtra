@@ -22,6 +22,9 @@ func (env *Env) Alone(b *config.Binding, in Input) *Result {
 	r.res = &Result{Dir: in.Dir, Summary: summary(env.Config.SessionMessage)}
 	t := Trace{Origin: b.Name, Matched: true}
 	if !b.Broken() {
+		if b.Location != nil {
+			r.repoSets(b, &t)
+		}
 		r.add(b, &t)
 	}
 	r.res.Errors = append(r.res.Errors, t.Errors...)

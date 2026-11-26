@@ -327,6 +327,37 @@ A collection's own entries come after the collections it nests. `context explain
 collections added and what its `!` entries left out. `source update` tells you when a commit removes a
 collection you use, or adds servers, skills or files to it.
 
+### Repo sets
+
+A team can list the repositories it works in, as a repo set in its `ctxtra-source.yaml`. Link a binding
+to the set, and it follows the list: when the team adds a repository, your sessions there get the binding
+after you accept the commit.
+
+```yaml
+bindings:
+  - name: iam-repos
+    location:
+      repo-sets: ['iam-team:services']
+      repos: [github.com/me/iam-playground, '!github.com/acme/iam-legacy']   # add one of mine, leave one of theirs out
+    collections: ['iam-team:base']
+```
+
+Your config can have its own `repo-sets`, bound by its bare name. A `!` entry leaves out every repository
+of a set:
+
+```yaml
+repo-sets:
+  clients: [github.com/acme/client-*]
+bindings:
+  - {name: tracker, location: {repo-sets: ['!clients']}, mcp-servers: [linear]}
+```
+
+If ctxtra can't read an excluded set, for example on a new machine before `ctxtra source download`, it
+leaves out the binding, so it never reaches the repositories you excluded. `context explain` shows which
+set and which of its entries matched. `source update` shows what a commit changes in a set you use, tells
+you when it removes one, and warns about an entry such as `github.com/**`, which matches every repository on
+the host.
+
 ### Profiles and agents
 
 A binding can have `agents: [claude-code, codex]`, with or without location. Every condition present must
@@ -335,7 +366,7 @@ hold. `agents: ['!cursor']` means every agent except Cursor. Preview with
 
 `profiles` is another condition, with case-sensitive names. Profile selection and commands are not
 available yet; sessions currently have no active profiles. Positive profile conditions therefore add
-nothing. Repo sets also parse but report an error when used.
+nothing.
 
 Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 

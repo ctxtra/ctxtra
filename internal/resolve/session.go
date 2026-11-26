@@ -264,9 +264,9 @@ func (r *session) location(b *config.Binding, t *Trace) Condition {
 		c.Why = "a ! dirs entry can't be checked"
 		return c
 	}
-	repos, left := r.repos(b, t)
-	if left {
-		c.Why = "a ! entry of the repository check can't be checked"
+	repos, out := r.repos(b, t)
+	if out != "" {
+		c.Why = out
 		return c
 	}
 	var why []string
@@ -377,57 +377,51 @@ func globMatch(pattern, name string) bool {
 	return err == nil && ok
 }
 
-// repos is the repository check: repos and repo-sets together. left is
-// true when a ! entry can't be checked, which leaves out the binding: a !
-// repo-sets entry, or any ! entry when git can't tell the repository. Then
-// positive entries match nothing.
-func (r *session) repos(b *config.Binding, t *Trace) (k check, left bool) {
+// repos is the repository check: repos and repo-sets together. left says
+// why a ! entry can't be checked, which leaves out the binding: a !
+// repo-sets entry whose set can't be read, or any ! entry when git can't
+// tell the repository. Then positive entries match nothing.
+func (r *session) repos(b *config.Binding, t *Trace) (k check, left string) {
 	l := b.Location
 	if len(l.Repos) == 0 && len(l.RepoSets) == 0 {
-		return k, false
+		return k, ""
 	}
 	k.present = true
-	for _, e := range l.RepoSets {
-		if e.Err != nil {
-			k.positive = k.positive || !e.Not
-			continue
-		}
-		_, err := r.env.Catalog.RepoSet(e)
-		if e.Not {
-			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be read: %v", e.Text, err)
-			return k, true
-		}
-		k.positive = true
-		r.fail(t, b, e.Pos, yamlx.BrokenLocation, "repo-sets %s can't be read: %v; the entry matches nothing", e.Text, err)
+	k.positive = slices.ContainsFunc(l.Repos, func(e config.RepoEntry) bool { return !e.Not }) ||
+		slices.ContainsFunc(l.RepoSets, func(e config.Entry) bool { return !e.Not })
+	sets, left := r.repoSets(b, t)
+	if left != "" {
+		return k, left
 	}
 	repo, err := r.repository()
 	if err != nil {
 		for _, e := range l.Repos {
 			if e.Err != nil {
-				k.positive = k.positive || !e.Not
 				continue
 			}
 			if e.Not {
 				r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repos %s can't be checked: %v", e.Text, err)
-				return k, true
+				return k, "a ! entry of the repository check can't be checked"
 			}
 			for _, sub := range e.Subdirs {
 				if sub.Not && sub.Err == nil {
 					r.fail(t, b, sub.Pos, yamlx.BrokenExclusion, "repos %s subdirs %s can't be checked: %v", e.Repo, sub.Text, err)
-					return k, true
+					return k, "a ! entry of the repository check can't be checked"
 				}
 			}
-			k.positive = true
+		}
+		for _, s := range sets {
+			if s.entry.Not {
+				r.fail(t, b, s.entry.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be checked: %v", s.entry.Text, err)
+				return k, "a ! entry of the repository check can't be checked"
+			}
 		}
 		k.why = fmt.Sprintf("repos: the repository can't be told (%v), so no entry matches", err)
-		return k, false
+		return k, ""
 	}
 	// subNot is a subdirs ! entry that kept an entry from matching.
 	var subNot string
 	for _, e := range l.Repos {
-		if !e.Not {
-			k.positive = true
-		}
 		if e.Err != nil {
 			continue
 		}
@@ -443,21 +437,124 @@ func (r *session) repos(b *config.Binding, t *Trace) (k check, left bool) {
 			k.why = "repos " + e.Text + " matches " + strings.Join(repo.Remotes, ", ")
 		}
 	}
+	// notSet is the set entry that a ! repo-sets entry matched with.
+	var notSet string
+	for _, s := range sets {
+		in, via := inSet(s.set, repo)
+		switch {
+		case !in:
+		case s.entry.Not:
+			if k.not == "" {
+				k.not, notSet = s.entry.Text, via
+			}
+		case !k.matched:
+			k.matched = true
+			k.why = fmt.Sprintf("repo-sets %s matches %s (set entry %s)", s.entry.Text, strings.Join(repo.Remotes, ", "), via)
+		}
+	}
 	if !k.matched && k.not == "" && subNot != "" {
 		k.not = subNot
 	}
 	switch {
+	case notSet != "":
+		k.why = fmt.Sprintf("repo-sets %s leaves out %s (set entry %s)", k.not, strings.Join(repo.Remotes, ", "), notSet)
 	case k.not != "":
 		k.why = fmt.Sprintf("repos %s leaves out %s (folder %s)", k.not, strings.Join(repo.Remotes, ", "), repo.Subpath)
 	case k.matched:
 	case repo == nil && k.positive:
 		k.why = "repos: not in a git repository"
 	case repo != nil && k.positive:
-		k.why = fmt.Sprintf("no repos entry matches %s (folder %s)", strings.Join(repo.Remotes, ", "), repo.Subpath)
+		k.why = fmt.Sprintf("no %s entry matches %s (folder %s)", repoKeys(l), strings.Join(repo.Remotes, ", "), repo.Subpath)
 	default:
-		k.why = "repos: only ! entries, none matches"
+		k.why = repoKeys(l) + ": only ! entries, none matches"
 	}
-	return k, false
+	return k, ""
+}
+
+// repoKeys names the keys of l's repository check.
+func repoKeys(l *config.Location) string {
+	switch {
+	case len(l.RepoSets) == 0:
+		return "repos"
+	case len(l.Repos) == 0:
+		return "repo-sets"
+	}
+	return "repos or repo-sets"
+}
+
+// repoSet is a repo-sets entry with the set it names.
+type repoSet struct {
+	entry config.Entry
+	set   *config.RepoSet
+}
+
+// repoSets are the sets that the repo-sets entries of b name and that can
+// be read. A set that can't be read matches nothing in a positive entry,
+// and in a ! entry leaves out the binding: left then says why. Each is an
+// error, except a set of a source not on this machine; a set of an
+// inactive source in a positive entry is the source's own error.
+func (r *session) repoSets(b *config.Binding, t *Trace) (sets []repoSet, left string) {
+	for _, e := range b.Location.RepoSets {
+		if e.Err != nil {
+			continue
+		}
+		var s *config.RepoSet
+		var err error
+		if e.InSource {
+			err = r.countManifest(e.Source)
+		}
+		if err == nil {
+			s, err = r.env.Catalog.RepoSet(e)
+		}
+		if err == nil {
+			sets = append(sets, repoSet{e, s})
+			continue
+		}
+		var u *catalog.Unavailable
+		if errors.As(err, &u) {
+			if !slices.Contains(t.Unavailable, u.Source.Name) {
+				t.Unavailable = append(t.Unavailable, u.Source.Name)
+			}
+		}
+		unreadable := func() {
+			r.res.UnreadableSets = append(r.res.UnreadableSets, UnreadableSet{Binding: b.Name, Entry: e.Text, Why: err.Error()})
+		}
+		switch {
+		case !e.Not && u != nil:
+		case !e.Not:
+			r.fail(t, b, e.Pos, yamlx.BrokenLocation, "repo-sets %s can't be read: %v; the entry matches nothing", e.Text, err)
+			unreadable()
+		case left != "":
+		case u != nil && u.Source.State == catalog.NotHere:
+			left = fmt.Sprintf("repo-sets %s can't be read: %v", e.Text, err)
+		default:
+			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be read: %v", e.Text, err)
+			unreadable()
+			left = fmt.Sprintf("repo-sets %s can't be read", e.Text)
+		}
+	}
+	return sets, left
+}
+
+// inSet reports whether the session's repository is in set s: one of its
+// positive entries matches and none of its ! entries does. via is the
+// entry that matched.
+func inSet(s *config.RepoSet, repo *gitrepo.Repo) (in bool, via string) {
+	for _, e := range s.Entries {
+		if e.Err == nil && e.Not {
+			if hit, _ := repoMatch(e, repo); hit {
+				return false, ""
+			}
+		}
+	}
+	for _, e := range s.Entries {
+		if e.Err == nil && !e.Not {
+			if hit, _ := repoMatch(e, repo); hit {
+				return true, e.Text
+			}
+		}
+	}
+	return false, ""
 }
 
 // repoMatch reports whether e matches the session's repository, through

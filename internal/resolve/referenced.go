@@ -26,9 +26,9 @@ type Reference struct {
 // conditions: files and skill folders after its ! entries, before content
 // reads and limits filter them, its collections, and the errors a session
 // reports for those entries: what a positive entry can't find, a ! entry
-// that excludes nothing, an error in a collection, and a SKILL.md that
-// can't be read or parsed. Of other sources, only what the config's own
-// collections name is read.
+// that excludes nothing, an error in a collection, a repo set that can't
+// be read, and a SKILL.md that can't be read or parsed. Of other sources,
+// only what the config's own collections name is read.
 func (env *Env) Referenced(b *config.Binding, name string) Reference {
 	r := &session{env: env, rd: env.reader(), res: &Result{}, files: map[string]bool{}, skills: map[string]bool{},
 		manifests: map[string]bool{}}
@@ -59,6 +59,9 @@ func (env *Env) Referenced(b *config.Binding, name string) Reference {
 		Skills: r.items(b, t, of(b.Skills), catalog.Skills, inSource(x.Skills)),
 		Named:  ofSource(x.Entered, name),
 		Used:   ofSource(x.Used, name),
+	}
+	if b.Location != nil {
+		r.repoSets(&config.Binding{Name: b.Name, Location: &config.Location{RepoSets: of(b.Location.RepoSets)}}, t)
 	}
 	for _, it := range ref.Skills {
 		md := it.Child("SKILL.md")

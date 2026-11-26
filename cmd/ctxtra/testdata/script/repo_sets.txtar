@@ -1,0 +1,103 @@
+# A binding's location links to a team's repo set, or to the config's own:
+# the team keeps the list, and sessions follow it after the commit is
+# accepted, with no change to the config.
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+gitrepo dev/iam-api https://github.com/acme/iam-api
+gitrepo dev/iam-legacy https://github.com/acme/iam-legacy
+gitrepo dev/accounts https://github.com/acme/accounts
+gitrepo dev/playground https://github.com/me/iam-playground
+gitrepo dev/client-x https://github.com/acme/client-x
+
+# A team's set with the user's own changes.
+exec ctxtra context files dev/iam-api
+stdout 'iam.md'
+exec ctxtra context explain dev/iam-api
+stdout '^\+ iam-repos: location: repo-sets iam-team:services matches github.com/acme/iam-api \(set entry github.com/acme/iam-\*\)$'
+exec ctxtra context files dev/playground
+stdout 'iam.md'
+exec ctxtra context explain dev/iam-legacy
+stdout '^- iam-repos: location: repos !github.com/acme/iam-legacy leaves out github.com/acme/iam-legacy'
+stdout 'location: left out by !github.com/acme/iam-legacy'
+
+# The config's own set, excluded: everywhere but the client repositories.
+exec ctxtra context explain dev/iam-api
+stdout '^\+ not-clients: '
+exec ctxtra context explain dev/client-x
+stdout '^- not-clients: location: repo-sets !clients leaves out github.com/acme/client-x \(set entry github.com/acme/client-\*\)$'
+
+# The team starts a new repository.
+exec ctxtra context files dev/accounts
+! stdout 'iam.md'
+cp services-v2.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+exec ctxtra context files dev/accounts
+stdout 'iam.md'
+exec ctxtra doctor dev/accounts
+! stdout 'error'
+
+# Sets the accepted commit doesn't have: a missing set matches nothing, and
+# a missing excluded set leaves out its binding. The session message names
+# each set and its binding, and doctor reports them.
+exec ctxtra context files dev/iam-api
+stdout 'team-me.md'
+cp no-sets.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart dev/iam-api
+! stdout 'IAM_TEXT'
+! stdout 'TEAM_ME'
+stdout '2 errors \(run ctxtra doctor\)'
+stdout '\\n⚠ binding iam-repos: repo set iam-team:services can''t be read \(source iam-team has no repo set services\); the entry matches nothing\\n'
+stdout '\\n⚠ binding team-only: repo set !iam-team:contractors can''t be read \(source iam-team has no repo set contractors\); the binding is left out"'
+! exec ctxtra doctor dev/iam-api
+stdout 'binding iam-repos: .*repo-sets iam-team:services can''t be read: source iam-team has no repo set services; the entry matches nothing'
+! exec ctxtra context explain dev/iam-api
+stdout '^- iam-repos: location: no repos or repo-sets entry matches github.com/acme/iam-api'
+stdout '^    error .*repo-sets iam-team:services can''t be read'
+
+-- yes.txt --
+y
+-- bindings.yaml --
+repo-sets:
+  clients: [github.com/acme/client-*]
+bindings:
+  - name: iam-repos
+    location:
+      repo-sets: ['iam-team:services']
+      repos: [github.com/me/iam-playground, '!github.com/acme/iam-legacy']
+    instructions: ['iam-team:iam.md']
+  - name: not-clients
+    location: {repo-sets: ['!clients']}
+    instructions: [~/ctx/me.md]
+  - name: team-only
+    location: {repo-sets: ['!iam-team:contractors']}
+    instructions: [~/ctx/team-me.md]
+-- ctx/team-me.md --
+TEAM_ME
+-- ctx/me.md --
+ME_TEXT
+-- srv/iam-team/iam.md --
+IAM_TEXT
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services:
+    - github.com/acme/iam-*
+  contractors: [github.com/contractor/**]
+-- services-v2.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services:
+    - github.com/acme/iam-*
+    - github.com/acme/accounts
+  contractors: [github.com/contractor/**]
+-- no-sets.yaml --
+schema: ctxtra/source/v1
