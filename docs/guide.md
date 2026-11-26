@@ -300,6 +300,32 @@ Checks never accept them. Remote checks use your git credentials; keys needing a
 Use `--check-updates=false` when adding such a source, or set `check-updates: false` on it later.
 `ctxtra check-updates` checks now. `ctxtra source list` and `ctxtra source show NAME` show source state.
 
+### Collections
+
+A source can name sets of its files, skills and servers in its `ctxtra-source.yaml`. Bind a set by its name,
+and the source can move its files without breaking your config:
+
+```yaml
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+    instructions: ['!iam-team:docs/testing.md']   # leave one file of the set out
+```
+
+Your config can have its own `collections` too, for one set in several places:
+
+```yaml
+collections:
+  go-kit:
+    instructions: [go-notes.md, 'go-style:go/*.md']
+bindings:
+  - {name: go, location: {dirs: ['~/dev/**']}, collections: [go-kit]}
+  - {name: go-work, location: {repos: ['github.com/acme/**']}, collections: [go-kit]}
+```
+
+A collection's own entries come after the collections it nests. `context explain` shows what a binding's
+collections added and what its `!` entries left out.
+
 ### Profiles and agents
 
 A binding can have `agents: [claude-code, codex]`, with or without location. Every condition present must
@@ -308,7 +334,7 @@ hold. `agents: ['!cursor']` means every agent except Cursor. Preview with
 
 `profiles` is another condition, with case-sensitive names. Profile selection and commands are not
 available yet; sessions currently have no active profiles. Positive profile conditions therefore add
-nothing. Collections and repo sets also parse but report an error when used. Use direct references now.
+nothing. Repo sets also parse but report an error when used.
 
 Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 

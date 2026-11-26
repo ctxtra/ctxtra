@@ -42,12 +42,15 @@
   for the whole repository before it writes anything.
 - `source update --dry-run` writes only to the cache. The review reads commits from the cache, and also
   shows a newly matched skill whose `SKILL.md` is invalid, and a `!` entry that a commit leaves matching nothing.
-- Collections and repo sets are parsed but not implemented yet: they are errors.
 - Live-folder trust notices give the trust command and the option to use reviewed commits. `source trust`
   explains that files, servers and repo sets apply without review. Trust checks include every URL of a
   remote. Repo sources refuse symlinks in explicit paths and manifests as well as in patterns.
 - Trust records include push URLs as well as fetch URLs. File reads and displayed paths use the destination
   that passed the trust check.
+- Collections: named sets of instructions, skills, MCP servers and nested collections, in a source's
+  `ctxtra-source.yaml` or the config. A binding adds `SOURCE:NAME` or the config's own by name, and its `!`
+  entries remove what its collections add. Cycles, missing collections and paths that match nothing are errors.
+- Repo sets are parsed but not implemented yet: they are errors.
 
 ## v0.6.0
 

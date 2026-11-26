@@ -39,6 +39,8 @@ type Catalog struct {
 	// store is the use of commits in ctxtra's store, shared by copies of
 	// the catalog.
 	store *storeUse
+	// colls are the collections read, by their definition.
+	colls map[*config.Collection]*coll
 }
 
 // storeUse is what a catalog marked as used in ctxtra's store. All marks
@@ -327,6 +329,7 @@ func (c *Catalog) WithFiles(name string, fsys fs.FS, top string) *Catalog {
 	cp := *c
 	cp.sources = map[string]*Source{}
 	cp.order = nil
+	cp.colls = nil
 	for _, s := range c.order {
 		if s.Name == name {
 			s = &Source{Source: s.Source, State: Active, Top: top, fsys: fsys}
@@ -456,12 +459,6 @@ func (c *Catalog) keepManifest(s *Source, file string, data []byte, err error) (
 type errNotImplemented string
 
 func (e errNotImplemented) Error() string { return string(e) + " are not implemented yet" }
-
-// Collections are the collections that entry e of a collections list names.
-// Collections are not implemented yet: it is always an error.
-func (c *Catalog) Collections(e config.Entry) ([]*config.Collection, error) {
-	return nil, errNotImplemented("collections")
-}
 
 // RepoSet is the repo set that entry e of location.repo-sets names. Repo
 // sets are not implemented yet: it is always an error.

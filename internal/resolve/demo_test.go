@@ -181,9 +181,8 @@ func TestDemoConfig(t *testing.T) {
 	t.Run("the demo as written", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "tracker")
-		// Repo sets and collections are not implemented yet: the
-		// repo-sets entries of iam-repos and go-work are errors that match
-		// nothing, and no binding with collections applies.
+		// Repo sets are not implemented yet: the repo-sets entries of
+		// iam-repos and go-work are errors that match nothing.
 		var errs []string
 		for _, e := range res.Errors {
 			errs = append(errs, e.Err.Msg)
@@ -197,6 +196,19 @@ func TestDemoConfig(t *testing.T) {
 		if s := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
 			t.Errorf("iam-dev: %s", s.Why)
 		}
+	})
+
+	t.Run("the iam profile", func(t *testing.T) {
+		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.home, Agent: "codex", Profiles: []string{"iam"}})
+		eq(t, "applied", applied(res), "me", "iam", "review")
+		if len(res.Errors) != 2 {
+			t.Errorf("errors other than those of repo sets: %v", res.Errors)
+		}
+		// essentials: base's conventions, then docs/*.md without drafts,
+		// and without testing.md, which the binding leaves out.
+		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "errors.md", "naming.md", "overview.md")
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "login", "tokens", "go", "sql")
+		eq(t, "servers", served(res), "jira")
 	})
 
 	t.Run("inlined", func(t *testing.T) {

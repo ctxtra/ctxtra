@@ -45,7 +45,7 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 		if b.Broken() {
 			continue
 		}
-		files, skills, errs := alone.Referenced(b, name)
+		files, skills, _, errs := alone.Referenced(b, name)
 		for _, it := range files {
 			u.files[it.Rel] = true
 		}
@@ -53,7 +53,11 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 			u.dirs = append(u.dirs, it.Rel)
 		}
 		for _, e := range errs {
-			u.errors = append(u.errors, strings.ReplaceAll(e.Err.Error(), reviewTop(name)+string(filepath.Separator), name+":"))
+			msg := e.Err.Error()
+			if e.File != env.Path {
+				msg = e.Error()
+			}
+			u.errors = append(u.errors, strings.ReplaceAll(msg, reviewTop(name)+string(filepath.Separator), name+":"))
 		}
 	}
 	return u
