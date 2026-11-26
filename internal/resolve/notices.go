@@ -7,8 +7,8 @@ import (
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/paths"
-	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/update"
 )
 
 // sameNames adds a notice for each skill and server whose name an earlier
@@ -43,12 +43,12 @@ func RemoteOf(s *config.Source) string {
 }
 
 // updateNotices tells about the repo sources that the session uses: new
-// commits that the last check found, for a source with update checks on,
-// and a commit the user didn't accept.
+// commits or a moved tag that the last check found, for a source with
+// update checks on, and a commit the user didn't accept.
 func (r *Result) updateNotices(env *Env) {
 	var st *state.State
 	for _, src := range env.Catalog.Sources() {
-		if src.State != catalog.Active || src.Live() || src.Ref.Kind != config.Branch || !r.usesSource(src.Name) {
+		if src.State != catalog.Active || src.Live() || src.Ref.Kind == config.Rev || !r.usesSource(src.Name) {
 			continue
 		}
 		e := env.Lock.Entry(src.Name)
@@ -59,10 +59,13 @@ func (r *Result) updateNotices(env *Env) {
 			s := state.Load()
 			st = &s
 		}
-		remote := RemoteOf(src.Source)
-		info := st.Get(source.ID(remote), remote, src.Ref.Name)
+		info := st.Get(update.StateKey(src.Source))
 		checks := src.CheckUpdates == nil || *src.CheckUpdates
-		if checks && info.Head != "" && info.Head != e.Commit && info.Head != info.Dismissed {
+		switch {
+		case !checks || !info.New(e.Commit):
+		case src.Ref.Kind == config.Tag:
+			r.Notices = append(r.Notices, fmt.Sprintf("%s: the tag %s moved to another commit\nrun `ctxtra source update %s` to review it.", src.Name, src.Ref.Name, src.Name))
+		default:
 			r.Notices = append(r.Notices, fmt.Sprintf("%s has new commits on %s\nrun `ctxtra source update %s` to review them.", src.Name, src.Ref.Name, src.Name))
 		}
 		if info.Dismissed != "" && info.Dismissed != e.Commit {

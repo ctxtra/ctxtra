@@ -1,0 +1,102 @@
+# Reviewing new versions: what counts as new depends on the key. A tag
+# that someone moves is reported and reviewed like a new commit; a rev is
+# new only when the user edits it.
+
+gitrepo srv/obs
+exec git -C srv/obs tag v1.4.0
+exec git -C srv/obs tag -a v2 -m 'annotated'
+exec ctxtra setup --agent claude-code
+
+# Add at a tag: the config gets the tag, the lock its commit.
+exec ctxtra source add --repo $GITSRV/obs --tag v1.4.0
+stdout '^fetched obs: tag v1.4.0 at [0-9a-f]{7} '
+stdout '^added source obs: if the tag moves, its new commit applies after you accept it in ctxtra source update obs$'
+grep '^    tag: v1.4.0$' .config/ctxtra/config.yaml
+grep '^    tag: v1.4.0$' .config/ctxtra/ctxtra.lock
+exec ctxtra binding add obs --instruction obs:conventions.md
+runhook claude-code SessionStart notes
+stdout 'CONVENTIONS_V1'
+
+# An annotated tag is followed to its commit; the same tag twice is the
+# same source, also with another name.
+exec ctxtra source add --repo $GITSRV/obs --tag v2 --name obs-two
+grep -count=2 '^    commit: [0-9a-f]{40}$' .config/ctxtra/ctxtra.lock
+cp .config/ctxtra/config.yaml before.yaml
+exec ctxtra source add --repo $GITSRV/obs --tag v1.4.0 --name again
+stdout ', tag v1.4.0, is the source obs already$'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# A new commit on the branch is nothing new for a tag.
+cp v2/conventions.md srv/obs/conventions.md
+gitcommit srv/obs
+exec ctxtra source update obs --dry-run
+stdout '^obs: up to date \(v1.4.0 at [0-9a-f]{7}\)$'
+exec ctxtra check-updates
+stdout '^obs: the tag has not moved \(checked .*\)$'
+
+# Tag: someone moves it. The check reports it, the session says so, and
+# source update shows the change for review like a new commit.
+exec git -C srv/obs tag -f v1.4.0
+exec ctxtra check-updates
+stdout '^obs: the tag moved \(checked .*\); run `ctxtra source update obs` to review it$'
+runhook claude-code SessionStart notes
+stdout 'obs: the tag v1.4.0 moved to another commit\\n  run `ctxtra source update obs` to review it.'
+stdout 'CONVENTIONS_V1'
+exec ctxtra source update obs --dry-run
+stdout '^obs: [0-9a-f]{7} -> [0-9a-f]{7} \(v1.4.0, https://'
+stdout '^the tag v1.4.0 moved: it was at [0-9a-f]{7}, it is at [0-9a-f]{7} now$'
+stdout '^\+CONVENTIONS_V2$'
+stdin yes.txt
+exec ctxtra-tty source update obs
+stdout '^accepted obs [0-9a-f]{7}'
+runhook claude-code SessionStart notes
+stdout 'CONVENTIONS_V2'
+! stdout 'moved'
+
+# A tag that is gone is an error that names it, and changes nothing.
+cp .config/ctxtra/ctxtra.lock saved.lock
+exec git -C srv/obs tag -d v1.4.0
+! exec ctxtra source update obs --dry-run
+stderr '^obs: can''t fetch the tag v1.4.0 of https://'
+cmp .config/ctxtra/ctxtra.lock saved.lock
+exec git -C srv/obs tag v1.4.0
+
+# Rev: source add takes any revision and writes the full ID.
+exec ctxtra source add --repo $GITSRV/obs --rev v2 --name pinned
+stdout '^added source pinned: it stays at this commit until you change rev$'
+! stdout 'sessions check'
+grep '^    rev: [0-9a-f]{40}$' .config/ctxtra/config.yaml
+! grep 'check-updates' .config/ctxtra/config.yaml
+
+# Rev: there is nothing new; the version changes only when the user edits rev.
+exec ctxtra source update pinned --dry-run
+stdout '^pinned: up to date \(rev [0-9a-f]{7}\); it changes only when you edit rev$'
+exec ctxtra check-updates
+! stdout 'pinned'
+exec ctxtra source show pinned
+stdout 'rev [0-9a-f]{40}, at [0-9a-f]{7} \(it changes only when you edit rev\)$'
+
+# Editing rev is reviewed as a change from the locked commit.
+exec git -C srv/obs rev-parse HEAD
+cp stdout head.txt
+exec sh -c 'sed -i.bak "s/rev: .*/rev: $(cat head.txt)/" .config/ctxtra/config.yaml'
+exec ctxtra source update pinned --dry-run
+stdout '^ctxtra.lock has [0-9a-f]{7} accepted for rev [0-9a-f]{40}; the config now says rev [0-9a-f]{40}$'
+stdout '^pinned: not accepted \(--dry-run\)'
+
+# A short rev in the config is an error that says rev is a full commit ID.
+exec sh -c 'sed -i.bak "s/rev: .*/rev: 9f8e7d6/" .config/ctxtra/config.yaml'
+! exec ctxtra doctor notes
+stdout 'source pinned: rev 9f8e7d6 is not a full commit ID: 40 hex characters'
+stdout 'source pinned: repo https://.*, rev 9f8e7d6: the source has errors in the config'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+-- notes/.keep --
+-- yes.txt --
+y
+-- srv/obs/conventions.md --
+CONVENTIONS_V1
+-- v2/conventions.md --
+CONVENTIONS_V2

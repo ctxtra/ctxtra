@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -32,7 +33,7 @@ func load(t *testing.T, path string) Config {
 	if len(cfg.Errors) > 0 {
 		t.Fatalf("errors %v", cfg.Errors)
 	}
-	return FromConfig(cfg)
+	return FromConfig(cfg, nil)
 }
 
 func TestNewer(t *testing.T) {
@@ -276,17 +277,17 @@ sources:
 	if r := st.Ctxtra; r.Latest != "v0.3.0" || r.Checked.IsZero() || r.Attempt.IsZero() || r.Error != "" {
 		t.Errorf("release state %+v", r)
 	}
-	if e := st.Get(source.ID(url), url, "main"); e.Head != next || e.Checked.IsZero() || e.Error != "" || !e.LastCheck.IsZero() {
+	if e := st.Get(source.ID(url), url, "branch main"); e.Head != next || e.Checked.IsZero() || e.Error != "" || !e.LastCheck.IsZero() {
 		t.Errorf("team state %+v", e)
 	}
-	if e := st.Get(source.ID(dir), dir, "main"); e.Head != next || e.Error != "" {
+	if e := st.Get(source.ID(dir), dir, "branch main"); e.Head != next || e.Error != "" {
 		t.Errorf("local state %+v", e)
 	}
-	gone := st.Get(source.ID("https://127.0.0.1:1/gone"), "https://127.0.0.1:1/gone", "main")
+	gone := st.Get(source.ID("https://127.0.0.1:1/gone"), "https://127.0.0.1:1/gone", "branch main")
 	if gone.Error == "" || gone.Head != "" || !gone.Checked.IsZero() || gone.Attempt.IsZero() {
 		t.Errorf("failed check state %+v", gone)
 	}
-	if e := st.Get(source.ID("https://127.0.0.1:1/quiet"), "https://127.0.0.1:1/quiet", "main"); !e.Attempt.IsZero() {
+	if e := st.Get(source.ID("https://127.0.0.1:1/quiet"), "https://127.0.0.1:1/quiet", "branch main"); !e.Attempt.IsZero() {
 		t.Errorf("a source with checks disabled was checked: %+v", e)
 	}
 
@@ -349,7 +350,7 @@ func TestStartDue(t *testing.T) {
 	// check-releases: false may be what failed.
 	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n: [\n")
 	data, _ := os.ReadFile(cfgPath)
-	if err := StartDue(FromConfig(config.Parse(data, config.Options{})), "v0.2.3"); err != nil || len(started) != 2 {
+	if err := StartDue(FromConfig(config.Parse(data, config.Options{}), nil), "v0.2.3"); err != nil || len(started) != 2 {
 		t.Errorf("an ignored config: %q, %v", started, err)
 	}
 
@@ -368,7 +369,7 @@ func TestStartDue(t *testing.T) {
 		t.Error("a failed start is no error")
 	}
 	st := state.Load()
-	if e := st.Get(source.ID("https://h/team"), "https://h/team", "main"); e.Error != "can't start the check: no such file" || st.Ctxtra.Error != e.Error {
+	if e := st.Get(source.ID("https://h/team"), "https://h/team", "branch main"); e.Error != "can't start the check: no such file" || st.Ctxtra.Error != e.Error {
 		t.Errorf("failed start: source %q, release %q", e.Error, st.Ctxtra.Error)
 	}
 	want("failed start is throttled", "v0.2.3")
@@ -544,5 +545,90 @@ func TestRecordDropsSupersededResults(t *testing.T) {
 	clock = at.Add(-time.Hour)
 	if !Record(&c, clock, nil) || c.Error != "" {
 		t.Errorf("after the clock went back: %+v", c)
+	}
+}
+
+// Update checks follow the lock's entries: a moved tag is new, a rev has
+// nothing to check, and commits that change only other folders than a
+// source's subdir are nothing new.
+func TestRunTagsRevsAndSubdirs(t *testing.T) {
+	h := testenv.Home(t)
+	dir := testenv.Repo(t, filepath.Join(h, "srv", "team"), "")
+	url := testenv.GitServer(t, filepath.Join(h, "srv")) + "/team"
+	commitFiles := func(files map[string]string) string {
+		t.Helper()
+		for p, c := range files {
+			testenv.Write(t, filepath.Join(dir, filepath.FromSlash(p)), c)
+		}
+		testenv.Run(t, dir, "git", "add", "-A")
+		testenv.Run(t, dir, "git", "commit", "-q", "-m", "x")
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	first := commitFiles(map[string]string{"teams/billing/a.md": "A", "teams/iam/b.md": "B"})
+	testenv.Run(t, dir, "git", "tag", "-a", "v1", "-m", "x")
+	path := testenv.Config(t, h, `schema: ctxtra/config/v1
+check-releases: false
+sources:
+  billing: {repo: '`+url+`', branch: main, subdir: teams/billing}
+  tagged: {repo: '`+url+`', tag: v1}
+  pinned: {repo: '`+url+`', rev: `+first+`}
+`)
+	entry := func(name, ref string) string {
+		e := "  " + name + ":\n    repo: " + url + "\n    " + ref + "\n"
+		if name == "billing" {
+			e += "    subdir: teams/billing\n"
+		}
+		return e + "    commit: " + first + "\n"
+	}
+	testenv.Write(t, lock.Path(path), "schema: ctxtra/lock/v1\nsources:\n"+entry("billing", "branch: main")+entry("pinned", "rev: "+first)+entry("tagged", "tag: v1"))
+	data, _ := os.ReadFile(path)
+	c := config.Parse(data, config.Options{})
+	ldata, _ := os.ReadFile(lock.Path(path))
+	l := lock.Parse(ldata)
+	if len(c.Errors) > 0 || len(l.Errors) > 0 {
+		t.Fatalf("errors %v %v", c.Errors, l.Errors)
+	}
+	cfg := FromConfig(c, l)
+	var names []string
+	for _, s := range cfg.Sources {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, " ") != "billing tagged" {
+		t.Fatalf("checked %q: a rev has nothing to check", names)
+	}
+	get := func(name string) state.Source {
+		return state.Load().Get(StateKey(c.Source(name)))
+	}
+
+	// Commits to other teams' folders: nothing new.
+	other := commitFiles(map[string]string{"teams/iam/b.md": "B2"})
+	if _, err := Run(context.Background(), cfg, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if e := get("billing"); e.Head != other || e.New(first) {
+		t.Errorf("other folder: %+v", e)
+	}
+	if e := get("tagged"); e.Head != first || e.New(first) {
+		t.Errorf("tag not moved: %+v", e)
+	}
+	// A commit under subdir is new; a moved tag is new.
+	under := commitFiles(map[string]string{"teams/billing/a.md": "A2"})
+	testenv.Run(t, dir, "git", "tag", "-f", "-a", "v1", "-m", "moved")
+	if _, err := Run(context.Background(), cfg, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if e := get("billing"); e.Head != under || !e.New(first) {
+		t.Errorf("subdir changed: %+v", e)
+	}
+	if e := get("tagged"); e.Head != under || !e.New(first) {
+		t.Errorf("tag moved: %+v", e)
+	}
+	// State about another subdir of the same branch is kept apart.
+	if e := state.Load().Get(source.ID(url), url, Follows(config.Ref{Kind: config.Branch, Name: "main"}, "teams/iam")); e.Head != "" {
+		t.Errorf("another subdir: %+v", e)
 	}
 }

@@ -80,10 +80,17 @@ func Run(args []string, stdio IO, version string) int {
 		fmt.Fprintf(stdio.Err, "Run '%s --help' for more.\n", path)
 		n = 2
 	}
-	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) {
+	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) && !dryRun(a.ran) {
 		setupNotices(stdio.Err)
 	}
 	return n
+}
+
+// dryRun reports whether cmd ran with --dry-run, which changes nothing: no
+// setup record, and no mark on the commits that the notices read.
+func dryRun(cmd *cobra.Command) bool {
+	f := cmd.Flags().Lookup("dry-run")
+	return f != nil && f.Value.String() == "true"
 }
 
 // run makes f a cobra RunE, and records that the command ran. f returns

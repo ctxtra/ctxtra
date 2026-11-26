@@ -4,8 +4,9 @@
 // Sessions never wait on the network: the hook shows the results that
 // state.json has from earlier checks, and starts a check in a detached
 // process when one is due (StartDue). The check writes its results for the
-// next session. A check reads only a version number or a commit ID: it
-// fetches no files and accepts nothing.
+// next session. A check reads only a version number or a commit ID, and
+// accepts nothing; for a source with subdir it fetches the branch into
+// ctxtra's cache, to tell whether anything changed under subdir.
 package update
 
 import (
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -143,31 +145,87 @@ type Config struct {
 	Sources []Source
 }
 
-// Source is a repo source that follows a branch, with update checks on.
+// Source is a repo source that follows a branch or a tag, with update
+// checks on.
 type Source struct {
-	Name, Remote, Branch string
+	Name, Remote string
+	Ref          config.Ref
+	Subdir       string
+	// Accepted is the commit in the lock, "" when it has none for what the
+	// source follows.
+	Accepted string
 }
 
-// FromConfig is what the checks need from c: the release check unless
-// check-releases is false, and every repo source that follows a branch and
-// doesn't have check-updates: false. A config that can't be read checks
+// Follows is what the state of s is kept by: its branch or tag, and its
+// subdir. A source that follows something else has another state.
+func Follows(ref config.Ref, subdir string) string {
+	f := ref.String()
+	if sub := config.CleanSubdir(subdir); sub != "" {
+		f += " subdir " + sub
+	}
+	return f
+}
+
+// StateKey is the key of source s in state.json: its remote's ID, the
+// remote, and what it follows.
+func StateKey(s *config.Source) (id, remote, follows string) {
+	remote = s.Repo
+	if config.IsLocalRepo(remote) {
+		remote = filepath.Clean(paths.Expand(remote))
+	}
+	return source.ID(remote), remote, Follows(s.Ref, s.Subdir)
+}
+
+// FromConfig is what the checks need from c and its lock l: the release
+// check unless check-releases is false, and every repo source that follows
+// a branch or a tag and doesn't have check-updates: false. A source at a
+// rev has nothing new to check. A config that can't be read checks
 // nothing: its check-releases: false may be what failed.
-func FromConfig(c *config.Config) Config {
+func FromConfig(c *config.Config, l *lock.Lock) Config {
 	if slices.ContainsFunc(c.Errors, func(e *yamlx.Error) bool { return e.Out() == yamlx.OutFile }) {
 		return Config{}
 	}
 	out := Config{Releases: c.CheckReleases == nil || *c.CheckReleases}
 	for _, s := range c.Sources {
-		if s.Broken() || s.Repo == "" || s.Ref.Kind != config.Branch || s.CheckUpdates != nil && !*s.CheckUpdates {
+		if s.Broken() || s.Repo == "" || s.Ref.Kind == config.Rev || s.CheckUpdates != nil && !*s.CheckUpdates {
 			continue
 		}
-		remote := s.Repo
-		if config.IsLocalRepo(remote) {
-			remote = filepath.Clean(paths.Expand(remote))
+		_, remote, _ := StateKey(s)
+		src := Source{Name: s.Name, Remote: remote, Ref: s.Ref, Subdir: config.CleanSubdir(s.Subdir)}
+		if l != nil {
+			if e := l.Entry(s.Name); e != nil && lock.Compare(e, s).Same() {
+				src.Accepted = e.Commit
+			}
 		}
-		out.Sources = append(out.Sources, Source{Name: s.Name, Remote: remote, Branch: s.Ref.Name})
+		out.Sources = append(out.Sources, src)
 	}
 	return out
+}
+
+func (s Source) follows() string { return Follows(s.Ref, s.Subdir) }
+
+// head is the newest commit of what s follows. For a branch with subdir,
+// unchanged is the accepted commit when the files under subdir are the
+// same at head; finding that out fetches the branch into the cache.
+func (s Source) head(ctx context.Context) (head, unchanged string, err error) {
+	r := source.Open(s.Remote)
+	if s.Ref.Kind == config.Tag {
+		head, err = r.TagHead(ctx, s.Ref.Name)
+		return head, "", err
+	}
+	head, err = r.Head(ctx, s.Ref.Name)
+	if err != nil || s.Subdir == "" || s.Accepted == "" || head == s.Accepted {
+		return head, "", err
+	}
+	if _, err := r.FetchBranch(ctx, s.Ref.Name); err != nil {
+		return "", "", err
+	}
+	was, err1 := r.TreeID(ctx, s.Accepted, s.Subdir)
+	now, err2 := r.TreeID(ctx, head, s.Subdir)
+	if err1 == nil && err2 == nil && was == now {
+		unchanged = s.Accepted
+	}
+	return head, unchanged, nil
 }
 
 // StartDue starts a check in the background when one is due: the release
@@ -181,7 +239,7 @@ func StartDue(cfg Config, version string) error {
 	release := cfg.Releases && IsRelease(version)
 	var claims []state.Claim
 	for _, s := range cfg.Sources {
-		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote), URL: s.Remote, Branch: s.Branch})
+		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote), URL: s.Remote, Follows: s.follows()})
 	}
 	if !release && len(claims) == 0 {
 		return nil
@@ -212,7 +270,7 @@ func StartDue(cfg Config, version string) error {
 				mine(&s.Ctxtra.Check)
 			}
 			for _, c := range claimed {
-				e := s.Get(c.ID, c.URL, c.Branch)
+				e := s.Get(c.ID, c.URL, c.Follows)
 				mine(&e.Check)
 				s.Put(c.ID, e)
 			}
@@ -313,9 +371,12 @@ type Result struct {
 	Release bool   // the release check, else a source's
 	Name    string // the source's name
 	Latest  string // the latest release, or the source's commit
-	At      time.Time
-	Err     error
-	order   int
+	// Unchanged is the accepted commit when Latest has the same files
+	// under the source's subdir.
+	Unchanged string
+	At        time.Time
+	Err       error
+	order     int
 }
 
 // Selection is what a check checks: the release, when the release check is
@@ -363,20 +424,21 @@ func Run(ctx context.Context, cfg Config, version string, sel *Selection) ([]Res
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			at := now()
-			var head string
+			var head, unchanged string
 			err := errNoTime
 			// A check that waited past the deadline doesn't ask the remote:
 			// its error says why, not that the remote failed.
 			if ctx.Err() == nil {
 				ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 				defer cancel()
-				head, err = source.Open(s.Remote).Head(ctx, s.Branch)
+				head, unchanged, err = s.head(ctx)
 			}
-			add(Result{Name: s.Name, Latest: head, At: at, Err: err, order: i}, state.UpdateWithin(resultWait, source.ID(s.Remote), s.Remote, s.Branch, func(e *state.Source) {
-				if Record(&e.Check, at, err) && err == nil {
-					e.Head = head
-				}
-			}))
+			add(Result{Name: s.Name, Latest: head, Unchanged: unchanged, At: at, Err: err, order: i},
+				state.UpdateWithin(resultWait, source.ID(s.Remote), s.Remote, s.follows(), func(e *state.Source) {
+					if Record(&e.Check, at, err) && err == nil {
+						e.Head, e.Unchanged = head, unchanged
+					}
+				}))
 		})
 	}
 	wg.Wait()

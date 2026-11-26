@@ -34,7 +34,15 @@
 - Mistakes are errors, reported in the session message, the log, `context explain` and `doctor`; the part
   with the mistake is left out. Two skills or MCP servers with one name are notices: both skills reach the
   session, and the first server in binding order is served.
-- `tag`, `rev`, `subdir`, collections and repo sets are parsed but not implemented yet: they are errors.
+- A repo source follows a `branch`, a `tag` or a `rev`. A moved tag is reported and reviewed; a `rev` stays
+  until you edit it. `source add` takes `--tag`, and `--rev` with any revision, which it writes as the full ID.
+- `subdir` makes a folder of a repository the source's top, with `source add --subdir`. Commits that change
+  only other folders are nothing new. Another `repo` or `subdir` is reviewed as a new source.
+- `source add` names a source after the repository and, with `--subdir`, the folder. It checks the size limits
+  for the whole repository before it writes anything.
+- `source update --dry-run` writes only to the cache. The review reads commits from the cache, and also
+  shows a newly matched skill whose `SKILL.md` is invalid, and a `!` entry that a commit leaves matching nothing.
+- Collections and repo sets are parsed but not implemented yet: they are errors.
 
 ## v0.6.0
 

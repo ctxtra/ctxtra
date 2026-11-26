@@ -111,7 +111,7 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 			// A repo source whose accepted commit declares the server,
 			// while cleanup holds ctxtra's store.
 			commit := strings.Repeat("a", 40)
-			gen := source.GenDir("https://example.invalid/context.git", commit)
+			gen := source.GenDir("https://example.invalid/context.git", "", commit)
 			testenv.Write(t, filepath.Join(gen, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: [build-mcp]}\n")
 			testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.invalid/context.git', branch: main}\n")
 			testenv.Write(t, lock.Path(file), "schema: ctxtra/lock/v1\nsources:\n  work:\n    repo: https://example.invalid/context.git\n    branch: main\n    commit: "+commit+"\n")

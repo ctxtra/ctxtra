@@ -286,31 +286,31 @@ func TestNotices(t *testing.T) {
 		t.Errorf("never checked: %v", got)
 	}
 	id := source.ID(url)
-	state.Update(id, url, "main", func(e *state.Source) { e.Head = commit })
+	state.Update(id, url, "branch main", func(e *state.Source) { e.Head = commit })
 	if got := notices(work); len(got) != 0 {
 		t.Errorf("up to date: %v", got)
 	}
 	newCommits := "team has new commits on main\nrun `ctxtra source update team` to review them."
-	state.Update(id, url, "main", func(e *state.Source) { e.Head = strings.Repeat("c", 40) })
+	state.Update(id, url, "branch main", func(e *state.Source) { e.Head = strings.Repeat("c", 40) })
 	if got := notices(work); !slices.Equal(got, []string{newCommits}) {
 		t.Errorf("new commits: %v", got)
 	}
 	if got := notices(h); len(got) != 0 {
 		t.Errorf("a session that doesn't use the source: %v", got)
 	}
-	state.Update(id, url, "main", func(e *state.Source) { e.Head = strings.Repeat("b", 40); e.Dismissed = strings.Repeat("b", 40) })
+	state.Update(id, url, "branch main", func(e *state.Source) { e.Head = strings.Repeat("b", 40); e.Dismissed = strings.Repeat("b", 40) })
 	want := []string{"team has a newer commit that you didn't accept\nrun `ctxtra source update team` to review it again."}
 	if got := notices(work); !slices.Equal(got, want) {
 		t.Errorf("dismissed: %v", got)
 	}
 	// State about another branch of the repository is kept apart.
-	state.Update(id, url, "other", func(e *state.Source) { e.Head = strings.Repeat("d", 40); e.Dismissed = "" })
+	state.Update(id, url, "branch other", func(e *state.Source) { e.Head = strings.Repeat("d", 40); e.Dismissed = "" })
 	if got := notices(work); !slices.Equal(got, want) {
 		t.Errorf("state of another branch: %v", got)
 	}
 	// With checks disabled, a commit that an earlier check or fetch found
 	// is no notice.
-	state.Update(id, url, "main", func(e *state.Source) { e.Head = strings.Repeat("c", 40); e.Dismissed = "" })
+	state.Update(id, url, "branch main", func(e *state.Source) { e.Head = strings.Repeat("c", 40); e.Dismissed = "" })
 	config(", check-updates: false")
 	if got := notices(work); len(got) != 0 {
 		t.Errorf("checks off: %v", got)

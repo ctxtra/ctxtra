@@ -2,14 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/manifest"
-	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
 )
@@ -27,10 +26,17 @@ func (u *used) has(p string) bool {
 	return u.files[p] || slices.ContainsFunc(u.dirs, func(d string) bool { return d == "." || strings.HasPrefix(p, d+"/") })
 }
 
+// reviewTop is the folder that the paths of source name start from in the
+// review's messages, the same for both commits; it doesn't exist.
+func reviewTop(name string) string {
+	return filepath.Join(string(filepath.Separator), "ctxtra-review", name)
+}
+
 // usedFrom is what the bindings of env take from source name in cat, under
-// any conditions: its manifest, and every file and skill folder that the
-// session would get from it, with the bindings' ! entries applied, as the
-// resolver adds a binding alone.
+// any conditions: its manifest, and every file and skill folder that their
+// entries of the source reference after their ! entries, before content
+// reads and limits filter them, with the errors a session would report for
+// those entries.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 	u := &used{files: map[string]bool{manifest.FileName: true}}
 	alone := *env
@@ -39,91 +45,59 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 		if b.Broken() {
 			continue
 		}
-		res := alone.Alone(b, resolve.Input{Dir: paths.Home()})
-		for _, h := range slices.Concat(res.Files, res.Dropped) {
-			if h.Source == name {
-				u.files[h.SourcePath] = true
-			}
+		files, skills, errs := alone.Referenced(b, name)
+		for _, it := range files {
+			u.files[it.Rel] = true
 		}
-		for _, h := range res.Skills {
-			if h.Source == name {
-				u.dirs = append(u.dirs, path.Dir(h.SourcePath))
-			}
+		for _, it := range skills {
+			u.dirs = append(u.dirs, it.Rel)
 		}
-		u.errors = append(u.errors, entryErrors(b, cat, name, res)...)
+		for _, e := range errs {
+			u.errors = append(u.errors, strings.ReplaceAll(e.Err.Error(), reviewTop(name)+string(filepath.Separator), name+":"))
+		}
 	}
 	return u
 }
 
-// entryErrors are the errors of b's entries that read source name: what
-// a positive entry can't find, and a ! entry that excludes nothing.
-func entryErrors(b *config.Binding, cat *catalog.Catalog, name string, res *resolve.Result) []string {
-	var out []string
-	for _, k := range []struct {
-		list []config.Entry
-		kind catalog.Kind
-	}{{b.Instructions, catalog.Files}, {b.Skills, catalog.Skills}} {
-		for _, e := range k.list {
-			if e.Err != nil || !e.InSource || e.Source != name {
-				continue
-			}
-			if e.Not {
-				if len(res.Trace) == 1 && !slices.ContainsFunc(res.Trace[0].Excluded, func(x resolve.Exclusion) bool { return x.Entry == e.Text }) {
-					out = append(out, fmt.Sprintf("binding %s: %s excludes nothing", b.Name, e.Text))
-				}
-				continue
-			}
-			_, errs := cat.Paths(e, k.kind)
-			for _, err := range errs {
-				out = append(out, fmt.Sprintf("binding %s: %s: %v", b.Name, e.Text, err))
-			}
+// printErrors prints the errors of now that before doesn't have.
+func (s *sources) printErrors(now, before []string) {
+	for _, e := range now {
+		if !slices.Contains(before, e) {
+			fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(e))
 		}
 	}
-	return out
 }
 
-// review shows what changes in source cs from its accepted commit old, or
-// from nothing when old is "", to commit: files the config uses (with the
-// accepted commit or the new one) in full, every other changed file by
-// name, new errors of the entries that use the source, its MCP servers,
-// and content warnings for the added lines shown. With s.full, every
-// changed file in full. Both commits must be in the store.
-func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, old, commit string) error {
-	name := cs.Name
-	base := old
-	if base == "" {
-		base = emptyTree(commit)
+// review shows what changes in source cs from its accepted commit old to
+// commit, whose files are in was and now, or from nothing when old is "":
+// files the config uses (with either commit) in full, every other changed
+// file by name, new errors of the entries that use the source, its MCP
+// servers, and content warnings for the added lines shown. With s.full,
+// every changed file in full. It reads only ctxtra's copy of the
+// repository in the cache.
+func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, old, commit string, was, now *source.Snapshot) error {
+	name, subdir := cs.Name, config.CleanSubdir(cs.Subdir)
+	base, head := emptyTree(commit), source.Treeish(commit, subdir)
+	if old != "" {
+		base = source.Treeish(old, subdir)
 	}
-	changes, err := r.Changes(s.ctx, base, commit)
+	changes, err := r.Changes(s.ctx, base, head)
 	if err != nil {
 		return err
 	}
-	newTop := source.GenDir(r.URL, commit)
-	after := env.Catalog.WithTop(name, newTop)
-	u := usedFrom(env, after, name)
+	top := reviewTop(name)
+	after := env.Catalog.WithFiles(name, now, top)
+	u, bu := usedFrom(env, after, name), &used{}
 	var before *catalog.Catalog
-	oldTop := ""
 	if old != "" {
-		oldTop = source.GenDir(r.URL, old)
-		if e := env.Lock.Entry(name); e != nil && e.Commit == old {
-			oldTop = catalog.CommitDir(e)
-		}
-		before = env.Catalog.WithTop(name, oldTop)
-		bu := usedFrom(env, before, name)
-		for f := range bu.files {
-			u.files[f] = true
-		}
-		u.dirs = append(u.dirs, bu.dirs...)
-		for _, e := range u.errors {
-			if !slices.Contains(bu.errors, strings.ReplaceAll(e, paths.Tilde(newTop), paths.Tilde(oldTop))) {
-				fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(strings.ReplaceAll(e, paths.Tilde(newTop)+"/", name+":")))
-			}
-		}
-	} else {
-		for _, e := range u.errors {
-			fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(strings.ReplaceAll(e, paths.Tilde(newTop)+"/", name+":")))
-		}
+		before = env.Catalog.WithFiles(name, was, top)
+		bu = usedFrom(env, before, name)
 	}
+	for f := range bu.files {
+		u.files[f] = true
+	}
+	u.dirs = append(u.dirs, bu.dirs...)
+	s.printErrors(u.errors, bu.errors)
 	s.mcpDefinitionWarnings(name, before, after)
 
 	var shown, other []source.Change
@@ -134,7 +108,12 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 			other = append(other, c)
 		}
 	}
-	if len(shown) == 0 {
+	switch {
+	case len(changes) == 0 && subdir != "":
+		fmt.Fprintf(s.Out, "nothing changed under %s\n", source.Sanitize(subdir))
+	case len(changes) == 0:
+		fmt.Fprintln(s.Out, "no files changed")
+	case len(shown) == 0:
 		fmt.Fprintln(s.Out, "no changes in files you use")
 	}
 	// Content warnings for the regular files shown. URLs that the accepted
@@ -148,12 +127,12 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	for _, c := range other {
 		cc.newExecutable(s.Out, c, false)
 	}
+	inShown := map[string]bool{}
+	for _, c := range shown {
+		inShown[c.Path] = true
+	}
 	if old != "" {
-		inShown := map[string]bool{}
-		for _, c := range shown {
-			inShown[c.Path] = true
-		}
-		cc.known(oldTop, func(p string) bool { return u.has(p) || inShown[p] })
+		cc.known(was, func(p string) bool { return u.has(p) || inShown[p] })
 	}
 	// In batches, so that a large skill doesn't run git once per file.
 	for batch := range slices.Chunk(shown, 100) {
@@ -161,11 +140,11 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 		for _, c := range batch {
 			ps = append(ps, c.Path)
 		}
-		d, err := r.Diff(s.ctx, base, commit, ps...)
+		d, err := r.Diff(s.ctx, base, head, ps...)
 		if err != nil {
 			return err
 		}
-		cc.printDiff(s.Out, d, newTop, check)
+		cc.printDiff(s.Out, d, now, check)
 	}
 	if len(other) > 0 {
 		fmt.Fprintln(s.Out, "also changed, not used by you:")

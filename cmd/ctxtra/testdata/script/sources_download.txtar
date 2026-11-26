@@ -1,0 +1,76 @@
+# Downloading accepted commits: on a new laptop, and after the data folder
+# is deleted, sessions say to run ctxtra source download, which downloads
+# exactly the commits in the lock, for tags and subdirs too, and never
+# changes the lock. Deleting the cache changes nothing.
+
+gitrepo srv/team
+exec git -C srv/team tag v1
+exec ctxtra setup --agent claude-code
+exec ctxtra source add --repo $GITSRV/team --tag v1 --name tagged
+exec ctxtra source add --repo $GITSRV/team --subdir teams/billing
+exec ctxtra binding add team --instruction tagged:top.md --instruction team-billing:billing.md
+runhook claude-code SessionStart notes
+stdout 'TOP_V1'
+stdout 'BILLING_V1'
+cp .config/ctxtra/ctxtra.lock saved.lock
+
+# Later commits and a moved tag don't change what a download gets.
+cp v2/top.md srv/team/top.md
+cp v2/billing.md srv/team/teams/billing/billing.md
+gitcommit srv/team
+exec git -C srv/team tag -f v1
+
+# A new laptop: the config and the lock, nothing else.
+rm .local/share/ctxtra .local/state/ctxtra .cache/ctxtra
+runhook claude-code SessionStart notes
+! stdout 'TOP_V|BILLING_V'
+stdout 'tagged: the accepted commit [0-9a-f]{7} is not downloaded on this machine; run `?ctxtra source download`?'
+stdout 'team-billing: the accepted commit [0-9a-f]{7} is not downloaded on this machine; run `?ctxtra source download`?'
+exec ctxtra source download
+stdout '^tagged: downloaded [0-9a-f]{7} \(the commit in ctxtra.lock\)$'
+stdout '^team-billing: downloaded [0-9a-f]{7} \(the commit in ctxtra.lock\)$'
+cmp .config/ctxtra/ctxtra.lock saved.lock
+runhook claude-code SessionStart notes
+stdout 'TOP_V1'
+stdout 'BILLING_V1'
+! stdout 'V2'
+
+# The cache deleted: nothing changes.
+rm .cache/ctxtra
+runhook claude-code SessionStart notes
+stdout 'TOP_V1'
+! stdout 'source download'
+
+# The data folder deleted: sources are missing until source download.
+rm .local/share/ctxtra
+runhook claude-code SessionStart notes
+! stdout 'TOP_V1'
+stdout 'run `?ctxtra source download'
+! exec ctxtra doctor notes
+stdout 'source tagged: .*INACTIVE: the accepted commit [0-9a-f]{7} is not downloaded on this machine; run `?ctxtra source download`?'
+# source update puts the accepted commit back too, before its review.
+stdin no.txt
+exec ctxtra-tty source update team-billing
+stdout '^team-billing: downloaded [0-9a-f]{7} \(the commit in ctxtra.lock\)$'
+stdout '^not accepted; you keep [0-9a-f]{7}$'
+exec ctxtra source download tagged team-billing
+stdout '^team-billing: [0-9a-f]{7} is downloaded$'
+runhook claude-code SessionStart notes
+stdout 'TOP_V1'
+stdout 'BILLING_V1'
+cmp .config/ctxtra/ctxtra.lock saved.lock
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+-- notes/.keep --
+-- no.txt --
+n
+-- srv/team/top.md --
+TOP_V1
+-- srv/team/teams/billing/billing.md --
+BILLING_V1
+-- v2/top.md --
+TOP_V2
+-- v2/billing.md --
+BILLING_V2

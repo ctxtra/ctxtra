@@ -47,6 +47,9 @@ type Item struct {
 	// stored: in ctxtra's store, which has no symlinks; read without the
 	// trust check.
 	stored bool
+	// fsys has it at Rel when the source is read from git; Path is then
+	// only its name in messages.
+	fsys fs.FS
 }
 
 // Child is the file name in folder it.
@@ -89,7 +92,7 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 			root, pattern = doublestar.SplitPattern(rest)
 		}
 		dir := filepath.Join(base, filepath.FromSlash(root))
-		found, errs := c.glob(dir, pattern, kind, true)
+		found, errs := c.glob(nil, dir, pattern, e.Value, kind, true)
 		items := make([]Item, len(found))
 		for i, rel := range found {
 			items[i] = Item{Path: filepath.Join(dir, filepath.FromSlash(rel))}
@@ -109,10 +112,10 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 	if err := c.use(s); err != nil {
 		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
 	}
-	found, errs := c.glob(s.Top, pattern, kind, s.Live())
+	found, errs := c.glob(s.fsys, s.Top, pattern, s.Name+":"+pattern, kind, s.Live())
 	items := make([]Item, len(found))
 	for i, rel := range found {
-		items[i] = Item{Path: filepath.Join(s.Top, filepath.FromSlash(rel)), Source: s.Name, Rel: rel, stored: !s.Live()}
+		items[i] = Item{Path: filepath.Join(s.Top, filepath.FromSlash(rel)), Source: s.Name, Rel: rel, stored: !s.Live(), fsys: s.fsys}
 	}
 	return items, errs
 }
@@ -167,6 +170,9 @@ func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
 // readMax is read with at most limit bytes for this file.
 func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error) {
 	p := it.Path
+	if it.fsys != nil {
+		return readFS(it, rd, limit)
+	}
 	if !it.stored {
 		if err := c.trust.Check(p); err != nil {
 			return nil, &Untrusted{err}
@@ -176,6 +182,28 @@ func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error)
 		return fsutil.ReadBounded(p, limit)
 	}
 	return rd.ReadMax(p, limit)
+}
+
+// readFS reads it from its source's files in git, with at most limit bytes
+// and rd's limits.
+func readFS(it Item, rd *fsutil.Reader, limit int) ([]byte, error) {
+	fi, err := fs.Stat(it.fsys, it.Rel)
+	switch {
+	case err != nil:
+		return nil, err
+	case !fi.Mode().IsRegular():
+		return nil, fmt.Errorf("%s is not a regular file", it.Path)
+	case fi.Size() > int64(limit):
+		return nil, fmt.Errorf("%s is larger than %d bytes", it.Path, limit)
+	}
+	data, err := fs.ReadFile(it.fsys, it.Rel)
+	if err == nil && rd != nil {
+		err = rd.Count(it.Path, len(data))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // Untrusted is the error of a file that others can change, outside a
@@ -202,10 +230,15 @@ func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 // entry that can't be read, such as a symlink to itself, is left out: their
 // errors come with what the rest of the pattern found. Going over the
 // traversal limits fails the whole pattern. In ctxtra's store
-// there are no symlinks, and none is followed.
-func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, []error) {
-	t := &tree{FS: os.DirFS(root), root: root, trust: c.trust, live: live, left: maxGlobEntries,
+// there are no symlinks, and none is followed. With fsys, the files are
+// there, not in root, which only names them in messages. ref is the pattern
+// as the config names it.
+func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bool) ([]string, []error) {
+	t := &tree{FS: fsys, root: root, trust: c.trust, live: live, virtual: fsys != nil, left: maxGlobEntries,
 		ids: map[string]fileID{}, skippedPaths: map[string]bool{}}
+	if fsys == nil {
+		t.FS = os.DirFS(root)
+	}
 	what := map[Kind]string{Files: "file", Skills: "skill folder with a SKILL.md"}[kind]
 	if !hasMeta(pattern) {
 		if t.match(pattern, kind) {
@@ -231,7 +264,7 @@ func (c *Catalog) glob(root, pattern string, kind Kind, live bool) ([]string, []
 		return nil, append(t.skipped, err)
 	}
 	if len(found) == 0 && len(t.skipped) == 0 {
-		return nil, []error{fmt.Errorf("%s matches no %s", pattern, what)}
+		return nil, []error{fmt.Errorf("%s matches no %s", ref, what)}
 	}
 	slices.Sort(found)
 	return slices.Compact(found), t.skipped
@@ -243,7 +276,9 @@ type tree struct {
 	root  string
 	trust *trust.Policy
 	live  bool
-	left  int
+	// virtual: the files are in FS only, not under root.
+	virtual bool
+	left    int
 	// skipped are the errors of entries left out, once each: folders the
 	// trust rules refuse, and entries that can't be read, such as a symlink
 	// to itself.
@@ -292,7 +327,10 @@ func (t *tree) cycle(name string) bool {
 func (t *tree) match(p string, kind Kind) bool {
 	full := filepath.Join(t.root, filepath.FromSlash(p))
 	stat := os.Lstat
-	if t.live {
+	switch {
+	case t.virtual:
+		stat = t.statFS
+	case t.live:
 		stat = os.Stat
 	}
 	fi, err := stat(full)
@@ -313,6 +351,15 @@ func (t *tree) match(p string, kind Kind) bool {
 		return false
 	}
 	return skill.Mode().IsRegular()
+}
+
+// statFS stats full, a path under root, in the tree's FS.
+func (t *tree) statFS(full string) (fs.FileInfo, error) {
+	rel, err := filepath.Rel(t.root, full)
+	if err != nil {
+		return nil, err
+	}
+	return fs.Stat(t.FS, filepath.ToSlash(rel))
 }
 
 func (t *tree) spend(n int) error {
@@ -339,7 +386,10 @@ func (t *tree) Stat(name string) (fs.FileInfo, error) {
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
 	stat := os.Lstat
-	if name == "." || t.live {
+	switch {
+	case t.virtual:
+		stat = t.statFS
+	case name == "." || t.live:
 		stat = os.Stat
 	}
 	fi, err := stat(full)

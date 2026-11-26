@@ -50,7 +50,7 @@ func TestStoreKeepsWhatASessionUses(t *testing.T) {
 	h := newHome(t)
 	id := strings.Repeat("a", 40)
 	lockFile := h.accept("team", "https://h/team.git", "branch: main", "", id, nil)
-	gen := source.GenDir("https://h/team.git", id)
+	gen := source.GenDir("https://h/team.git", "", id)
 	h.skill(strings.TrimPrefix(filepath.Join(gen, "skills", "deploy"), h.dir+"/"), "deploy")
 	old := time.Now().Add(-31 * 24 * time.Hour)
 	if err := os.Chtimes(gen, old, old); err != nil {

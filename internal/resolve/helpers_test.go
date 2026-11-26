@@ -67,12 +67,15 @@ func (h *home) accept(name, repo, ref, subdir, id string, files map[string]strin
 	if strings.HasPrefix(repo, "~/") {
 		remote = h.path(repo[2:])
 	}
-	gen := source.GenDir(remote, id)
+	gen := source.GenDir(remote, subdir, id)
 	if err := os.MkdirAll(gen, 0o755); err != nil {
 		h.t.Fatal(err)
 	}
+	// The store has the files of subdir, by their paths from it.
 	for p, content := range files {
-		testenv.Write(h.t, filepath.Join(gen, filepath.FromSlash(p)), content)
+		if rel, ok := strings.CutPrefix(p, subdir+"/"); ok || subdir == "" {
+			testenv.Write(h.t, filepath.Join(gen, filepath.FromSlash(rel)), content)
+		}
 	}
 	entry := fmt.Sprintf("  %s:\n    repo: %s\n    %s\n", name, repo, ref)
 	if subdir != "" {

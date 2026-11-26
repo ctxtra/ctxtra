@@ -8,7 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -115,9 +115,10 @@ func (s *sources) result(cmd string, err error) error {
 
 // addOptions are the options of source add.
 type addOptions struct {
-	repo, dir, name, branch string
-	dryRun                  bool
-	checkUpdates            bool // --check-updates
+	repo, dir, name          string
+	branch, tag, rev, subdir string
+	dryRun                   bool
+	checkUpdates             bool // --check-updates
 }
 
 var reRepoName = regexp.MustCompile(`([^/:]+?)(\.git)?/?$`)
@@ -131,17 +132,21 @@ func defaultName(s string) string {
 	return strings.TrimLeft(m[1], ".-_0123456789")
 }
 
-// sourceName is the name of a new source: o.name, or one from what.
-func sourceName(env *resolve.Env, o addOptions, what string) (string, error) {
+// sourceName is the name of a new source: o.name, or one from what and the
+// last part of subdir.
+func sourceName(env *resolve.Env, o addOptions, what, subdir string) (string, error) {
 	name := o.name
 	if name == "" {
 		name = defaultName(what)
+		if subdir != "" {
+			name += "-" + path.Base(subdir)
+		}
 	}
 	if err := config.CheckName(name); err != nil {
 		return "", fmt.Errorf("%v; choose a name with --name", err)
 	}
 	if old := env.Config.Source(name); old != nil {
-		return "", fmt.Errorf("a source named %s already exists (%s); choose another name with --name", name, describeEntry(old))
+		return "", fmt.Errorf("the name %s is taken by the source for %s; choose another name with --name", name, describeEntry(old))
 	}
 	return name, nil
 }
@@ -154,6 +159,9 @@ func describeEntry(s *config.Source) string {
 	d := "repo " + s.Repo
 	if s.Ref.Name != "" {
 		d += ", " + s.Ref.String()
+	}
+	if sub := config.CleanSubdir(s.Subdir); sub != "" {
+		d += ", subdir " + sub
 	}
 	return d
 }
@@ -182,28 +190,47 @@ func (s *sources) add(o addOptions) error {
 }
 
 // addRepo adds a git repository read at accepted commits: a remote, or a
-// clone on this machine, whose checked-out branch it follows.
+// clone on this machine, whose checked-out branch it follows by default.
+// Nothing is written until the whole repository is fetched and its commit
+// is within the limits.
 func (s *sources) addRepo(o addOptions) error {
-	written, remote, branch := o.repo, o.repo, o.branch
+	written, remote := o.repo, o.repo
+	ref := config.Ref{Kind: config.Branch, Name: o.branch}
+	switch {
+	case o.tag != "":
+		ref = config.Ref{Kind: config.Tag, Name: o.tag}
+	case o.rev != "":
+		ref = config.Ref{Kind: config.Rev, Name: o.rev}
+	}
+	subdir := config.CleanSubdir(o.subdir)
+	if err := source.CheckSubdir(subdir); err != nil || strings.HasPrefix(subdir, "../") || subdir == ".." {
+		return fmt.Errorf("subdir %s must be a folder inside the repository, relative to its root", o.subdir)
+	}
 	if isLocal(o.repo) {
 		wd, _ := os.Getwd()
-		dir := paths.Resolve(wd, o.repo)
-		c, err := source.InspectClone(s.ctx, dir)
+		c, err := source.InspectClone(s.ctx, paths.Resolve(wd, o.repo))
 		if err != nil {
 			return err
 		}
-		if branch == "" {
+		if ref.Name == "" {
 			if c.Current == "" {
 				return fmt.Errorf("%s has no branch checked out; choose the branch to follow with --branch", paths.Tilde(c.Top))
 			}
-			branch = c.Current
+			ref.Name = c.Current
 		}
 		written, remote = paths.Tilde(c.Top), c.Top
 	} else if err := source.CheckURL(o.repo); err != nil {
 		return err
 	}
-	if branch != "" {
-		if err := source.CheckBranch(branch); err != nil {
+	switch ref.Kind {
+	case config.Branch:
+		if ref.Name != "" {
+			if err := source.CheckBranch(ref.Name); err != nil {
+				return err
+			}
+		}
+	case config.Tag:
+		if err := source.CheckTag(ref.Name); err != nil {
 			return err
 		}
 	}
@@ -212,47 +239,72 @@ func (s *sources) addRepo(o addOptions) error {
 		return err
 	}
 	r := source.Open(remote)
-	if branch == "" {
-		if o.dryRun {
-			branch = "its default branch"
-		} else if branch, err = r.DefaultBranch(s.ctx); err != nil {
+	started := time.Now()
+	commit := ""
+	switch {
+	case ref.Name == "" && o.dryRun:
+		ref.Name = "its default branch"
+	case ref.Name == "":
+		if ref.Name, err = r.DefaultBranch(s.ctx); err != nil {
 			return err
 		}
+	case ref.Kind == config.Rev && !o.dryRun:
+		// Any revision, written as its full ID: fetched now, into the cache only.
+		if commit, err = r.ResolveRev(s.ctx, ref.Name); err != nil {
+			return err
+		}
+		ref.Name = commit
 	}
 	id := config.RepoID(written)
 	for _, src := range env.Config.Sources {
-		if src.Repo != "" && config.RepoID(src.Repo) == id && src.Ref == (config.Ref{Kind: config.Branch, Name: branch}) && src.Subdir == "" {
-			fmt.Fprintf(s.Out, "%s, branch %s, is the source %s already\n", written, branch, src.Name)
+		if src.Repo != "" && config.RepoID(src.Repo) == id && src.Ref == ref && config.CleanSubdir(src.Subdir) == subdir {
+			what := written + ", " + ref.String()
+			if subdir != "" {
+				what += ", subdir " + subdir
+			}
+			fmt.Fprintf(s.Out, "%s, is the source %s already\n", what, src.Name)
 			return nil
 		}
 	}
-	name, err := sourceName(env, o, written)
+	name, err := sourceName(env, o, written, subdir)
 	if err != nil {
 		return err
 	}
 	if o.dryRun {
-		fmt.Fprintf(s.Out, "would add source %s: repo %s, branch %s, at the commit fetched then (not fetched now)\nnothing changed (--dry-run)\n", name, written, branch)
+		fmt.Fprintf(s.Out, "would add source %s: %s, at the commit fetched then (not fetched now)\nnothing changed (--dry-run)\n",
+			name, describeEntry(&config.Source{Repo: written, Ref: ref, Subdir: subdir}))
 		return nil
 	}
-	started := time.Now()
-	commit, err := r.FetchBranch(s.ctx, branch)
+	switch ref.Kind {
+	case config.Branch:
+		commit, err = r.FetchBranch(s.ctx, ref.Name)
+	case config.Tag:
+		commit, err = r.FetchTag(s.ctx, ref.Name)
+	}
 	if err != nil {
 		return err
 	}
-	gen, err := r.Materialize(s.ctx, commit)
+	snap, err := r.Snapshot(s.ctx, commit, subdir)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(s.Out, "fetched %s: %s at %s (%s)\n", name, branch, source.Short(commit), written)
-	kv := [][2]string{{"repo", written}, {"branch", branch}}
-	if !o.checkUpdates {
+	if _, err := r.Materialize(s.ctx, commit, subdir); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Out, "fetched %s: %s at %s (%s)\n", name, refName(ref), source.Short(commit), written)
+	kv := [][2]string{{"repo", written}, {string(ref.Kind), ref.Name}}
+	if subdir != "" {
+		kv = append(kv, [2]string{"subdir", subdir})
+	}
+	checks := o.checkUpdates && ref.Kind != config.Rev
+	if !checks && ref.Kind != config.Rev {
 		kv = append(kv, [2]string{"check-updates", "false"})
 	}
-	entry := &lock.Entry{Name: name, Repo: written, Ref: config.Ref{Kind: config.Branch, Name: branch}, Commit: commit}
+	entry := &lock.Entry{Name: name, Repo: written, Ref: ref, Subdir: subdir, Commit: commit}
 	var added bool
 	err = s.write(func(tx *edit.Tx) error {
 		n := node(kv...)
-		if !o.checkUpdates {
+		if kv[len(kv)-1][0] == "check-updates" {
 			n.Content[len(n.Content)-1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "false"}
 		}
 		added, err = tx.Config.Add(config.Sources, name, n, config.Place{})
@@ -268,16 +320,40 @@ func (s *sources) addRepo(o addOptions) error {
 		fmt.Fprintf(s.Out, "the source %s is in the config already\n", name)
 		return nil
 	}
-	s.checked(remote, branch, commit, started)
-	fmt.Fprintf(s.Out, "added source %s: new commits apply after you accept them in ctxtra source update %s\n", name, name)
+	src := &config.Source{Name: name, Repo: written, Ref: ref, Subdir: subdir}
+	if ref.Kind != config.Rev {
+		s.checked(src, commit, "", started)
+	}
+	fmt.Fprintf(s.Out, "added source %s: %s\n", name, keepsNote(ref, name))
 	after := loadEnv()
-	s.mcpDefinitionWarnings(name, nil, after.Catalog)
-	s.showExecutables(r, commit)
-	s.checkAdded(after, name, gen)
-	s.listFiles(gen)
-	s.checkHint(name, o.checkUpdates, !isLocal(o.repo))
+	s.mcpDefinitionWarnings(name, nil, after.Catalog.WithFiles(name, snap, reviewTop(name)))
+	s.showExecutables(snap)
+	s.checkAdded(after, name, snap)
+	s.listFiles(snap)
+	if ref.Kind != config.Rev {
+		s.checkHint(name, checks, !isLocal(o.repo))
+	}
 	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
 	return nil
+}
+
+// refName is a ref in messages: a branch by its name.
+func refName(ref config.Ref) string {
+	if ref.Kind == config.Branch {
+		return ref.Name
+	}
+	return ref.String()
+}
+
+// keepsNote says how a repo source that follows ref changes.
+func keepsNote(ref config.Ref, name string) string {
+	switch ref.Kind {
+	case config.Tag:
+		return "if the tag moves, its new commit applies after you accept it in ctxtra source update " + name
+	case config.Rev:
+		return "it stays at this commit until you change rev"
+	}
+	return "new commits apply after you accept them in ctxtra source update " + name
 }
 
 // addDir adds a folder read live.
@@ -301,7 +377,7 @@ func (s *sources) addDir(o addOptions) error {
 			return nil
 		}
 	}
-	name, err := sourceName(env, o, dir)
+	name, err := sourceName(env, o, dir, "")
 	if err != nil {
 		return err
 	}
@@ -331,7 +407,7 @@ func (s *sources) addDir(o addOptions) error {
 			strings.Join(remotes, ", "), name)
 	}
 	// The folder a symlinked dir leads to; links inside it stay unlisted.
-	s.listFiles(paths.Real(dir))
+	s.listFiles(os.DirFS(paths.Real(dir)))
 	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
 	return nil
 }
@@ -342,44 +418,44 @@ const (
 	maxListVisits  = 10000
 )
 
-// listFiles lists the files of a new source's folder top when it has no
-// manifest, which would say what it offers: the first maxListedFiles, in
-// name order, without .git, symlinks and what they lead to.
-func (s *sources) listFiles(top string) {
-	if _, err := os.Lstat(filepath.Join(top, manifest.FileName)); err == nil {
+// listFiles lists the files of a new source when it has no manifest, which
+// would say what it offers: the first maxListedFiles, in name order,
+// without .git, symlinks and what they lead to.
+func (s *sources) listFiles(files fs.FS) {
+	if _, err := fs.Stat(files, manifest.FileName); err == nil {
 		return
 	}
-	var files []string
+	var list []string
 	more, visits := false, 0
-	_ = filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(files, ".", func(p string, d fs.DirEntry, err error) error {
 		visits++
 		switch {
 		case visits > maxListVisits:
 			more = true
-			return filepath.SkipAll
+			return fs.SkipAll
 		case err != nil:
 			return nil
 		case d.IsDir() && d.Name() == ".git":
-			return filepath.SkipDir
+			return fs.SkipDir
 		case !d.Type().IsRegular():
 			return nil
-		case len(files) == maxListedFiles:
+		case len(list) == maxListedFiles:
 			more = true
-			return filepath.SkipAll
+			return fs.SkipAll
 		}
-		files = append(files, filepath.ToSlash(must(filepath.Rel(top, p))))
+		list = append(list, p)
 		return nil
 	})
-	if len(files) == 0 {
+	if len(list) == 0 {
 		fmt.Fprintf(s.Out, "it has no files and no %s\n", manifest.FileName)
 		return
 	}
 	fmt.Fprintf(s.Out, "it has no %s; its files:\n", manifest.FileName)
-	for _, f := range files {
+	for _, f := range list {
 		fmt.Fprintf(s.Out, "  %s\n", source.Sanitize(f))
 	}
 	if more {
-		fmt.Fprintf(s.Out, "  … (only the first %d are listed)\n", len(files))
+		fmt.Fprintf(s.Out, "  … (only the first %d are listed)\n", len(list))
 	}
 }
 
@@ -401,15 +477,11 @@ func (s *sources) checkHint(name string, on, remote bool) {
 	}
 }
 
-// showExecutables lists the executable files of a commit, and what the
-// store leaves out.
-func (s *sources) showExecutables(r *source.Repo, commit string) {
-	entries, skipped, err := r.Tree(s.ctx, commit)
-	if err != nil {
-		return
-	}
+// showExecutables lists the executable files of a source's commit, and
+// what the store leaves out.
+func (s *sources) showExecutables(snap *source.Snapshot) {
 	var exec []string
-	for _, e := range entries {
+	for _, e := range snap.Entries() {
 		if e.Exec {
 			exec = append(exec, e.Path)
 		}
@@ -417,7 +489,7 @@ func (s *sources) showExecutables(r *source.Repo, commit string) {
 	if len(exec) > 0 {
 		fmt.Fprintf(s.Out, "executable files: %s\n", source.Sanitize(strings.Join(exec, ", ")))
 	}
-	for _, sk := range skipped {
+	for _, sk := range snap.Skipped {
 		fmt.Fprintf(s.Out, "left out (%s): %s\n", sk.Kind, source.Sanitize(sk.Path))
 	}
 }
@@ -484,8 +556,8 @@ func (s *sources) update(names []string, dryRun, asJSON bool) int {
 		if e := env.Lock.Entry(src.Name); e != nil {
 			res.Accepted = e.Commit
 		}
-		latest, err := s.sync(env, src, dryRun)
-		res.Latest, res.Pending = latest, latest != "" && latest != res.Accepted
+		latest, pending, err := s.sync(env, src, dryRun)
+		res.Latest, res.Pending = latest, pending
 		if err != nil {
 			fmt.Fprintf(s.Err, "%s: %v\n", src.Name, err)
 			res.Error = err.Error()
@@ -493,7 +565,7 @@ func (s *sources) update(names []string, dryRun, asJSON bool) int {
 		}
 		results = append(results, res)
 	}
-	if len(todo) > 0 {
+	if len(todo) > 0 && !dryRun {
 		s.cleanStore()
 	}
 	if asJSON {
@@ -502,99 +574,190 @@ func (s *sources) update(names []string, dryRun, asJSON bool) int {
 	return n
 }
 
-// sync fetches the branch of one source, reviews its new commit against
-// the accepted one, and, unless dryRun, asks whether to accept it. It
-// returns the newest commit it found.
-func (s *sources) sync(env *resolve.Env, cs *catalog.Source, dryRun bool) (string, error) {
+// sync fetches the newest commit of what one source follows, reviews it
+// against the accepted one, and, unless dryRun, asks whether to accept it.
+// It returns the commit it found, and whether it is one to review. Until
+// the user accepts, it writes only to the cache: with dryRun, nothing else
+// at all.
+func (s *sources) sync(env *resolve.Env, cs *catalog.Source, dryRun bool) (string, bool, error) {
 	src := cs.Source
-	switch {
-	case cs.State == catalog.Broken:
-		return "", errors.New("the source has errors; see ctxtra doctor")
-	case cs.State == catalog.NotHere:
+	switch cs.State {
+	case catalog.Broken:
+		return "", false, errors.New("the source has errors; see ctxtra doctor")
+	case catalog.NotHere:
 		fmt.Fprintf(s.Out, "%s: %s; skipped\n", src.Name, cs.Why)
-		return "", nil
-	case src.Ref.Kind != config.Branch:
-		return "", fmt.Errorf("%s is not implemented yet; follow a branch", src.Ref.Kind)
-	case src.Subdir != "":
-		return "", errors.New("subdir is not implemented yet")
+		return "", false, nil
 	}
-	remote := resolve.RemoteOf(src)
-	r := source.Open(remote)
+	subdir := config.CleanSubdir(src.Subdir)
+	r := source.Open(resolve.RemoteOf(src))
 	was := env.Lock.Entry(src.Name)
-	old := ""
-	if was != nil && !lock.Compare(was, src).NewSource() {
-		old = was.Commit
-		if !source.Has(resolve.RemoteOf(&config.Source{Repo: was.Repo}), old) {
-			if err := source.Open(resolve.RemoteOf(&config.Source{Repo: was.Repo})).FetchCommit(s.ctx, old); err != nil {
-				return "", err
-			}
-			if _, err := source.Open(resolve.RemoteOf(&config.Source{Repo: was.Repo})).Materialize(s.ctx, old); err != nil {
-				return "", err
-			}
-			fmt.Fprintf(s.Out, "%s: fetched %s (the commit in %s)\n", src.Name, source.Short(old), lock.FileName)
-		}
+	var ch lock.Changes
+	if was != nil {
+		ch = lock.Compare(was, src)
 	}
-	branch := src.Ref.Name
+	if was != nil && ch.Same() && src.Ref.Kind == config.Rev {
+		fmt.Fprintf(s.Out, "%s: up to date (rev %s); it changes only when you edit rev\n", src.Name, source.Short(was.Commit))
+		return was.Commit, false, nil
+	}
 	started := time.Now()
-	commit, err := r.FetchBranch(s.ctx, branch)
+	commit, err := s.fetchRef(r, src.Ref)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	s.checked(remote, branch, commit, started)
-	same := was != nil && lock.Compare(was, src).Same()
-	if same && commit == was.Commit {
+	old := ""
+	if was != nil && !ch.NewSource() {
+		old = was.Commit
+		// The accepted commit may come from another spelling of the
+		// address, or be gone from the cache.
+		if err := r.FetchCommit(s.ctx, old); err != nil {
+			return "", false, err
+		}
+	}
+	if was != nil && ch.Same() {
+		unchanged := ""
+		if commit != old && src.Ref.Kind == config.Branch && subdir != "" && s.sameFolder(r, old, commit, subdir) {
+			unchanged = old
+		}
 		if !dryRun {
-			// The branch is back at the accepted commit: nothing is dismissed.
-			s.record(remote, branch, func(e *state.Source) { e.Dismissed = "" })
+			s.checked(src, commit, unchanged, started)
 		}
-		fmt.Fprintf(s.Out, "%s: up to date (%s at %s)\n", src.Name, branch, source.Short(commit))
-		return commit, nil
-	}
-	// The new commit goes to the store before review: a commit over the
-	// limits fails here, and the review reads its files.
-	if _, err := r.Materialize(s.ctx, commit); err != nil {
-		return "", err
-	}
-	if old == "" {
-		fmt.Fprintf(s.Out, "%s: no accepted commit for it yet; %s is at %s (%s)\n", src.Name, branch, source.Short(commit), src.Repo)
-	} else {
-		fmt.Fprintf(s.Out, "%s: %s -> %s (%s, %s)\n", src.Name, source.Short(old), source.Short(commit), branch, src.Repo)
-		if !r.IsAncestor(s.ctx, old, commit) {
-			fmt.Fprintf(s.Out, "warning: %s doesn't continue %s: the branch was force-pushed, or %s was never pushed\n",
-				source.Short(commit), source.Short(old), source.Short(old))
+		if !dryRun {
+			if err := s.restore(r, was); err != nil {
+				return "", false, err
+			}
+		}
+		switch {
+		case commit == old:
+			if !dryRun {
+				// Back at the accepted commit: nothing is dismissed.
+				s.record(src, func(e *state.Source) { e.Dismissed = "" })
+			}
+			fmt.Fprintf(s.Out, "%s: up to date (%s at %s)\n", src.Name, src.Ref.Name, source.Short(commit))
+			return commit, false, nil
+		case unchanged != "":
+			fmt.Fprintf(s.Out, "%s: up to date: %s at %s changes nothing under %s since %s\n",
+				src.Name, src.Ref.Name, source.Short(commit), source.Sanitize(subdir), source.Short(old))
+			return commit, false, nil
 		}
 	}
-	if err := s.review(env, r, cs, old, commit); err != nil {
-		return "", err
+	now, err := r.Snapshot(s.ctx, commit, subdir)
+	if err != nil {
+		return "", false, err
+	}
+	var prev *source.Snapshot
+	switch {
+	case was == nil:
+		fmt.Fprintf(s.Out, "%s: no accepted commit for it yet; %s is at %s (%s)\n", src.Name, refName(src.Ref), source.Short(commit), src.Repo)
+	case old == "":
+		// Another repository or folder: everything is new, as in source add.
+		fmt.Fprintf(s.Out, "%s: a new source: %s at %s; %s has %s accepted for %s\n", src.Name, describeEntry(src), source.Short(commit),
+			lock.FileName, source.Short(was.Commit), describeEntry(&config.Source{Repo: was.Repo, Ref: was.Ref, Subdir: was.Subdir}))
+		fmt.Fprintln(s.Out, "its MCP servers need approval and sign-in again")
+	default:
+		s.showChange(r, src, was, commit)
+		if prev, err = r.Snapshot(s.ctx, old, subdir); err != nil {
+			return "", false, err
+		}
+	}
+	if err := s.review(env, r, cs, old, commit, prev, now); err != nil {
+		return "", false, err
 	}
 	if dryRun {
 		fmt.Fprintf(s.Out, "%s: not accepted (--dry-run); to accept it, run in a terminal: ctxtra source update %s\n", src.Name, src.Name)
-		return commit, nil
+		return commit, true, nil
+	}
+	if !ch.Same() && src.Ref.Kind != config.Rev {
+		s.checked(src, commit, "", started)
 	}
 	q := "Accept? [y/N] "
-	if old == "" {
+	switch {
+	case was == nil:
 		q = fmt.Sprintf("Accept %s as the first version of %s? [y/N] ", source.Short(commit), src.Name)
+	case old == "":
+		q = fmt.Sprintf("Accept %s as the new source %s? [y/N] ", source.Short(commit), src.Name)
 	}
 	ok, err := s.ask(q)
 	if err != nil {
-		return commit, err
+		return commit, true, err
 	}
 	if !ok {
-		if old == "" {
+		switch {
+		case was == nil:
 			fmt.Fprintf(s.Out, "not accepted; %s has no accepted commit yet\n", src.Name)
-			return commit, nil
+			return commit, true, nil
+		case old == "":
+			fmt.Fprintf(s.Out, "not accepted; %s stays inactive until you accept it\n", src.Name)
+			return commit, true, nil
 		}
 		fmt.Fprintf(s.Out, "not accepted; you keep %s\n", source.Short(old))
-		s.record(remote, branch, func(e *state.Source) { e.Dismissed = commit })
-		return commit, nil
+		if ch.Same() {
+			s.record(src, func(e *state.Source) { e.Dismissed = commit })
+		}
+		return commit, true, nil
 	}
-	accepted := &lock.Entry{Name: src.Name, Repo: src.Repo, Ref: src.Ref, Subdir: src.Subdir, Commit: commit}
+	// The files reach the store only now, before the lock names them.
+	if _, err := r.Materialize(s.ctx, commit, subdir); err != nil {
+		return commit, true, err
+	}
+	accepted := &lock.Entry{Name: src.Name, Repo: src.Repo, Ref: src.Ref, Subdir: subdir, Commit: commit}
 	if err := s.files.Accept(accepted, was); err != nil {
-		return commit, err
+		return commit, true, err
 	}
-	s.record(remote, branch, func(e *state.Source) { e.Dismissed = "" })
+	if src.Ref.Kind != config.Rev {
+		s.record(src, func(e *state.Source) { e.Dismissed = "" })
+	}
 	fmt.Fprintf(s.Out, "accepted %s %s (%s updated)\n", src.Name, source.Short(commit), lock.FileName)
-	return commit, nil
+	return commit, false, nil
+}
+
+// restore puts the accepted commit of lock entry e into the store when it
+// isn't there, as source download does; its objects are in r's cache.
+func (s *sources) restore(r *source.Repo, e *lock.Entry) error {
+	stored, subdir := resolve.RemoteOf(&config.Source{Repo: e.Repo}), config.CleanSubdir(e.Subdir)
+	if source.Has(stored, subdir, e.Commit) {
+		return nil
+	}
+	if _, err := r.MaterializeAs(s.ctx, e.Commit, subdir, stored); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Out, "%s: downloaded %s (the commit in %s)\n", e.Name, source.Short(e.Commit), lock.FileName)
+	return nil
+}
+
+// fetchRef fetches the commit that ref names into the cache.
+func (s *sources) fetchRef(r *source.Repo, ref config.Ref) (string, error) {
+	switch ref.Kind {
+	case config.Tag:
+		return r.FetchTag(s.ctx, ref.Name)
+	case config.Rev:
+		return ref.Name, r.FetchCommit(s.ctx, ref.Name)
+	}
+	return r.FetchBranch(s.ctx, ref.Name)
+}
+
+// sameFolder reports whether the folder subdir has the same files at both
+// commits.
+func (s *sources) sameFolder(r *source.Repo, a, b, subdir string) bool {
+	ta, err1 := r.TreeID(s.ctx, a, subdir)
+	tb, err2 := r.TreeID(s.ctx, b, subdir)
+	return err1 == nil && err2 == nil && ta == tb
+}
+
+// showChange says what changed from the lock entry was to commit of source
+// src, the same repository and folder: the commits, and a changed branch,
+// tag or rev, a moved tag or a force-pushed branch.
+func (s *sources) showChange(r *source.Repo, src *config.Source, was *lock.Entry, commit string) {
+	old := was.Commit
+	fmt.Fprintf(s.Out, "%s: %s -> %s (%s, %s)\n", src.Name, source.Short(old), source.Short(commit), src.Ref.Name, src.Repo)
+	switch {
+	case was.Ref != src.Ref:
+		fmt.Fprintf(s.Out, "%s has %s accepted for %s; the config now says %s\n", lock.FileName, source.Short(old), was.Ref, src.Ref)
+	case src.Ref.Kind == config.Tag:
+		fmt.Fprintf(s.Out, "the tag %s moved: it was at %s, it is at %s now\n", src.Ref.Name, source.Short(old), source.Short(commit))
+	case src.Ref.Kind == config.Branch && !r.IsAncestor(s.ctx, old, commit):
+		fmt.Fprintf(s.Out, "warning: %s doesn't continue %s: the branch was force-pushed, or %s was never pushed\n",
+			source.Short(commit), source.Short(old), source.Short(old))
+	}
 }
 
 // ask asks a yes/no question on stderr; the answer is no unless it is y or
@@ -610,22 +773,24 @@ func (s *sources) ask(q string) (bool, error) {
 	return a == "y" || a == "yes", nil
 }
 
-// record changes the local state of a source's branch. The state only
-// feeds notices, so an error is a warning.
-func (s *sources) record(remote, branch string, change func(*state.Source)) {
-	if err := state.Update(source.ID(remote), remote, branch, change); err != nil {
+// record changes the local state of a source. The state only feeds
+// notices, so an error is a warning.
+func (s *sources) record(src *config.Source, change func(*state.Source)) {
+	id, remote, follows := update.StateKey(src)
+	if err := state.Update(id, remote, follows, change); err != nil {
 		fmt.Fprintf(s.Err, "warning: can't write %s: %v\n", paths.Tilde(state.Path()), err)
 	}
 }
 
-// checked records a fetch of the branch that worked, and the commit it
-// found. A fetch that started at started counts as an update check too: the
-// next one waits, and an update check that started later keeps its result.
-func (s *sources) checked(remote, branch, head string, started time.Time) {
-	s.record(remote, branch, func(e *state.Source) {
+// checked records a fetch of what src follows that worked, and the commit
+// it found; unchanged is a commit with the same files under subdir. A fetch
+// that started at started counts as an update check too: the next one
+// waits, and an update check that started later keeps its result.
+func (s *sources) checked(src *config.Source, head, unchanged string, started time.Time) {
+	s.record(src, func(e *state.Source) {
 		e.LastCheck = time.Now()
 		if update.Record(&e.Check, started, nil) {
-			e.Head = head
+			e.Head, e.Unchanged = head, unchanged
 		}
 	})
 }
@@ -665,22 +830,22 @@ func (s *sources) download(names []string) int {
 			n = 1
 			continue
 		case !lock.Compare(e, cs.Source).Same():
-			fmt.Fprintf(s.Err, "%s: %s has a commit accepted for another address, branch or subdir; run `ctxtra source update %s` to review it\n",
+			fmt.Fprintf(s.Err, "%s: %s has a commit accepted for another address, branch, tag, rev or subdir; run `ctxtra source update %s` to review it\n",
 				cs.Name, lock.FileName, cs.Name)
 			n = 1
 			continue
 		}
 		// The lock's address names the commit's folder in the store; the
 		// config's equivalent address is the one that works for fetching.
-		stored := resolve.RemoteOf(&config.Source{Repo: e.Repo})
-		if source.Has(stored, e.Commit) {
+		stored, subdir := resolve.RemoteOf(&config.Source{Repo: e.Repo}), config.CleanSubdir(e.Subdir)
+		if source.Has(stored, subdir, e.Commit) {
 			fmt.Fprintf(s.Out, "%s: %s is downloaded\n", cs.Name, source.Short(e.Commit))
 			continue
 		}
 		r := source.Open(resolve.RemoteOf(cs.Source))
 		err := r.FetchCommit(s.ctx, e.Commit)
 		if err == nil {
-			_, err = r.MaterializeAs(s.ctx, e.Commit, stored)
+			_, err = r.MaterializeAs(s.ctx, e.Commit, subdir, stored)
 		}
 		if err != nil {
 			fmt.Fprintf(s.Err, "%s: %v\n", cs.Name, err)
@@ -805,6 +970,9 @@ type sourceInfo struct {
 	Kind     string `json:"kind"`
 	Location string `json:"location"`
 	Branch   string `json:"branch,omitempty"`
+	Tag      string `json:"tag,omitempty"`
+	Rev      string `json:"rev,omitempty"`
+	Subdir   string `json:"subdir,omitempty"`
 	// State is active, inactive, not on this machine or broken; Why says
 	// why it isn't active.
 	State      string `json:"state"`
@@ -829,14 +997,24 @@ func info(env *resolve.Env, cs *catalog.Source) sourceInfo {
 		i.Kind, i.Location = "dir", src.Dir
 		return i
 	}
-	i.Kind, i.Location, i.Branch = "repo", src.Repo, src.Ref.Name
+	i.Kind, i.Location, i.Subdir = "repo", src.Repo, config.CleanSubdir(src.Subdir)
+	switch src.Ref.Kind {
+	case config.Branch:
+		i.Branch = src.Ref.Name
+	case config.Tag:
+		i.Tag = src.Ref.Name
+	case config.Rev:
+		i.Rev = src.Ref.Name
+	}
 	if e := env.Lock.Entry(src.Name); e != nil {
 		i.Commit = e.Commit
-		in := source.Has(resolve.RemoteOf(&config.Source{Repo: e.Repo}), e.Commit)
+		in := source.Has(resolve.RemoteOf(&config.Source{Repo: e.Repo}), config.CleanSubdir(e.Subdir), e.Commit)
 		i.Downloaded = &in
 	}
-	remote := resolve.RemoteOf(src)
-	e := state.Load().Get(source.ID(remote), remote, src.Ref.Name)
+	if src.Ref.Kind == config.Rev {
+		return i
+	}
+	e := state.Load().Get(update.StateKey(src))
 	if !e.LastCheck.IsZero() {
 		i.LastCheck = e.LastCheck.Format(time.RFC3339)
 	}
@@ -908,21 +1086,29 @@ func describeSource(env *resolve.Env, cs *catalog.Source) string {
 		}
 		return "dir " + src.Dir + ": read live, changes apply without review"
 	}
-	d := fmt.Sprintf("repo %s, branch %s, ", src.Repo, src.Ref.Name)
-	remote := resolve.RemoteOf(src)
-	e := state.Load().Get(source.ID(remote), remote, src.Ref.Name)
-	check := "; update checks off (remove check-updates: false to turn them on)"
+	d := describeEntry(src) + ", "
 	accepted := ""
 	if le := env.Lock.Entry(src.Name); le != nil {
 		accepted = le.Commit
 	}
+	if src.Ref.Kind == config.Rev {
+		if cs.State != catalog.Active {
+			return d + "INACTIVE: " + cs.Why
+		}
+		return d + "at " + source.Short(accepted) + " (it changes only when you edit rev)"
+	}
+	e := state.Load().Get(update.StateKey(src))
+	check := "; update checks off (remove check-updates: false to turn them on)"
 	if src.CheckUpdates == nil || *src.CheckUpdates {
-		check = "; " + checkStatus(src.Name, accepted, e)
+		check = "; " + checkStatus(src, accepted, e)
 	}
 	if cs.State != catalog.Active {
 		return d + "INACTIVE: " + cs.Why + check
 	}
-	d += "at " + source.Short(accepted) + " (new commits apply after you accept them in ctxtra source update)"
+	d += "at " + source.Short(accepted) + " (" + map[config.RefKind]string{
+		config.Branch: "new commits apply after you accept them in ctxtra source update",
+		config.Tag:    "a moved tag applies after you accept it in ctxtra source update",
+	}[src.Ref.Kind] + ")"
 	if e.LastCheck.IsZero() {
 		d += ", not fetched on this machine yet"
 	} else {

@@ -53,7 +53,7 @@ func (r report) resolve(dir string) (*resolve.Result, *resolve.Env) {
 	if a, ok := registry.Get(r.agent); ok {
 		a.Delivery().Fit(res)
 	}
-	if n := update.ReleaseNotice(update.FromConfig(env.Config), state.Load(), r.version); n != "" {
+	if n := update.ReleaseNotice(update.FromConfig(env.Config, env.Lock), state.Load(), r.version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
 	return res, env
@@ -584,7 +584,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	}
 	runs := hook.LastRuns(res.Dir, repo)
 	ok = ok && status(res) == 0 && r.overCapacity(res) == 0 && len(others) == 0
-	checks := update.FromConfig(env.Config)
+	checks := update.FromConfig(env.Config, env.Lock)
 	if asJSON {
 		sources := []sourceInfo{}
 		for _, cs := range env.Catalog.Sources() {

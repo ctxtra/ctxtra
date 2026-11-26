@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/update"
@@ -30,14 +31,15 @@ func TestReportReleaseNotice(t *testing.T) {
 
 // After a failed check, doctor says what the last one that worked found.
 func TestStatusAfterFailure(t *testing.T) {
+	team := &config.Source{Name: "team", Ref: config.Ref{Kind: config.Branch, Name: "main"}}
 	at := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	e := state.Source{Check: state.Check{Checked: at, Error: "git ls-remote: timed out"}, Head: strings.Repeat("b", 40)}
 	want := "the last check for new commits failed: git ls-remote: timed out (the last one that worked, 2026-11-04 12:00, found new commits)"
-	if got := checkStatus("team", strings.Repeat("a", 40), e); got != want {
+	if got := checkStatus(team, strings.Repeat("a", 40), e); got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
 	e.Checked = time.Time{}
-	if got := checkStatus("team", strings.Repeat("a", 40), e); got != "the last check for new commits failed: git ls-remote: timed out" {
+	if got := checkStatus(team, strings.Repeat("a", 40), e); got != "the last check for new commits failed: git ls-remote: timed out" {
 		t.Errorf("never worked: %q", got)
 	}
 	cfg := update.Config{Releases: true}

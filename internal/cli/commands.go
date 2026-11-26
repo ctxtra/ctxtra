@@ -226,32 +226,62 @@ func (a *app) sourceAddCmd() *cobra.Command {
 		Short: "Add a git repository or a folder as a source",
 		Long: `Add a source.
 
---repo adds a git repository, read at accepted commits: ctxtra fetches the
-branch (--branch, or the remote's default branch) and records its commit in
-ctxtra.lock. Sessions use exactly that commit until you accept a newer one
-with ctxtra source update. URL may be the path of your clone: then ctxtra
-follows its checked-out branch, and uses only committed files.
+--repo adds a git repository, read at accepted commits: ctxtra fetches what
+the source follows and records its commit in ctxtra.lock. Sessions use exactly
+that commit until you accept a newer one with ctxtra source update. A source
+follows one of:
 
-Sessions check a repo source for new commits in the background at most once
-an hour, using your git credentials. Credential helpers or hardware keys can
-ask for approval or a touch. Use --check-updates=false to turn checks off.
+  --branch BRANCH  new commits on the branch (the default: the remote's
+                   default branch, or your clone's checked-out branch)
+  --tag TAG        the tag; when someone moves it, you review the change
+  --rev REV        one commit; REV may be any revision, and the config gets
+                   its full ID
+
+--subdir PATH makes a folder of the repository the source's top: its
+manifest and every SOURCE:PATH are under it. The size limits still count the
+whole repository, and nothing is written when it is over them.
+
+URL may be the path of your clone: then ctxtra follows its checked-out
+branch, and uses only committed files.
+
+Sessions check a repo source for new commits, or a moved tag, in the
+background at most once an hour, using your git credentials. Credential
+helpers or hardware keys can ask for approval or a touch. Use
+--check-updates=false to turn checks off. A source at a rev has nothing to
+check.
+
+Without --name, a source is named after the repository, and with --subdir
+after the repository and the folder's last part.
 
 --dir adds a folder of your own files, read live: changes apply to new
 sessions right away, without review. When the folder is in a repository with
 a remote, others can push to it: ctxtra reads it only after ctxtra source
 trust NAME.
 
-Adding the same repository and branch again changes nothing.`,
+Adding the same repository, branch, tag or rev and subdir again changes
+nothing, also with another --name.`,
 		Example: `  ctxtra source add --repo https://github.com/acme/agent-context
+  ctxtra source add --repo https://github.com/acme/agent-context --subdir teams/billing
+  ctxtra source add --repo https://github.com/acme/observability-ctx --tag v1.4.0
   ctxtra source add --repo ~/dev/agent-context --name team-dev
   ctxtra source add --dir ~/dev/dotfiles`,
 		Args: noArgs,
 		RunE: a.run(func(cmd *cobra.Command, _ []string) error {
+			refs := 0
+			for _, f := range []string{"branch", "tag", "rev"} {
+				if cmd.Flags().Changed(f) {
+					refs++
+				}
+			}
 			switch {
 			case (o.repo == "") == (o.dir == ""):
 				return errors.New("give --repo URL or --dir DIR")
-			case o.dir != "" && (cmd.Flags().Changed("branch") || cmd.Flags().Changed("check-updates")):
-				return errors.New("--branch and --check-updates are for --repo; a dir source is read live")
+			case o.dir != "" && (refs > 0 || cmd.Flags().Changed("subdir") || cmd.Flags().Changed("check-updates")):
+				return errors.New("--branch, --tag, --rev, --subdir and --check-updates are for --repo; a dir source is read live")
+			case refs > 1:
+				return errors.New("give one of --branch, --tag and --rev")
+			case o.rev != "" && cmd.Flags().Changed("check-updates"):
+				return errors.New("a source at a rev has nothing to check; leave out --check-updates")
 			}
 			s := newSources(a.IO)
 			return s.result("source add", s.add(o))
@@ -261,6 +291,9 @@ Adding the same repository and branch again changes nothing.`,
 	f.StringVar(&o.repo, "repo", "", "add the git repository at `URL`, or your clone at a path")
 	f.StringVar(&o.dir, "dir", "", "add the folder `DIR`, read live")
 	f.StringVar(&o.branch, "branch", "", "follow `BRANCH` (default: the remote's default branch, or the clone's checked-out branch)")
+	f.StringVar(&o.tag, "tag", "", "follow the tag `TAG`")
+	f.StringVar(&o.rev, "rev", "", "stay at the commit `REV`, any revision; the config gets its full ID")
+	f.StringVar(&o.subdir, "subdir", "", "make the folder `PATH` of the repository the source's top")
 	f.StringVar(&o.name, "name", "", "name the source `NAME` (default: from the URL or folder)")
 	f.BoolVar(&o.dryRun, "dry-run", false, "check and show the change; change nothing and fetch nothing")
 	f.BoolVar(&o.checkUpdates, "check-updates", true, "have sessions check the source for new commits at most once an hour; use --check-updates=false to disable")
@@ -305,8 +338,11 @@ func (a *app) sourceUpdateCmd() *cobra.Command {
 		Long: `Fetch the repo sources (all of them without NAME), show what changed in
 the files your bindings use, and ask whether to accept the new commit. New
 sessions get the new files only after you accept them; ctxtra.lock records
-the accepted commit. A source without an accepted commit for its address and
-branch is reviewed from nothing.
+the accepted commit. What counts as new depends on what the source follows:
+new commits of a branch that change files under its subdir, a moved tag, and
+for a rev nothing until you edit it. A changed branch, tag or rev is reviewed
+as a change from the accepted commit; another address or subdir is a new
+source, reviewed from nothing, as is a source without an accepted commit.
 
 The review warns about text that is easy to miss in the lines that change:
 hidden characters, HTML comments, long encoded blocks, curl | sh and similar
@@ -314,7 +350,8 @@ commands, secret paths like ~/.ssh, new URLs, and new executable files. The
 warnings don't block anything, and no warning doesn't mean the source is safe.
 
 Accepting needs a terminal. --dry-run fetches and shows the same review but
-accepts and dismisses nothing; it works anywhere, for example in an agent.`,
+accepts and dismisses nothing; it works anywhere, for example in an agent. It
+writes only to ctxtra's cache.`,
 		Example: `  ctxtra source update
   ctxtra source update team --full
   ctxtra source update --dry-run --json`,
