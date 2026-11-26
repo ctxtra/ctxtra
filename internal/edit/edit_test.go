@@ -454,3 +454,82 @@ func TestCommitThatFailsRestores(t *testing.T) {
 		t.Errorf("the lock file stays: %v", err)
 	}
 }
+
+// A commit that fails puts back every shape of config as it was: an
+// existing file with its mode, a missing one, and a symlink that stays the
+// same symlink to an unchanged file; the lock next to the config's real
+// file, existing or not, too.
+func TestCommitThatFailsRestoresEveryShape(t *testing.T) {
+	const before = "schema: ctxtra/config/v1\n# preserve this comment\n"
+	oldLock := "schema: ctxtra/lock/v1\nsources: {}\n"
+	for _, shape := range []string{"existing", "missing", "symlink"} {
+		for _, withLock := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, lock %v", shape, withLock), func(t *testing.T) {
+				f := files(t, "", "")
+				real := f.Config
+				if shape == "symlink" {
+					real = filepath.Join(filepath.Dir(f.Config), "..", "dotfiles", "config.yaml")
+					os.MkdirAll(filepath.Dir(real), 0o755)
+					os.MkdirAll(filepath.Dir(f.Config), 0o755)
+					if err := os.Symlink(real, f.Config); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if shape != "missing" {
+					os.MkdirAll(filepath.Dir(real), 0o755)
+					if err := os.WriteFile(real, []byte(before), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				lockPath := lock.Path(f.Config)
+				if withLock {
+					os.MkdirAll(filepath.Dir(lockPath), 0o755)
+					if err := os.WriteFile(lockPath, []byte(oldLock), 0o640); err != nil {
+						t.Fatal(err)
+					}
+				}
+				failed := errors.New("the credentials can't be saved")
+				err := f.RunCommit(func(tx *Tx) error {
+					if _, err := tx.Config.Add(config.Sources, "team", node(t, source("https://h/team")), config.Place{}); err != nil {
+						return err
+					}
+					tx.SetLockEntry(entry("team", "https://h/team", strings.Repeat("a", 40)))
+					return nil
+				}, func(write func() error) error {
+					if err := write(); err != nil {
+						return err
+					}
+					if !strings.Contains(read(t, f.Config), "team") || !strings.Contains(read(t, lockPath), "team") {
+						t.Error("the write didn't happen before the commit failed")
+					}
+					return failed
+				})
+				if !errors.Is(err, failed) {
+					t.Fatalf("error %v", err)
+				}
+				if shape == "missing" {
+					if _, err := os.Lstat(f.Config); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("a new config stays: %v", err)
+					}
+				} else {
+					st, err := os.Stat(f.Config)
+					if read(t, f.Config) != before || err != nil || st.Mode().Perm() != 0o600 {
+						t.Errorf("config %q, mode %v %v", read(t, f.Config), st, err)
+					}
+				}
+				if shape == "symlink" {
+					if link, err := os.Readlink(f.Config); err != nil || link != real {
+						t.Errorf("the symlink was replaced: %q %v", link, err)
+					}
+				}
+				if !withLock {
+					if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("a new lock stays: %v", err)
+					}
+				} else if st, err := os.Stat(lockPath); read(t, lockPath) != oldLock || err != nil || st.Mode().Perm() != 0o640 {
+					t.Errorf("lock %q, mode %v %v", read(t, lockPath), st, err)
+				}
+			})
+		}
+	}
+}
