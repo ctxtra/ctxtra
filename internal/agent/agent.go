@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/chunk"
@@ -389,7 +390,7 @@ func profileErrors(errs []*catalog.Error) []string {
 	for _, e := range errs {
 		switch e.Err.Mistake {
 		case yamlx.BadProfileName, yamlx.SelectionUnreadable, yamlx.UnusedProfile:
-			out = append(out, e.Error())
+			out = append(out, errorLine(e))
 		}
 	}
 	return out
@@ -397,15 +398,38 @@ func profileErrors(errs []*catalog.Error) []string {
 
 // inactiveSources are the sources that can't be read, each with what
 // makes it readable again: source update, source download or source
-// trust.
+// trust. A line that is cut keeps its end from that command on.
 func inactiveSources(errs []*catalog.Error) []string {
 	var out []string
 	for _, e := range errs {
-		if e.Err.Mistake == yamlx.Inactive && e.Err.Part.Kind == "source" {
-			out = append(out, "source "+e.Err.Part.Name+": "+strings.ReplaceAll(e.Err.Msg, "`", ""))
+		if e.Err.Mistake != yamlx.Inactive || e.Err.Part.Kind != "source" {
+			continue
 		}
+		text := "source " + e.Err.Part.Name + ": " + e.Err.Msg
+		if utf8.RuneCountInString(displayText(text)) <= maxErrorLine {
+			out = append(out, diagnostic(text, ""))
+			continue
+		}
+		msg, tail := repair(e.Err.Part.Name, e.Err.Msg)
+		out = append(out, diagnostic("source "+e.Err.Part.Name+": "+msg, tail))
 	}
 	return out
+}
+
+// repair splits the message of source name that can't be read at the
+// command that makes it readable again: msg is the text before it, and tail
+// from it to the end, or the command alone when that end is long.
+func repair(name, why string) (msg, tail string) {
+	for _, cmd := range []string{"ctxtra source trust " + name, "ctxtra source update " + name, "ctxtra source download"} {
+		i := strings.Index(why, "run `"+cmd+"`")
+		switch {
+		case i >= 0 && utf8.RuneCountInString(displayText(why[i:])) <= maxErrorLine/2:
+			return strings.TrimSpace(why[:i]), " " + why[i:]
+		case i >= 0 || strings.Contains(why, "`"+cmd+"`"):
+			return why, " (run " + cmd + ")"
+		}
+	}
+	return why, ""
 }
 
 // unreadableSets names the repo sets that can't be read, with their
@@ -413,18 +437,46 @@ func inactiveSources(errs []*catalog.Error) []string {
 func unreadableSets(sets []resolve.UnreadableSet) []string {
 	var out []string
 	for _, u := range sets {
-		effect := "the entry matches nothing"
+		effect := "; the entry matches nothing"
 		if strings.HasPrefix(u.Entry, "!") {
-			effect = "the binding is left out"
+			effect = "; the binding is left out"
 		}
-		out = append(out, fmt.Sprintf("binding %s: repo set %s can't be read (%s); %s", u.Binding, u.Entry, strings.ReplaceAll(u.Why, "`", ""), effect))
+		out = append(out, diagnostic(fmt.Sprintf("binding %s: repo set %s can't be read (%s)", u.Binding, u.Entry, u.Why), effect))
 	}
 	return out
 }
 
-// maxErrorLine is the most runes of an error in the session message; doctor
-// has the rest.
-const maxErrorLine = 160
+// maxErrorLine is the most characters of an error in the session message;
+// doctor and the log have the whole text.
+const maxErrorLine = 240
+
+// diagnostic is an error line of the session message: text followed by
+// tail, which says what to do or what is left out. Control characters are
+// escaped and line breaks become spaces, so that the line stays one line of
+// the message, and text is cut so that the line has at most maxErrorLine
+// characters, or the tail and 40 characters of text.
+func diagnostic(text, tail string) string {
+	text, tail = displayText(text), displayText(tail)
+	r := []rune(text)
+	if room := max(maxErrorLine-utf8.RuneCountInString(tail), 40); len(r) > room {
+		r = append(r[:room-1], '…')
+	}
+	return string(r) + tail
+}
+
+// displayText is s on one line, without control characters or the
+// backticks around commands.
+func displayText(s string) string {
+	s = strings.NewReplacer("`", "", "\r\n", " ", "\n", " ", "\r", " ", "\t", " ").Replace(s)
+	return term.Sanitize(s)
+}
+
+// errorLine is e as doctor writes it, as an error line of the session
+// message that keeps what e leaves out at its end.
+func errorLine(e *catalog.Error) string {
+	effect := e.Err.Effect()
+	return diagnostic(strings.TrimSuffix(e.Error(), effect), effect)
+}
 
 // otherErrors are the errors that the lines with a command to run don't
 // name, as doctor writes them: with their file and line.
@@ -437,11 +489,7 @@ func otherErrors(errs []*catalog.Error, sets []resolve.UnreadableSet) []string {
 			slices.ContainsFunc(sets, func(u resolve.UnreadableSet) bool { return u.Err == e }):
 			continue
 		}
-		line := []rune(term.Sanitize(strings.ReplaceAll(strings.ReplaceAll(e.Error(), "`", ""), "\n", " ")))
-		if len(line) > maxErrorLine {
-			line = append(line[:maxErrorLine-1], '…')
-		}
-		out = append(out, string(line))
+		out = append(out, errorLine(e))
 	}
 	return out
 }
@@ -459,11 +507,11 @@ func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 		case m.Unapproved == creds.Declined:
 			continue
 		case m.Unapproved != "":
-			approval = append(approval, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
+			approval = append(approval, diagnostic(m.ID, " needs approval: run ctxtra mcp approve "+m.ID))
 			continue
 		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
-			signIn = append(signIn, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))
+			signIn = append(signIn, diagnostic(m.ID, " needs sign-in: run ctxtra mcp login "+m.ID))
 		}
 	}
 	return approval, signIn

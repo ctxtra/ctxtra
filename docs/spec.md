@@ -1474,8 +1474,10 @@ setup can't write it, setup fails with exit code 1, and the config changes it ma
 Every mistake is an error, reported in the session message where available, the log, `context explain`
 and `doctor`. Doctor exits 1. The session message counts the errors and names the first three, each on a line
 that starts with ⚠: first those with a command that fixes them (a profile, a source that can't be read, a repo set,
-a server to approve), then the others as `doctor` writes them, with their file and line, cut at 160 characters. A
-last line says how many more errors `doctor` shows. A bad entry leaves out the smallest usable part:
+a server to approve), then the others as `doctor` writes them, with their file and line. A last line says how many
+more errors `doctor` shows. Each line is one line of at most 240 characters, with control characters escaped. A longer
+line is cut before its end, which keeps the command to run or what is left out. `doctor` and the log have the whole
+text. A bad entry leaves out the smallest usable part:
 
 | Error | Left out |
 |---|---|

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -75,11 +78,31 @@ func TestSummaryNamesErrors(t *testing.T) {
 	}
 	long := &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.BrokenEntry, Msg: strings.Repeat("é", 300)}}
 	res.Errors, res.UnreadableSets = []*catalog.Error{long}, nil
-	if got := Summary(res); !strings.HasSuffix(got, "\n⚠ "+strings.Repeat("é", 159)+"…") {
+	if got := Summary(res); !strings.HasSuffix(got, "\n⚠ "+strings.Repeat("é", 216)+"…; the entry is left out") {
 		t.Errorf("long error: %q", got)
 	}
 	res.Errors = []*catalog.Error{control}
 	if got := Summary(res); !strings.Contains(got, "⚠ a\\u001b[2Jb c d;") {
 		t.Errorf("not sanitized: %q", got)
+	}
+}
+
+// A long error line is cut before its repair command, which stays whole.
+func TestSummaryKeepsTheRepair(t *testing.T) {
+	testenv.Home(t)
+	inactive := func(msg string) *catalog.Error {
+		return &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.Inactive, Part: yamlx.Part{Kind: "source", Name: "team"}, Msg: msg}}
+	}
+	id := strings.Repeat("s", 64) + ":" + strings.Repeat("m", 64)
+	res := &resolve.Result{Errors: []*catalog.Error{
+		inactive(strings.Repeat("x", 300) + "; run `ctxtra source update team` to review it"),
+		inactive("run `ctxtra source trust team`; or `ctxtra source add --repo ~/" + strings.Repeat("d", 300) + "`"),
+	}, MCPServers: []resolve.MCPServer{{Server: upstream.Server{ID: id}, Unapproved: "new"}}}
+	_, got, _ := strings.Cut(Summary(res), "\n\n")
+	lines := strings.Split(got, "\n")
+	for i, end := range []string{"x… run ctxtra source update team to review it", "d… (run ctxtra source trust team)", " needs approval: run ctxtra mcp approve " + id} {
+		if i >= len(lines) || !strings.HasSuffix(lines[i], end) || utf8.RuneCountInString(lines[i]) > 2+maxErrorLine {
+			t.Errorf("line %d: want a short line ending with %q in\n%s", i, end, got)
+		}
 	}
 }
