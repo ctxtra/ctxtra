@@ -754,8 +754,9 @@ Where a session's profiles can differ from what you expect:
   An untrusted folder is left out with an error; other matches remain. Repo sources never follow symlinks.
 - Each pattern is limited to 10,000 directory entries and operations, with a maximum traversal depth of
   64. A traversal error or exceeded limit skips the whole pattern, with an error.
-  Recorded symlink paths count against this budget before directory children are built. Named paths
-  check link membership without expanding directories.
+  Recorded symlink paths under each visited directory count against this budget before its children
+  are built. Links outside that directory cost only one index lookup. Named paths check link membership
+  without expanding directories.
 - Pinned-source patterns expand only against the selected commit. `source update` reviews matching files from
   both the old and proposed commits, including newly matched files. Local patterns are expanded live:
   new matching files apply immediately. Use `context files`, `context show` or `context explain` to inspect the result.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +55,7 @@ func newSymlinkTree(links []string) *symlinkTree {
 	if len(links) == 0 {
 		return nil
 	}
+	slices.Sort(links)
 	t := &symlinkTree{links: make(map[string]bool, len(links)), paths: links}
 	for _, link := range links {
 		t.links[link] = true
@@ -69,17 +71,16 @@ func (t *tree) virtualDirectory(name string) (bool, error) {
 		return exists, nil
 	}
 	prefix := name + "/"
-	for _, link := range t.linkPaths {
-		if err := t.spend(1); err != nil {
-			return false, err
+	if err := t.spend(1); err != nil {
+		return false, err
+	}
+	start, _ := slices.BinarySearch(t.linkPaths, prefix)
+	if start < len(t.linkPaths) && strings.HasPrefix(t.linkPaths[start], prefix) {
+		if t.virtualDirs == nil {
+			t.virtualDirs = map[string]bool{}
 		}
-		if strings.HasPrefix(link, prefix) {
-			if t.virtualDirs == nil {
-				t.virtualDirs = map[string]bool{}
-			}
-			t.virtualDirs[name] = true
-			return true, nil
-		}
+		t.virtualDirs[name] = true
+		return true, nil
 	}
 	return false, nil
 }
@@ -101,13 +102,14 @@ func (t *tree) linkChildren(name string) (map[string]fs.DirEntry, error) {
 	if name != "." {
 		prefix = name + "/"
 	}
-	for _, link := range t.linkPaths {
-		if err := t.spend(1); err != nil {
-			return nil, err
-		}
+	start, _ := slices.BinarySearch(t.linkPaths, prefix)
+	for _, link := range t.linkPaths[start:] {
 		rest, ok := strings.CutPrefix(link, prefix)
 		if !ok {
-			continue
+			break
+		}
+		if err := t.spend(1); err != nil {
+			return nil, err
 		}
 		child, _, _ := strings.Cut(rest, "/")
 		if _, ok := children[child]; !ok {
