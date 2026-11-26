@@ -71,7 +71,8 @@ session-message:
 ```
 
 Zero hides that list. The first line still counts all instructions and skills.
-Errors and notices appear below, with commands to investigate or repair them. Over capacity is an error;
+Errors and notices appear below: the first three errors, with their line in the config or the command that fixes
+them, and how many more `ctxtra doctor` shows. Over capacity is an error;
 the message names files that did not fit. Cursor, Copilot, Antigravity, OpenCode, Hermes and DSH cannot
 show a separate message to the user. `ctxtra doctor` and `ctxtra context explain` show the same errors.
 

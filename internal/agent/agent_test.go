@@ -45,16 +45,17 @@ func TestSummary(t *testing.T) {
 		"✓ ctxtra added 1 instruction and 2 skills\nInstructions:\n  team\n  - a.md\nSkills:\n  team\n  - deploy\n  - review": {
 			Files: files("a.md"), Skills: skills},
 		"✓ ctxtra added 2 skills\nSkills:\n  team\n  - deploy\n  - review": {Skills: skills},
-		"✓ ctxtra added 1 instruction; 2 errors, dropped b.md, c.md (over max-ctx-chars) (run ctxtra doctor)\nInstructions:\n  team\n  - a.md": {
+		"✓ ctxtra added 1 instruction; 2 errors, dropped b.md, c.md (over max-ctx-chars) (run ctxtra doctor)\nInstructions:\n  team\n  - a.md\n\n⚠ e0\n⚠ e1": {
 			Files: files("a.md"), Errors: errs(2), Dropped: over(files("b.md", "c.md"), "max-ctx-chars")},
 		"✓ ctxtra added 1 instruction; dropped b.md, c.md, d.md, +1 more (over Claude Code's limit of 360,000 characters), dropped z.md (over max-ctx-chars) (run ctxtra doctor)\nInstructions:\n  team\n  - a.md": {
 			Files: files("a.md"), Dropped: append(over(files("b.md", "c.md", "d.md", "e.md"), "Claude Code's limit of 360,000 characters"),
 				over(files("z.md"), "max-ctx-chars")...)},
 		// A glob adds a large folder: the message names the bindings.
-		"ctxtra added nothing; 1 error, dropped a.md, b.md of binding big (over max-ctx-chars) (run ctxtra doctor)": {
+		"ctxtra added nothing; 1 error, dropped a.md, b.md of binding big (over max-ctx-chars) (run ctxtra doctor)\n\n⚠ e0": {
 			Errors: errs(1), Dropped: origin(over(files("a.md", "b.md"), "max-ctx-chars"), "big")},
-		"ctxtra added nothing; 2 errors (run ctxtra doctor)": {Errors: errs(2)},
-		"ctxtra added nothing; 1 error (run ctxtra doctor)":  {Errors: errs(1)},
+		"ctxtra added nothing; 2 errors (run ctxtra doctor)\n\n⚠ e0\n⚠ e1":                                            {Errors: errs(2)},
+		"ctxtra added nothing; 1 error (run ctxtra doctor)\n\n⚠ e0":                                                   {Errors: errs(1)},
+		"ctxtra added nothing; 5 errors (run ctxtra doctor)\n\n⚠ e0\n⚠ e1\n⚠ e2\n⚠ 2 more errors (run ctxtra doctor)": {Errors: errs(5)},
 		"✓ ctxtra added 1 instruction\nInstructions:\n  team\n  - a.md\n\nℹ team has new commits on main\nℹ n2": {
 			Files: files("a.md"), Notices: []string{"team has new commits on main", "n2"}},
 		// A notice after the skills list doesn't read as one of the skills.
@@ -283,7 +284,7 @@ Instructions:
 	// Hidden lists still leave the errors and dropped files.
 	hidden := &resolve.Result{Files: res.Files[:1], Skills: res.Skills[:1], Errors: errs(1),
 		Dropped: []resolve.Hit{{Path: "/x/big.md", Over: "max-ctx-chars"}}, Summary: show(0, 0)}
-	if got, want := agent.Summary(hidden), "✓ ctxtra added 1 instruction and 1 skill; 1 error, dropped big.md (over max-ctx-chars) (run ctxtra doctor)"; got != want {
+	if got, want := agent.Summary(hidden), "✓ ctxtra added 1 instruction and 1 skill; 1 error, dropped big.md (over max-ctx-chars) (run ctxtra doctor)\n\n⚠ e0"; got != want {
 		t.Errorf("hidden: got %q\nwant %q", got, want)
 	}
 }

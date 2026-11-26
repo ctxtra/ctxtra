@@ -1471,7 +1471,10 @@ setup can't write it, setup fails with exit code 1, and the config changes it ma
 ## Validation
 
 Every mistake is an error, reported in the session message where available, the log, `context explain`
-and `doctor`. Doctor exits 1. A bad entry leaves out the smallest usable part:
+and `doctor`. Doctor exits 1. The session message counts the errors and names the first three, each on a line
+that starts with ⚠: first those with a command that fixes them (a profile, a source that can't be read, a repo set,
+a server to approve), then the others as `doctor` writes them, with their file and line, cut at 160 characters. A
+last line says how many more errors `doctor` shows. A bad entry leaves out the smallest usable part:
 
 | Error | Left out |
 |---|---|

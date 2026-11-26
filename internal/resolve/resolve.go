@@ -81,6 +81,8 @@ type UnreadableSet struct {
 	Entry string
 	// Why is why the set can't be read.
 	Why string
+	// Err is the error that reports it.
+	Err *catalog.Error
 }
 
 // SessionMessage is how many instructions and skills the session message

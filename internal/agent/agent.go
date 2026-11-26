@@ -23,6 +23,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/term"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -335,7 +336,17 @@ func Summary(res *resolve.Result) string {
 		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
-	signIn := slices.Concat(profileErrors(res.Errors), inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), needSignIn(res.MCPServers))
+	approval, signIn := needSignIn(res.MCPServers)
+	named := slices.Concat(profileErrors(res.Errors), inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), approval)
+	named = append(named, otherErrors(res.Errors, res.UnreadableSets)...)
+	if len(named) > summaryNames {
+		more := "errors"
+		if len(named)-summaryNames == 1 {
+			more = "error"
+		}
+		named = append(named[:summaryNames], fmt.Sprintf("%d more %s (run ctxtra doctor)", len(named)-summaryNames, more))
+	}
+	signIn = append(named, signIn...)
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 && !res.Profiles.Shown() {
 		return ""
 	}
@@ -386,33 +397,22 @@ func profileErrors(errs []*catalog.Error) []string {
 
 // inactiveSources are the sources that can't be read, each with what
 // makes it readable again: source update, source download or source
-// trust. The first summaryNames are named.
+// trust.
 func inactiveSources(errs []*catalog.Error) []string {
 	var out []string
-	n := 0
 	for _, e := range errs {
-		if e.Err.Mistake != yamlx.Inactive || e.Err.Part.Kind != "source" {
-			continue
-		}
-		if n++; n <= summaryNames {
+		if e.Err.Mistake == yamlx.Inactive && e.Err.Part.Kind == "source" {
 			out = append(out, "source "+e.Err.Part.Name+": "+strings.ReplaceAll(e.Err.Msg, "`", ""))
 		}
-	}
-	if n > summaryNames {
-		out = append(out, fmt.Sprintf("%d more sources can't be read (run ctxtra doctor)", n-summaryNames))
 	}
 	return out
 }
 
 // unreadableSets names the repo sets that can't be read, with their
-// bindings and what that does to them. The first summaryNames are named.
+// bindings and what that does to them.
 func unreadableSets(sets []resolve.UnreadableSet) []string {
 	var out []string
-	for i, u := range sets {
-		if i == summaryNames {
-			out = append(out, fmt.Sprintf("%d more repo sets can't be read (run ctxtra doctor)", len(sets)-summaryNames))
-			break
-		}
+	for _, u := range sets {
 		effect := "the entry matches nothing"
 		if strings.HasPrefix(u.Entry, "!") {
 			effect = "the binding is left out"
@@ -422,27 +422,51 @@ func unreadableSets(sets []resolve.UnreadableSet) []string {
 	return out
 }
 
-// needSignIn reads approval and sign-in state locally, never the keychain.
-// An explicit decline suppresses its repeated approval summary line.
-func needSignIn(servers []resolve.MCPServer) []string {
+// maxErrorLine is the most runes of an error in the session message; doctor
+// has the rest.
+const maxErrorLine = 160
+
+// otherErrors are the errors that the lines with a command to run don't
+// name, as doctor writes them: with their file and line.
+func otherErrors(errs []*catalog.Error, sets []resolve.UnreadableSet) []string {
+	var out []string
+	for _, e := range errs {
+		switch {
+		case e.Err.Mistake == yamlx.BadProfileName, e.Err.Mistake == yamlx.SelectionUnreadable, e.Err.Mistake == yamlx.UnusedProfile,
+			e.Err.Mistake == yamlx.NotApproved, e.Err.Mistake == yamlx.Inactive && e.Err.Part.Kind == "source",
+			slices.ContainsFunc(sets, func(u resolve.UnreadableSet) bool { return u.Err == e }):
+			continue
+		}
+		line := []rune(term.Sanitize(strings.ReplaceAll(strings.ReplaceAll(e.Error(), "`", ""), "\n", " ")))
+		if len(line) > maxErrorLine {
+			line = append(line[:maxErrorLine-1], '…')
+		}
+		out = append(out, string(line))
+	}
+	return out
+}
+
+// needSignIn reads approval and sign-in state locally, never the keychain:
+// the servers that need approval, and those that need sign-in. An explicit
+// decline suppresses its repeated approval line.
+func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 	if len(servers) == 0 {
-		return nil
+		return nil, nil
 	}
 	store := creds.Open()
-	var out []string
 	for _, m := range servers {
 		switch {
 		case m.Unapproved == creds.Declined:
 			continue
 		case m.Unapproved != "":
-			out = append(out, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
+			approval = append(approval, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
 			continue
 		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
-			out = append(out, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))
+			signIn = append(signIn, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))
 		}
 	}
-	return out
+	return approval, signIn
 }
 
 // Summary lines: a group per source under each list title, its entries
