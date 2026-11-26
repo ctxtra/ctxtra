@@ -23,6 +23,13 @@ func TestFindSource(t *testing.T) {
   cat:
     repo: https://github.com/org/catalog
     branch: main
+  pinned:
+    repo: /src/clone
+    branch: main
+  live:
+    dir: /src/clone
+  live-only:
+    dir: /src/live-only
 `), config.Options{})
 	tests := []struct {
 		name, arg, want, err string
@@ -39,6 +46,9 @@ func TestFindSource(t *testing.T) {
 			err: "add it first: ctxtra source add --repo git@github.com:acme/agent-context.git --subdir teams/billing"},
 		{name: "the source isn't added", arg: "https://github.com/acme/other", err: "add it first: ctxtra source add --repo https://github.com/acme/other"},
 		{name: "an unknown name", arg: "iam", err: "the config has no source iam"},
+		{name: "a repo source and a dir source of one clone", arg: "/src/clone", want: "pinned"},
+		{name: "a dir source by its name", arg: "live", want: "live"},
+		{name: "a dir source isn't found by its folder", arg: "/src/live-only", err: "no source has /src/live-only; add it first: ctxtra source add --repo /src/live-only"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

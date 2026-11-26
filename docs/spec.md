@@ -83,8 +83,8 @@ folder and written as absolute paths, using `~` under home. Source references st
 
 `--source SOURCE` makes the values of `--collection`, `--repo-set`, `--mcp-server`, `--instruction` and `--skill`
 names or paths in that source, written with the config's name for it, after any `!`: `--source cat --skill
-'!skills/old'` writes `'!cat:skills/old'`. SOURCE is a source name, or a repository address when it contains `/`
-or `:`. Addresses are compared as `host/path`, so `git@github.com:acme/ctx.git` and `https://github.com/acme/ctx`
+'!skills/old'` writes `'!cat:skills/old'`. SOURCE is a source name, or the address of a repo source when it
+contains `/` or `:`; a `dir` source is chosen by its name. Addresses are compared as `host/path`, so `git@github.com:acme/ctx.git` and `https://github.com/acme/ctx`
 are the same. `URL//FOLDER` picks the source with that `subdir`. No source, several, or a value that already
 names a source exits 1 and changes nothing; with no source, the error gives the `ctxtra source add` command.
 

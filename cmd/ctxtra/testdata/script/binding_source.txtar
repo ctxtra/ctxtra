@@ -58,6 +58,20 @@ stderr '!acme-iam:essentials names a source already'
 exec ctxtra binding add local --source cat --dir '~/dev/**' --profile cat --agent codex --instruction notes.md
 stdout '^      - cat:notes.md$'
 
+# A repo source and a dir source of one clone: the address names the repo
+# source, and the dir source is chosen by its name.
+gitrepo clone
+exec ctxtra source add --repo clone --name pinned
+exec ctxtra source add --dir clone --name live
+exec ctxtra binding add from-pinned --source $WORK/clone --instruction AGENTS.md --dry-run
+stdout '^      - pinned:AGENTS.md$'
+exec ctxtra binding add from-live --source live --instruction AGENTS.md --dry-run
+stdout '^      - live:AGENTS.md$'
+exec ctxtra source remove pinned
+! exec ctxtra binding add from-pinned --source $WORK/clone --instruction AGENTS.md
+stderr 'no source has .*/clone; add it first: ctxtra source add --repo '
+exec ctxtra source remove live
+
 # The config has each binding as given.
 exec sh -c 'sed -n "/^bindings:/,\$p" .config/ctxtra/config.yaml'
 cmp stdout want-bindings.yaml
@@ -93,6 +107,8 @@ description: Review code.
 ---
 description: Old review.
 ---
+-- clone/AGENTS.md --
+CLONE
 -- srv/catalog/notes.md --
 NOTES
 -- want-bindings.yaml --

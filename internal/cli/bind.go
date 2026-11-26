@@ -113,8 +113,8 @@ func splitFolder(arg string) (repo, folder string, ok bool) {
 }
 
 // findSource is the config's name for the source that the argument of
-// --source names: a source name, or a repository address, compared as
-// host/path, with //FOLDER for the source with that subdir.
+// --source names: a source name, or the address of a repo source, compared
+// as host/path, with //FOLDER for the source with that subdir.
 func findSource(c *config.Config, arg string) (string, error) {
 	if !strings.ContainsAny(arg, "/:") {
 		if c.Source(arg) == nil {
@@ -125,12 +125,10 @@ func findSource(c *config.Config, arg string) (string, error) {
 	repo, folder, hasFolder := splitFolder(arg)
 	id := config.RepoID(repo)
 	var names []string
+	// An address names a repo source; a dir source, read live, is chosen
+	// by its name.
 	for _, src := range c.Sources {
-		where := src.Repo
-		if where == "" {
-			where = src.Dir
-		}
-		if where == "" || config.RepoID(where) != id {
+		if src.Repo == "" || config.RepoID(src.Repo) != id {
 			continue
 		}
 		if hasFolder && config.CleanSubdir(src.Subdir) != config.CleanSubdir(folder) {
