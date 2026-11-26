@@ -35,7 +35,12 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 	s.Extra = append(s.Extra, "XDG_CONFIG_HOME="+cfg)
 	s.Write("ctx-config/ctxtra/config.yaml", "schema: ctxtra/config/v1\ncheck-releases: false\n")
 	s.Setup()
-	s.Write("ctx-config/ctxtra/config.yaml", "check-updates: false\n"+config(s))
+	text := config(s)
+	schema, rest, _ := strings.Cut(text, "\n")
+	s.Write("ctx-config/ctxtra/config.yaml", schema+"\ncheck-releases: false\n"+rest)
+	// The config has no errors: a session at home reports every config
+	// error, and an error fails the command.
+	s.Ctxtra("context", "files", "--json")
 	s.Adjust = func(cmd *exec.Cmd) { approveMCP(s, a.Name(), cmd) }
 	return s
 }
