@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,9 +21,22 @@ type used struct {
 	dirs  []string
 	// errors are the errors of the entries that read the source.
 	errors []string
-	// collections are the bindings that use each of the source's
-	// collections, by its name.
-	collections map[string][]string
+	// named are the bindings that name each of the source's collections,
+	// directly or in the config's own collections, and using those that
+	// use each, nested ones included; by the collection's name.
+	named, using useMap
+}
+
+// useMap is the bindings that use each collection, by its name.
+type useMap map[string][]string
+
+// add records that binding uses colls.
+func (m useMap) add(colls []string, binding string) {
+	for _, c := range colls {
+		if !slices.Contains(m[c], binding) {
+			m[c] = append(m[c], binding)
+		}
+	}
 }
 
 func (u *used) has(p string) bool {
@@ -41,27 +55,23 @@ func reviewTop(name string) string {
 // reads and limits filter them, with the errors a session would report for
 // those entries.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
-	u := &used{files: map[string]bool{manifest.FileName: true}, collections: map[string][]string{}}
+	u := &used{files: map[string]bool{manifest.FileName: true}, named: useMap{}, using: useMap{}}
 	alone := *env
 	alone.Catalog = cat
 	for _, b := range env.Config.Bindings {
 		if b.Broken() {
 			continue
 		}
-		files, skills, entered, errs := alone.Referenced(b, name)
-		for _, ref := range entered {
-			_, coll, _ := strings.Cut(ref, ":")
-			if !slices.Contains(u.collections[coll], b.Name) {
-				u.collections[coll] = append(u.collections[coll], b.Name)
-			}
-		}
-		for _, it := range files {
+		ref := alone.Referenced(b, name)
+		u.named.add(ref.Named, b.Name)
+		u.using.add(ref.Used, b.Name)
+		for _, it := range ref.Files {
 			u.files[it.Rel] = true
 		}
-		for _, it := range skills {
+		for _, it := range ref.Skills {
 			u.dirs = append(u.dirs, it.Rel)
 		}
-		for _, e := range errs {
+		for _, e := range ref.Errors {
 			u.errors = append(u.errors, reviewError(env, name, e))
 		}
 	}
@@ -145,17 +155,20 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	for f := range bu.files {
 		u.files[f] = true
 	}
-	for c, bs := range bu.collections {
+	for c, bs := range bu.named {
 		for _, b := range bs {
-			if !slices.Contains(u.collections[c], b) {
-				u.collections[c] = append(u.collections[c], b)
-			}
+			u.named.add([]string{c}, b)
+		}
+	}
+	for c, bs := range bu.using {
+		for _, b := range bs {
+			u.using.add([]string{c}, b)
 		}
 	}
 	u.dirs = append(u.dirs, bu.dirs...)
 	s.printErrors(u.errors, bu.errors)
 	if before != nil {
-		s.collectionChanges(name, u.collections, before, after)
+		s.collectionChanges(name, u, before, after)
 	}
 	s.mcpDefinitionWarnings(name, before, after)
 
@@ -216,28 +229,29 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 }
 
 // collectionChanges reports, for each collection of source name that the
-// bindings in use use with either commit, whether the new commit removes
-// it, and what it newly adds: servers, skills and files.
-func (s *sources) collectionChanges(name string, use map[string][]string, before, after *catalog.Catalog) {
-	names := make([]string, 0, len(use))
-	for c := range use {
-		names = append(names, c)
+// bindings use with either commit, nested ones included, whether the new
+// commit removes it, and for each that they name, what it newly adds:
+// servers, skills and files.
+func (s *sources) collectionChanges(name string, u *used, before, after *catalog.Catalog) {
+	m, _ := after.Manifest(after.Source(name))
+	by := func(bindings []string) string {
+		if len(bindings) > 1 {
+			return "bindings " + strings.Join(bindings, ", ") + " use it"
+		}
+		return "binding " + bindings[0] + " uses it"
 	}
-	slices.Sort(names)
-	for _, c := range names {
-		by := "binding " + use[c][0] + " uses it"
-		if len(use[c]) > 1 {
-			by = "bindings " + strings.Join(use[c], ", ") + " use it"
-		}
-		now, ok := after.Collection(name, c)
-		if m, _ := after.Manifest(after.Source(name)); !ok && m != nil && m.Collection(c) != nil {
-			// It has errors, which the review shows.
-			continue
-		}
-		if !ok {
-			msg := fmt.Sprintf("collection %s is removed; %s", c, by)
+	for _, c := range slices.Sorted(maps.Keys(u.using)) {
+		if m == nil || m.Collection(c) == nil {
+			msg := fmt.Sprintf("collection %s is removed; %s", c, by(u.using[c]))
 			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
 			s.diags = append(s.diags, diagnostic{"warning", source.Sanitize(name + ": " + msg)})
+		}
+	}
+	for _, c := range slices.Sorted(maps.Keys(u.named)) {
+		// A removed collection is reported above; one with errors, by the
+		// review's errors.
+		now, ok := after.Collection(name, c)
+		if !ok {
 			continue
 		}
 		was, _ := before.Collection(name, c)
@@ -261,7 +275,7 @@ func (s *sources) collectionChanges(name string, use map[string][]string, before
 			}
 		}
 		if len(added) > 0 {
-			msg := fmt.Sprintf("collection %s newly adds %s; %s", c, strings.Join(added, ", "), by)
+			msg := fmt.Sprintf("collection %s newly adds %s; %s", c, strings.Join(added, ", "), by(u.named[c]))
 			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
 			s.diags = append(s.diags, diagnostic{"notice", source.Sanitize(name + ": " + msg)})
 		}
