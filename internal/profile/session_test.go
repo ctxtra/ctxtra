@@ -40,6 +40,20 @@ func records(t *testing.T, h string) []string {
 }
 
 func TestASessionKeepsItsProfiles(t *testing.T) {
+	t.Run("a context callback keeps a subagent's profiles", func(t *testing.T) {
+		testenv.Home(t)
+		store(t, "iam")
+		forEvent(t, Event{Agent: "opencode", Kind: Start, Session: "p"})
+		store(t, "observability")
+		e := Event{Agent: "opencode", Kind: Continue, Session: "c", Parent: "p"}
+		if a := forEvent(t, e); !slices.Equal(a.Names, []string{"iam"}) || !a.Kept {
+			t.Fatalf("child's first context: %+v", a)
+		}
+		forEvent(t, Event{Agent: "opencode", Kind: Start, Session: "p"})
+		if a := forEvent(t, e); !slices.Equal(a.Names, []string{"iam"}) || !a.Kept {
+			t.Errorf("child's context after parent clear: %+v", a)
+		}
+	})
 	t.Run("switching while a session runs", func(t *testing.T) {
 		testenv.Home(t)
 		store(t, "iam")
@@ -137,6 +151,20 @@ func TestASessionKeepsItsProfiles(t *testing.T) {
 }
 
 func TestKeepingProfilesNeverBreaksASession(t *testing.T) {
+	t.Run("a context callback cannot read its own record", func(t *testing.T) {
+		testenv.Home(t)
+		store(t, "iam")
+		forEvent(t, Event{Agent: "opencode", Kind: Start, Session: "p"})
+		store(t, "observability")
+		testenv.Write(t, recordPath("opencode", "c"), "{")
+		a, err := ForEvent(Event{Agent: "opencode", Kind: Continue, Session: "c", Parent: "p"})
+		if !slices.Equal(a.Names, []string{"observability"}) || a.Kept || err == nil {
+			t.Errorf("child: %+v %v", a, err)
+		}
+		if a := forEvent(t, Event{Agent: "opencode", Kind: Continue, Session: "p"}); !slices.Equal(a.Names, []string{"iam"}) {
+			t.Errorf("parent: %+v", a)
+		}
+	})
 	t.Run("agent without a session ID", func(t *testing.T) {
 		h := testenv.Home(t)
 		store(t, "iam")

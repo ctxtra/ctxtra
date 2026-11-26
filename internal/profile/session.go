@@ -22,7 +22,7 @@ const (
 	// the session's record.
 	Start Kind = iota
 	// Continue is compaction, resume, or an event that doesn't say: the
-	// session's record.
+	// session's record, else its parent's when one is known.
 	Continue
 	// Subagent is a subagent's start: its parent session's record.
 	Subagent
@@ -38,7 +38,8 @@ type Event struct {
 	// where the agent gives it one. "" when the agent doesn't say.
 	Session string
 	// Parent is a subagent's parent session, "" when the agent doesn't
-	// say.
+	// say. A Continue with no record can inherit it too: some context
+	// callbacks don't distinguish a child's start from later events.
 	Parent string
 }
 
@@ -79,7 +80,7 @@ func recordPath(agent, id string) string {
 //   - Start: the current set, which replaces the record.
 //   - Subagent: the parent's record; also kept for the subagent when it
 //     has an ID of its own.
-//   - Continue: the session's record.
+//   - Continue: the session's record, else a known parent's record.
 //   - No session ID, or no record: the current set, recorded when there is
 //     a session ID.
 //
@@ -87,14 +88,20 @@ func recordPath(agent, id string) string {
 // event then gets the current set, and the session still starts.
 func ForEvent(e Event) (Active, error) {
 	var errs []error
-	lookup := ""
+	var lookups []string
 	switch e.Kind {
 	case Subagent:
-		lookup = e.Parent
+		lookups = append(lookups, e.Parent)
 	case Continue:
-		lookup = e.Session
+		lookups = append(lookups, e.Session)
+		if e.Parent != e.Session {
+			lookups = append(lookups, e.Parent)
+		}
 	}
-	if lookup != "" {
+	for _, lookup := range lookups {
+		if lookup == "" {
+			continue
+		}
 		a, ok, err := read(e.Agent, lookup)
 		errs = append(errs, err)
 		if ok {
@@ -107,6 +114,9 @@ func ForEvent(e Event) (Active, error) {
 			}
 			// Not recorded: the event gets what a new session would.
 			return Current(), errors.Join(err, werr)
+		}
+		if err != nil {
+			break
 		}
 	}
 	a := Current()

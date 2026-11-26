@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func Home(t testing.TB) string {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", h)
-	for _, k := range AgentVars {
+	for _, k := range slices.Concat(AgentVars, AgentSessionVars) {
 		t.Setenv(k, "")
 	}
 	// Git variables that point git at another repository, index or config:
@@ -50,6 +51,9 @@ var AgentVars = []string{
 	"CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR",
 	"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR",
 }
+
+// AgentSessionVars are native session identities that tests must not inherit.
+var AgentSessionVars = []string{"MUSE_SESSION_ID"}
 
 // GitLocationVars are cleared by Home. gitrepo clears the same list for
 // production git calls (a test checks that the lists match).

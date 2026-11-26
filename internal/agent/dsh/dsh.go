@@ -157,7 +157,7 @@ func (Agent) Delivery() agent.Delivery {
 }
 
 // protocol is the version of the plugin, which it sends as ctxtra_plugin.
-const protocol = 1
+const protocol = 2
 
 func (Agent) Protocol() int { return protocol }
 
@@ -183,7 +183,7 @@ import { join } from "node:path";
 
 const bin = %s;
 
-function run(ev, cwd, signal) {
+function run(ev, cwd, session_id, ctxtra_parent_session, signal) {
 	return new Promise((resolve) => {
 		try {
 			const child = execFile(bin, ["hook", "dsh", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
@@ -196,7 +196,7 @@ function run(ev, cwd, signal) {
 					}
 				});
 			child.stdin?.on("error", () => {});
-			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: ` + strconv.Itoa(protocol) + ` }));
+			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: ` + strconv.Itoa(protocol) + `, session_id, ctxtra_parent_session }));
 		} catch {
 			resolve({});
 		}
@@ -225,8 +225,10 @@ export function apply(ctx) {
 	ctx.on("agent/created", async ({ agent, source, signal }) => {
 		if (source === "resume") return;
 		try {
-			const ev = agent.session?.header?.parentSession ? "subagent" : source;
-			const { text } = await run(ev, await folder(ctx, agent, signal), signal);
+			const parent = agent.session?.header?.parentSession;
+			const ev = parent && source !== "compact" ? "subagent" : source;
+			const id = agent.session?.id ?? agent.session?.header?.id;
+			const { text } = await run(ev, await folder(ctx, agent, signal), id, parent, signal);
 			if (text) pending.set(agent, { id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "ctxtra" } });
 		} catch {}
 	});

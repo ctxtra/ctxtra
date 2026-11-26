@@ -1,6 +1,6 @@
 // @ctxtra-managed
 // binary: $HOME/bin/ctxtra
-// protocol: 1
+// protocol: 2
 // --setup-version=1
 // Written by ctxtra setup. Adds the instruction files and skills that
 // ctxtra binds to the session's folder. Safe to delete; `ctxtra setup --remove` removes it.
@@ -13,7 +13,7 @@ const bin = join(homedir(), "bin/ctxtra");
 type Skill = { name: string; description: string; path: string; content: string };
 type Answer = { text?: string; skills?: Skill[] };
 
-function run(ev: string, cwd: string): Promise<Answer> {
+function run(ev: string, cwd: string, session_id?: string, ctxtra_parent_session?: string): Promise<Answer> {
 	return new Promise((resolve) => {
 		try {
 			const child = execFile(bin, ["hook", "opencode", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
@@ -26,7 +26,7 @@ function run(ev: string, cwd: string): Promise<Answer> {
 					}
 				});
 			child.stdin?.on("error", () => {});
-			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: 1 }));
+			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: 2, session_id, ctxtra_parent_session }));
 		} catch {
 			resolve({});
 		}
@@ -60,7 +60,7 @@ export default {
 						try {
 							info = await ctx.session.get({ sessionID });
 						} catch {}
-						const a = await run(info?.parentID ? "subagent" : "context", info?.location?.directory ?? here);
+						const a = await run(info?.parentID ? "subagent" : "context", info?.location?.directory ?? here, sessionID, info?.parentID);
 						if (a.text === undefined) sessions.delete(sessionID);
 						return a;
 					})();

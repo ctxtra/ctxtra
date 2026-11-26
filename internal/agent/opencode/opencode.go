@@ -96,7 +96,7 @@ func (Agent) Delivery() agent.Delivery {
 }
 
 // protocol is the version of the plugin, which it sends as ctxtra_plugin.
-const protocol = 1
+const protocol = 2
 
 func (Agent) Protocol() int { return protocol }
 
@@ -127,7 +127,7 @@ const bin = %s;
 type Skill = { name: string; description: string; path: string; content: string };
 type Answer = { text?: string; skills?: Skill[] };
 
-function run(ev: string, cwd: string): Promise<Answer> {
+function run(ev: string, cwd: string, session_id?: string, ctxtra_parent_session?: string): Promise<Answer> {
 	return new Promise((resolve) => {
 		try {
 			const child = execFile(bin, ["hook", "opencode", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024 },
@@ -140,7 +140,7 @@ function run(ev: string, cwd: string): Promise<Answer> {
 					}
 				});
 			child.stdin?.on("error", () => {});
-			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: ` + strconv.Itoa(protocol) + ` }));
+			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: ` + strconv.Itoa(protocol) + `, session_id, ctxtra_parent_session }));
 		} catch {
 			resolve({});
 		}
@@ -174,7 +174,7 @@ export default {
 						try {
 							info = await ctx.session.get({ sessionID });
 						} catch {}
-						const a = await run(info?.parentID ? "subagent" : "context", info?.location?.directory ?? here);
+						const a = await run(info?.parentID ? "subagent" : "context", info?.location?.directory ?? here, sessionID, info?.parentID);
 						if (a.text === undefined) sessions.delete(sessionID);
 						return a;
 					})();

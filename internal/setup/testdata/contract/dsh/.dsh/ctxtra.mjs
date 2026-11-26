@@ -1,6 +1,6 @@
 // @ctxtra-managed
 // binary: $HOME/bin/ctxtra
-// protocol: 1
+// protocol: 2
 // --setup-version=1
 // Written by ctxtra setup and loaded by its row in cordis.patch.yml. Adds the
 // instruction files and skills that ctxtra binds to the session's folder.
@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 const bin = join(homedir(), "bin/ctxtra");
 
-function run(ev, cwd, signal) {
+function run(ev, cwd, session_id, ctxtra_parent_session, signal) {
 	return new Promise((resolve) => {
 		try {
 			const child = execFile(bin, ["hook", "dsh", ev, "--setup-version=1"], { encoding: "utf8", timeout: 10000, maxBuffer: 64 * 1024 * 1024, signal },
@@ -25,7 +25,7 @@ function run(ev, cwd, signal) {
 					}
 				});
 			child.stdin?.on("error", () => {});
-			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: 1 }));
+			child.stdin?.end(JSON.stringify({ cwd, ctxtra_plugin: 2, session_id, ctxtra_parent_session }));
 		} catch {
 			resolve({});
 		}
@@ -54,8 +54,10 @@ export function apply(ctx) {
 	ctx.on("agent/created", async ({ agent, source, signal }) => {
 		if (source === "resume") return;
 		try {
-			const ev = agent.session?.header?.parentSession ? "subagent" : source;
-			const { text } = await run(ev, await folder(ctx, agent, signal), signal);
+			const parent = agent.session?.header?.parentSession;
+			const ev = parent && source !== "compact" ? "subagent" : source;
+			const id = agent.session?.id ?? agent.session?.header?.id;
+			const { text } = await run(ev, await folder(ctx, agent, signal), id, parent, signal);
 			if (text) pending.set(agent, { id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "ctxtra" } });
 		} catch {}
 	});

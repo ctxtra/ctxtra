@@ -90,7 +90,7 @@ await plugin.setup({
 	skill: { transform: async (fn) => { transform = fn; }, reload: async () => { reloads++; } },
 	session: {
 		hook: async (name, fn) => { if (name === "context") hook = fn; },
-		get: async ({ sessionID }) => ({ id: sessionID, location: { directory: dirs[sessionID] } }),
+		get: async ({ sessionID }) => ({ id: sessionID, parentID: sessionID === "s2" ? "s1" : undefined, location: { directory: dirs[sessionID] } }),
 	},
 });
 const before = skills();
@@ -131,7 +131,7 @@ console.log(JSON.stringify({ plugin: plugin.id, before: before.map((s) => s.id +
 	}
 	// One run at setup, then one per session, not one per request.
 	calls, _ := os.ReadFile(bin + ".calls")
-	if want := "hook opencode setup {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook opencode context {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook opencode context {\"cwd\":\"/b\",\"ctxtra_plugin\":1}\n"; string(calls) != want {
+	if want := "hook opencode setup {\"cwd\":\"/a\",\"ctxtra_plugin\":2}\nhook opencode context {\"cwd\":\"/a\",\"ctxtra_plugin\":2,\"session_id\":\"s1\"}\nhook opencode subagent {\"cwd\":\"/b\",\"ctxtra_plugin\":2,\"session_id\":\"s2\",\"ctxtra_parent_session\":\"s1\"}\n"; string(calls) != want {
 		t.Errorf("calls:\n%s", calls)
 	}
 	if r := run(filepath.Join(dir, "missing")); strings.Join(r.Before, ",") != "mine:USER" || len(r.Sizes) != 3 || r.Sizes[0] != 0 || r.Reloads != 0 {

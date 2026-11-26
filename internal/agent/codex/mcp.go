@@ -18,6 +18,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 )
 
 // ctxtra's MCP entry is a block of lines between two markers in Codex's
@@ -56,7 +57,7 @@ func (Agent) MCPPath() string { return filepath.Join(dir(), "config.toml") }
 func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.
-	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", profile.Env, "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
 	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"} {
 		vars = append(vars, v, strings.ToLower(v))
 	}
@@ -472,8 +473,8 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 	if t, _ := f.entry()["startup_timeout_sec"].(int64); t < StartupTimeout {
 		out = append(out, "the ctxtra MCP proxy has a shorter startup_timeout_sec than setup writes; "+repair)
 	}
-	if missing := missingVars(f.entry(), o.EnvPass); o.Want && len(missing) > 0 {
-		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't pass %s to local servers; %s", strings.Join(missing, ", "), repair))
+	if missing := missingVars(f.entry(), append([]string{profile.Env}, o.EnvPass...)); o.Want && len(missing) > 0 {
+		out = append(out, fmt.Sprintf("the ctxtra MCP entry doesn't pass %s to the proxy; %s", strings.Join(missing, ", "), repair))
 	}
 	if r, _ := f.entry()["required"].(bool); !r {
 		out = append(out, "the ctxtra MCP proxy isn't required, so Codex doesn't wait for its tools; "+repair)

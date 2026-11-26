@@ -139,6 +139,8 @@ type Session struct {
 	// Adjust changes the agent's command before each run, such as to
 	// approve MCP tools in a headless run.
 	Adjust func(cmd *exec.Cmd)
+	// BeforeReply observes model requests before the mock answers them.
+	BeforeReply func(mock.Request)
 }
 
 func newSession(t *testing.T, a Agent) *Session {
@@ -169,6 +171,7 @@ type Result struct {
 func (s *Session) Run(dir string, opts driver.Options, script ...mock.Step) *Result {
 	s.t.Helper()
 	m := mock.New(s.t, script...)
+	m.BeforeReply = s.BeforeReply
 	prompt := mock.Prompt
 	if opts.Prompt != "" {
 		prompt = opts.Prompt

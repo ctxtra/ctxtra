@@ -427,8 +427,12 @@ selection unchanged. `set` and `clear` refuse to overwrite a selection file they
 names the active profiles and where they came from. A name that no binding uses is reported as a likely typo.
 
 A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.
-Claude Code and Codex subagents and compaction get the profiles of the session's start; other agents take
-the current profiles at every hook event for now. The profiles can also differ from what you expect here:
+Claude Code, Codex, Copilot, Muse, OpenCode, Hermes and DSH can keep the parent's profiles for subagents.
+Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. Muse needs its native parent
+ID; without it, a subagent uses the current selection. Antigravity gives no parent ID, so its subagents
+use the current selection. Cursor, Pi and Devin also use it at every hook event.
+OpenCode's `/clear` makes a new session ID and takes the current profiles.
+The profiles can also differ from what you expect here:
 
 - An agent started from another terminal (for example by Orca, Rex or Herdr) uses the stored selection
   unless started with `CTXTRA_PROFILES`.
@@ -436,6 +440,13 @@ the current profiles at every hook event for now. The profiles can also differ f
   and after `/clear` it keeps the old servers until the session restarts.
 - Muse, and IDE agents started from the Dock, don't pass your shell's variables to hooks: they see only the
   stored selection.
+- Some agents keep the hook's text in their history and don't run the hook again on resume or compaction.
+  Copilot can lose that text at compaction. Hermes's default in-place compaction keeps the session;
+  its rotation mode has not been verified.
+
+Codex passes `CTXTRA_PROFILES` to its MCP proxy, also when empty. After upgrading, run
+`ctxtra setup --agent codex` again to update an older allow-list; `doctor` reports a missing variable.
+Muse's proxy uses the stored selection, like its hooks.
 
 Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 

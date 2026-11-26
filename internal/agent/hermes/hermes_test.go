@@ -194,8 +194,8 @@ print(json.dumps({
 		}
 	}
 	got, _ := os.ReadFile(calls)
-	want := strings.Repeat("hook hermes-agent pre_llm_call {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n"+
-		"hook hermes-agent subagent {\"cwd\": \"/session\", \"ctxtra_plugin\": 3, \"ctxtra_slots\": 125}\n", 3)
+	want := strings.Repeat("hook hermes-agent pre_llm_call {\"cwd\": \"/session\", \"ctxtra_plugin\": 4, \"ctxtra_slots\": 125, \"session_id\": \"s\", \"ctxtra_parent_session\": \"\"}\n"+
+		"hook hermes-agent subagent {\"cwd\": \"/session\", \"ctxtra_plugin\": 4, \"ctxtra_slots\": 125, \"session_id\": \"c\", \"ctxtra_parent_session\": \"s\"}\n", 3)
 	if string(got) != want {
 		t.Errorf("calls:\n%s\nwant:\n%s", got, want)
 	}

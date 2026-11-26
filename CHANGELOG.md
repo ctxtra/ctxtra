@@ -17,6 +17,15 @@
 - Commands that write the config refuse a change that would make it or the lock larger than 4 MiB, which
   would leave sessions with nothing from the config.
 
+- Codex passes `CTXTRA_PROFILES` to its MCP proxy, including an empty value, so its instructions and MCP
+  servers use the same profiles. Run `ctxtra setup --agent codex` again to update its allow-list;
+  `doctor` reports an entry that doesn't pass the variable.
+
+- Copilot, Muse, OpenCode, Hermes and DSH keep a session's profiles for subagents when the agent provides
+  its parent ID. Antigravity has no parent ID and uses the current selection for each subagent.
+  Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. OpenCode's `/clear`
+  starts a new session and takes the current profiles.
+
 - Sessions with `ctxtra-follow` give the exact command for another folder, keeping the session's agent
   and profiles even after a profile switch. A session with no profiles keeps that empty selection too.
 

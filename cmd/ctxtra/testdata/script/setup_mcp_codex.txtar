@@ -31,7 +31,7 @@ stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.codex/config.toml\)'
 exec ctxtra mcp add db --pass-env DBHOST -- mcptest
 stdout 'run ctxtra setup: ctxtra''s MCP proxy in codex needs it'
 ! exec ctxtra doctor
-stdout 'the ctxtra MCP proxy doesn''t pass DBHOST to local servers; run ctxtra setup --agent codex'
+stdout 'the ctxtra MCP entry doesn''t pass DBHOST to the proxy; run ctxtra setup --agent codex'
 exec ctxtra setup --agent codex
 grep '"DBHOST", "PGHOST"\]$' .codex/config.toml
 
