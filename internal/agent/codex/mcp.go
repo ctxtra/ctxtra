@@ -52,7 +52,7 @@ func (Agent) MCPPath() string { return filepath.Join(dir(), "config.toml") }
 // EnvVars are the variables Codex passes to the proxy: Codex starts MCP
 // servers with an allow-listed environment. They make the proxy read the
 // hook's config and log, reach the keychain on Linux, work behind a proxy,
-// and give local servers their env-pass variables.
+// and give local servers their pass-env variables.
 func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.

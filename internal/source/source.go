@@ -103,7 +103,7 @@ func CheckBranch(b string) error {
 }
 
 // ID names a source's data in the store. It comes from the source's remote:
-// the git URL, or the absolute path of a clone for a local-git source. A
+// the git URL, or the absolute path of a clone on this machine. A
 // source whose remote changes never uses data of the old one.
 func ID(remote string) string {
 	kind := "git"

@@ -476,7 +476,7 @@ func mcpList(servers []resolve.MCPServer, max int) (string, bool) {
 }
 
 // dropped is a line per limit that files were dropped for: "dropped a.md,
-// b.md (over budget.max-chars)".
+// b.md (over max-ctx-chars)".
 func dropped(hits []resolve.Hit, name func(resolve.Hit) string) []string {
 	var out, over []string
 	names := map[string][]string{}
@@ -576,7 +576,7 @@ type MCPOptions struct {
 	// MCP servers. Without it, setup adds no entry and keeps one that is
 	// there; Remove removes it either way.
 	Want bool
-	// EnvPass are the env-pass names of every local server, which Codex
+	// EnvPass are the pass-env names of every local server, which Codex
 	// passes to MCP servers only when its entry lists them.
 	EnvPass []string
 }
@@ -585,7 +585,7 @@ type MCPOptions struct {
 type MCPCheck struct {
 	Known bool // setup.json lists the entry as set up
 	Want  bool // the config declares MCP servers
-	// EnvPass are the env-pass names of every local server, which the
+	// EnvPass are the pass-env names of every local server, which the
 	// entry must pass in Codex.
 	EnvPass []string
 }

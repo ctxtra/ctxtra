@@ -195,7 +195,7 @@ var baseEnv = []string{"PATH", "HOME", "USER", "LANG", "TMPDIR",
 
 // Command is the process of the local server s, started in dir, the
 // session folder, in a process group of its own so that it can be stopped
-// with its children. Its environment is the base variables and env-pass
+// with its children. Its environment is the base variables and pass-env
 // names from lookup, then s.Env, then the secret values. Its stderr is
 // dropped: it can hold secrets, and agents show none of it.
 func Command(s upstream.Server, dir string, lookup func(string) (string, bool), secrets map[string]string) *exec.Cmd {

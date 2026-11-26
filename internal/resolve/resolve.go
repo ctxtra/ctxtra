@@ -19,7 +19,7 @@ import (
 // Hit is a file or a skill added to the session.
 type Hit struct {
 	Path    string // the file, or the skill's SKILL.md
-	Ref     string // a file of a source: SOURCE:PATH, or ctxtra://<source>/<path> from Session
+	Ref     string // a file of a source: SOURCE:PATH
 	Content string // a file's text; a skill's SKILL.md text after the frontmatter
 	Origin  string // the binding that added it
 	// Source is the source the file or SKILL.md is in, and SourcePath its
