@@ -223,7 +223,8 @@ This accepts whatever is in that folder, including other people's changes pulled
 With no remotes, a dir source needs no trust step. If its remotes change later, ctxtra stops reading it
 until you trust it again. Files outside git and in repositories without remotes need no source.
 A symlink is followed only when every link and its destination pass the same trust check.
-A dir source's path can't lead through a symlink in another repository with remotes: name the folder it leads to.
+A dir source's path can lead through a symlink in another repository with remotes only when that folder is a
+trusted dir source too. Otherwise name the folder the link leads to.
 
 ### Reviewed source content
 

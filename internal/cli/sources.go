@@ -720,7 +720,7 @@ func (s *sources) trust(name string, dryRun bool) error {
 		return fmt.Errorf("%s is not a folder", src.Dir)
 	}
 	real := paths.Real(dir)
-	if why := catalog.Route(src, filepath.Clean(dir), real); why != "" {
+	if why := env.Catalog.Route(name); why != "" {
 		return errors.New(why)
 	}
 	repo, remotes, err := trust.Remotes(real)

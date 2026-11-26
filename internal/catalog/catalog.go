@@ -73,6 +73,10 @@ type Source struct {
 	// there is none, or when the config's own errors say it.
 	Err *Error
 
+	// dir is a dir source's folder as the config names it, ~ expanded:
+	// the way its symlinks are checked on.
+	dir string
+
 	manifest     *manifest.Manifest
 	manifestErrs []*Error
 	manifestRead bool
@@ -116,15 +120,12 @@ func New(c *config.Config, l *lock.Lock, configFile string) *Catalog {
 		sources: map[string]*Source{},
 		renamed: map[string]string{},
 	}
-	var roots []trust.Root
 	for _, s := range c.Sources {
 		src := cat.source(s, l)
 		cat.sources[s.Name] = src
 		cat.order = append(cat.order, src)
-		if src.State == Active && src.Live() {
-			roots = append(roots, trust.Root{Name: s.Name, Path: src.Top})
-		}
 	}
+	roots := cat.checkRoutes()
 	// ctxtra's store is read only through SOURCE:PATH, which keeps a
 	// source's files to the accepted commit.
 	cat.trust = trust.New(roots, trust.Root{Name: "ctxtra's store (use SOURCE:PATH)", Path: source.StoreDir()})
@@ -175,11 +176,7 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 			}
 			return fail(Broken, yamlx.BrokenSource, "dir %s %s", s.Dir, why)
 		}
-		src.Top = paths.Real(dir)
-		if why := Route(s, dir, src.Top); why != "" {
-			src.Top = ""
-			return fail(Inactive, yamlx.Inactive, "%s", why)
-		}
+		src.Top, src.dir = paths.Real(dir), dir
 		if why := c.untrusted(src); why != "" {
 			src.Top = ""
 			return fail(Inactive, yamlx.Inactive, "%s", why)
@@ -256,11 +253,59 @@ func (c *Catalog) untrusted(s *Source) string {
 	return ""
 }
 
-// Route says why the symlinks on the way to dir source s keep it from
-// being read, "" when they don't: a symlink in another repository that has
-// a remote can be changed by whoever pushes to it, and the trust of the
-// folder it leads to doesn't cover it. top is where dir leads.
-func Route(s *config.Source, dir, top string) string {
+// checkRoutes checks the symlinks on the way to each active dir source,
+// and returns the dir sources that pass, as trusted roots. A link may be
+// trusted because it is in another dir source that passed: those are
+// found step by step, so that no source's trust comes from itself.
+func (c *Catalog) checkRoutes() []trust.Root {
+	passed := map[*Source]bool{}
+	var roots []trust.Root
+	for changed := true; changed; {
+		changed = false
+		others := trust.New(roots)
+		for _, s := range c.order {
+			if s.State == Active && s.Live() && !passed[s] && route(s.Source, s.dir, s.Top, others) == "" {
+				passed[s], changed = true, true
+				roots = append(roots, trust.Root{Name: s.Name, Path: s.Top})
+			}
+		}
+	}
+	others := trust.New(roots)
+	for _, s := range c.order {
+		if s.State == Active && s.Live() && !passed[s] {
+			s.State, s.Why = Inactive, route(s.Source, s.dir, s.Top, others)
+			s.Top = ""
+			s.Err = &Error{File: c.file, Err: &yamlx.Error{Pos: s.Pos, Mistake: yamlx.Inactive, Part: yamlx.Part{Kind: "source", Name: s.Name}, Msg: s.Why}}
+		}
+	}
+	return roots
+}
+
+// Route says why the symlinks on the way to dir source name keep it from
+// being read, "" when they don't, with the other active dir sources as
+// the only trusted folders.
+func (c *Catalog) Route(name string) string {
+	s := c.sources[name]
+	if s == nil || s.Dir == "" {
+		return ""
+	}
+	var roots []trust.Root
+	for _, o := range c.order {
+		if o != s && o.State == Active && o.Live() {
+			roots = append(roots, trust.Root{Name: o.Name, Path: o.Top})
+		}
+	}
+	dir := filepath.Clean(paths.Expand(s.Dir))
+	return route(s.Source, dir, paths.Real(dir), trust.New(roots))
+}
+
+// route says why the symlinks on the way to dir source s keep it from
+// being read, "" when they don't. Each link passes the trust check at its
+// own location: outside git, in a repository without remotes, in the
+// source's own repository, or in a folder that others trusts. A link
+// elsewhere can be changed by whoever pushes to its repository, and the
+// trust of the folder it leads to doesn't cover it. top is where dir leads.
+func route(s *config.Source, dir, top string, others *trust.Policy) string {
 	links, err := trust.Links(dir)
 	if err != nil {
 		return fmt.Sprintf("dir %s: %v; it is not read", s.Dir, err)
@@ -269,7 +314,7 @@ func Route(s *config.Source, dir, top string) string {
 	for _, l := range links {
 		repo, remotes, err := trust.Remotes(filepath.Dir(l))
 		switch {
-		case repo == "" || repo == own:
+		case repo == "" || repo == own || others.CheckAt(l) == nil:
 			continue
 		case err != nil:
 			return fmt.Sprintf("%s leads through a symlink at %s, in the git repository %s, which ctxtra can't check (%v); it is not read",

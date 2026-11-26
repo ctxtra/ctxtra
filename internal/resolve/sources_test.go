@@ -564,3 +564,41 @@ func TestCountedFilesKeepTheirContent(t *testing.T) {
 		})
 	}
 }
+
+// A link on the way to a dir source passes when its location is in
+// another dir source that is trusted on its own: the user trusted that
+// folder. Without that source, the same link is refused, and two sources
+// can't make each other's links pass.
+func TestDirSourceRouteThroughTrustedSource(t *testing.T) {
+	h := newHome(t)
+	h.repo("dotfiles", "git@github.com:me/dotfiles.git")
+	h.write("notes/x.md", "NOTES")
+	symlink(t, h.path("notes"), h.path("dotfiles/notes"))
+	if err := state.Trust(paths.Real(h.path("dotfiles")), []string{"github.com/me/dotfiles"}); err != nil {
+		t.Fatal(err)
+	}
+	binding := "bindings:\n  - {name: b, instructions: ['notes:x.md']}\n"
+	res := start(h.load("sources:\n  notes: {dir: ~/dotfiles/notes}\n  dot: {dir: ~/dotfiles}\n"+binding), h.dir, "")
+	noErrors(t, res)
+	eq(t, "files", bases(res.Files), "x.md")
+
+	res = start(h.load("sources:\n  notes: {dir: ~/dotfiles/notes}\n"+binding), h.dir, "")
+	eq(t, "files", bases(res.Files))
+	oneError(t, res, "~/dotfiles/notes leads through a symlink at ~/dotfiles/notes")
+
+	// Each source's folder holds the link on the way to the other, and
+	// both folders' remotes are trusted: neither link passes first.
+	h.repo("a", "git@github.com:other/a.git")
+	h.repo("b", "git@github.com:other/b.git")
+	h.write("a/x.md", "A")
+	h.write("b/x.md", "B")
+	symlink(t, h.path("b"), h.path("a/to-b"))
+	symlink(t, h.path("a"), h.path("b/to-a"))
+	for _, r := range []string{"a", "b"} {
+		if err := state.Trust(paths.Real(h.path(r)), []string{"github.com/other/" + r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res = start(h.load("sources:\n  sa: {dir: ~/b/to-a}\n  sb: {dir: ~/a/to-b}\nbindings:\n  - {name: b, instructions: ['sa:x.md', 'sb:x.md']}\n"), h.dir, "")
+	eq(t, "files", bases(res.Files))
+}

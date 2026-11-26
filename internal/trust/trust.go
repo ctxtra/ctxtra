@@ -146,6 +146,16 @@ func (p *Policy) Check(path string) error {
 	return nil
 }
 
+// CheckAt checks the location path itself, without following it when it
+// is a symlink: whether a link there may be followed. Like Check, it
+// returns nil, an *Error or a *DeniedError.
+func (p *Policy) CheckAt(path string) error {
+	if p == nil {
+		p = New(nil)
+	}
+	return p.checkOne(path)
+}
+
 // checkOne checks one location: the folders above path. A folder that is a
 // trusted root trusts the repository it is in, up to the next repository
 // top; a repository nested below a root needs its own root.
