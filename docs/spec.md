@@ -576,6 +576,13 @@ An unknown ID leaves out the binding with an error. A subagent has its parent's 
 `agents: ['!cursor']` selects every other agent. `context files`, `context show`, `context explain`
 and `mcp status` take `--agent ID`. Without it, bindings with agents do not apply.
 
+`doctor` checks a session in its folder once for each agent that setup set up, with that agent's capacity.
+Each session error ends with the agents that have it, such as `(codex)`; errors of bindings that apply to no
+agent there have none. Agents whose sessions get the same files, skills and servers are listed together;
+otherwise each agent's are listed under its name. With no agent set up, it checks a session of no agent, where
+bindings with agents don't apply. `doctor --json` has the list in `sessions`, each with its `agent`, `files` and
+`skills`.
+
 `profiles` uses case-sensitive names and the same positive and negative rule. Profile selection and
 profile commands are not available yet. Sessions currently resolve with no active profiles, so a positive
 profile condition does not hold and an exclusion-only profile condition holds.
@@ -621,8 +628,11 @@ profile condition does not hold and an exclusion-only profile condition holds.
 - Claude Code also gets the skills as slash commands, from the plugin that setup writes to
   `~/.claude/skills/ctxtra/` (`$CLAUDE_CONFIG_DIR/skills/ctxtra/`), which Claude loads as `ctxtra@skills-dir`.
   Its mod runs `ctxtra hook claude-code PluginStart` at session start, with `ctxtra_plugin` in the input, and
-  registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). A command name
-  that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
+  registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). Of two skills
+  with one name, the first keeps it and the next is `SOURCE-NAME`, with its source's name in front (its
+  binding's outside sources), as Claude Code names the commands of added folders: `/release` and
+  `/obs-team-release`. Claude Code's mods take only letters, digits, `_` and `-` in a name, so `-` joins the
+  parts where Claude Code itself writes `:`. A command name that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
   `/NAME ARGS` gives the model the `SKILL.md` text after its frontmatter as hidden context, with `$ARGUMENTS`
   replaced by `ARGS` (or `ARGS` added at the end), and starts a turn. A session without a surface (`claude -p`,
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
@@ -703,14 +713,16 @@ Two distinct skills with the same name both reach the session and produce a noti
 `max-ctx-chars` is a guard against adding too much text, not a trimming setting. It counts Unicode code
 points, headers included. Zero or missing means no configured limit. Going over it is an error.
 The session still starts with whole files dropped from the end until the text fits; the skill list stays.
-The session message, log, `context explain` and `doctor` name the dropped files. Doctor exits 1.
+The session message, log, `context explain`, `doctor` and `mcp status` report it as an error that names the
+bindings of the dropped files, and all but `mcp status` name the files too. Doctor exits 1. In `--json`, each
+dropped file is a diagnostic of severity `error`.
 
 ## Capacity
 
 Each agent gets a limited amount of text in full, its capacity. Above it, whole files are dropped from the
 end, the same way as with `max-ctx-chars`; with both, the lower limit applies. The skill list is never
-dropped. The message at session start (in the agents that show one), the log, `context explain` and `doctor` name
-the dropped files.
+dropped. Going over it is an error, reported as for `max-ctx-chars`. `mcp status --agent ID` reports that
+agent's capacity; without `--agent`, every agent that wouldn't get all of the text.
 
 | Agent | Capacity | How the text gets there |
 |---|---|---|
@@ -803,9 +815,17 @@ Adding a source or a definition alone selects nothing.
 
 Tools keep the unqualified prefix: `work:linear` exports `linear__TOOL`. Repeated selections of one identity
 add it once. Two selected identities with the same name keep the first in binding order, with a notice
-in the session message, explain, doctor and status. Doctor does not fail for the clash.
+in the session message, explain, doctor and status. The notice names both and suggests a new name for the
+source's server, such as `jira_iam_team: {use: 'iam-team:jira'}`. Doctor does not fail for the clash.
 A winner that fails or lacks sign-in or approval never falls back to another account.
-Source-server aliases with `use` are not implemented yet.
+
+The config's `mcp-servers` can give a source's server a new name: `jira_iam: {use: 'iam-team:jira'}`, with no
+other key. The server is then served as `jira_iam`, with tools `jira_iam__TOOL`, wherever it comes from: a
+binding's `iam-team:jira` or `jira_iam`, a config collection, or a source's collection that adds `jira`. Both
+names select one server, served once. Its identity stays `iam-team:jira`: sign-in, approval and `mcp approve`
+use that, and a new name keeps the approval. Two entries that `use` one server are both errors, each naming
+the other; the server keeps its own name. A `use` of a server the source doesn't declare is an error of the
+bindings that select it.
 
 The catalog is loaded on demand. Sessions read the manifests their bindings reference; list, doctor and setup
 can enumerate all sources. Pinned manifests use the accepted generation and store touch/size limits, never a fetch.
@@ -815,7 +835,12 @@ used only for MCP servers still participates in source-update notices.
 ### Pinned-server approval
 
 Every pinned-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
-execution, even a remote endpoint needing no authentication. Accepting a source version is not this approval.
+execution, even a remote endpoint needing no authentication. Until then, and after its definition changes, the
+server is an error of the binding that selects it, with its `ctxtra mcp approve` command: in the session message,
+the log, `context explain`, `doctor` and `mcp status`, which exit 1. The session keeps its name, so a server with
+the same name is never served in its place, and the proxy doesn't start it. `binding add` refuses such a server, as
+any binding a session wouldn't get in full, and gives the `ctxtra mcp approve` command to run first; approval
+works before any binding uses the server. Accepting a source version is not this approval.
 Config and dir-source definitions need no extra approval. Agent-native tool permission remains separate and
 comes too late to authorize server startup.
 
@@ -824,8 +849,8 @@ It connects to nothing and creates no credential key. Login offers the same sepa
 unapproved server. Show refuses until approved. Unattended input and `--no-input` cannot grant approval.
 
 Approval covers full identity, source origin and the operational definition: URL, headers, client ID, scopes and
-secret names, or argv, environment, inherited-variable names and secret-variable names. Notes and commit alone do
-not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
+secret names, or argv, environment, inherited-variable names and secret-variable names. Notes, the commit and the
+config's new name for the server do not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
 that definition's repeated summary notice, not its state in diagnostics or any prefix-conflict warning.
 
 Source review shows operational definition changes. Accepting an update is all-or-nothing. A changed endpoint or
@@ -1333,7 +1358,7 @@ A command that would write an error exits 1 and changes nothing.
 with its flags and examples. The commands that change the config are grouped by what they change:
 `source`, `binding` and `mcp`, each with `add`, `list` and `remove`.
 
-- Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor` or a `context`
+- Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor`, `mcp status` or a `context`
   command found that a session wouldn't get everything it should (for `doctor`, a session in any folder),
   `source validate` found an error, or a check of `check-updates` failed; 2 for a usage error (an unknown command
   or flag, a missing argument), with the command's usage hint on stderr.

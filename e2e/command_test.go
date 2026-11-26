@@ -11,10 +11,13 @@ import (
 )
 
 const commandConfig = `schema: ctxtra/config/v1
+sources:
+  iam-team: {dir: ~/iam}
+  obs-team: {dir: ~/obs}
 bindings:
   - name: svc
     location: {repos: [github.com/acme/svc]}
-    skills: [~/skills/deploy, ~/skills/review]
+    skills: [~/skills/deploy, ~/skills/review, 'iam-team:skills/*', 'obs-team:skills/*']
   - name: other
     location: {repos: [github.com/acme/other]}
     skills: [~/skills/other]
@@ -39,9 +42,10 @@ func TestSkillCommandHeadless(t *testing.T) {
 
 // In the interactive app, the / menu lists the session's skills with their
 // descriptions, not another repository's, and a skill of the user's own
-// wins over a bound one with its name. Running a skill's command gives the
-// model its body, with the arguments in place of $ARGUMENTS, and starts a
-// turn.
+// wins over a bound one with its name. Of two bound skills with one name,
+// the first keeps /NAME and the next is /SOURCE-NAME. Running a skill's
+// command gives the model its body, with the arguments in place of
+// $ARGUMENTS, and starts a turn.
 func TestSkillCommand(t *testing.T) {
 	forEachAgent(t, []driver.Cap{driver.SkillCommand}, func(t *testing.T, a Agent) {
 		tmux := tmuxBin(t)
@@ -53,6 +57,8 @@ func TestSkillCommand(t *testing.T) {
 		s.Skill("skills/review", "review", "CTXREVIEWDESC", "CTXREVIEWBODY")
 		s.Skill("skills/other", "other", "OTHERDESC", "OTHERBODY")
 		s.Skill(".claude/skills/review", "review", "OWNREVIEWDESC", "OWNREVIEWBODY")
+		s.Skill("iam/skills/release", "release", "IAMRELEASEDESC", "IAMRELEASEBODY")
+		s.Skill("obs/skills/release", "release", "OBSRELEASEDESC", "OBSRELEASEBODY")
 		s.Config(commandConfig)
 		s.Setup()
 		m := mock.New(t)
@@ -90,6 +96,10 @@ func TestSkillCommand(t *testing.T) {
 		}
 		if sc := typed("/review", "CTXMARK-OWNREVIEWDESC"); strings.Contains(sc, "CTXMARK-CTXREVIEWDESC") {
 			t.Errorf("the menu has the bound review skill next to the user's own:\n%s", sc)
+		}
+		typed("/release", "/release")
+		if sc := typed("/obs-team-rel", "/obs-team-release"); !strings.Contains(sc, "CTXMARK-OBSRELEASEDESC") {
+			t.Errorf("/obs-team-release isn't obs-team's release skill:\n%s", sc)
 		}
 		typed("/other", "")
 		time.Sleep(2 * time.Second)

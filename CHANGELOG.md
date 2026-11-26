@@ -63,6 +63,19 @@
 - `source update` shows the entries a commit adds to or removes from the repo sets in use, the sets it
   removes and their errors, with the bindings that use or exclude them, and warns about `HOST/**` entries.
 - `source update --json` lists the review's new errors in `diagnostics`, with the bindings they affect.
+- The config's `mcp-servers` can give a source's server a new name, `jira_iam: {use: 'iam-team:jira'}`, wherever
+  the server comes from, also when a source's collection adds it. A new name keeps the server's approval and
+  sign-in. `mcp status` gives the approve command for a server that needs approval.
+- The notice about two MCP servers with one name suggests the config line that gives the source's server a new
+  name. Of two skills with one name, Claude Code's slash commands offer the second as `/SOURCE-NAME`.
+- `doctor` checks a session once for each agent that setup set up, so bindings with `agents` are checked too. Each
+  error names the agents that have it. `doctor --json` lists each agent's files and skills in `sessions`.
+- Over capacity and over `max-ctx-chars` are also reported by `mcp status`, and the session message names the
+  bindings of the dropped files. In `--json`, a file dropped over `max-ctx-chars` is an error, not a warning.
+- A source's server that isn't approved on this machine, or whose definition changed since its approval, is an
+  error with its approve command in the session message, the log, `context explain`, `doctor` and `mcp status`.
+  `mcp status` exits 1 when a session in the folder wouldn't get everything it should. `binding add` refuses
+  such a server and gives the approve command to run first.
 
 ## v0.6.0
 

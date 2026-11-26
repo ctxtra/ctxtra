@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
@@ -215,7 +216,15 @@ func TestDemoConfig(t *testing.T) {
 	})
 
 	t.Run("the iam profile", func(t *testing.T) {
-		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.home, Agent: "codex", Profiles: []string{"iam"}})
+		in := Input{Dir: d.home, Agent: "codex", Profiles: []string{"iam"}}
+		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(in)
+		// iam-team:jira, a repo source's server, needs approval on this machine.
+		for _, m := range res.MCPServers {
+			if err := creds.Open().DecideApproval(m.Server, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		res = Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(in)
 		eq(t, "applied", applied(res), "me", "iam", "review")
 		noErrors(t, res)
 		// essentials: base's conventions, then docs/*.md without drafts,

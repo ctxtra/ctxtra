@@ -8,12 +8,12 @@ exec git -C pkg init -b main
 exec git -C pkg add .
 exec git -C pkg commit -m initial
 exec ctxtra source add --repo pkg --name work
-exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:linear
 mkdir dev/app
 stdin yes.txt
 exec ctxtra-tty mcp login work:linear
 stdout '^signed in to work:linear with https://127.0.0.1:[0-9]+$'
 stderr 'Opening your browser to sign in to work:linear'
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:linear
 exists .local/state/ctxtra/mcp/credentials/work%3Alinear.v1.age
 ! exists .local/state/ctxtra/mcp/credentials/linear.v1.age
 exec ctxtra mcp list

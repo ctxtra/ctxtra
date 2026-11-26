@@ -380,7 +380,8 @@ ctxtra doctor [DIR]            # config errors, setup state, Codex trust, recent
 ```
 
 They exit with 1 when a session wouldn't get everything it should, and take `--json` (except
-`context show`). `doctor` checks every binding, also those that don't match DIR. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
+`context show`). `doctor` checks every binding, also those that don't match DIR. It checks a session once for
+each agent you set up, and each error names its agents, such as `(codex)`. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
 
 If you maintain a source, `ctxtra source validate DIR` checks `DIR/ctxtra-source.yaml` without reading
 your config, trust records or credentials and without network access. It validates YAML, keys, names,
@@ -430,6 +431,8 @@ as it reads any file.
 - They are commands, not Claude's own skills. Claude's `Skill` tool can't load them, and Claude doesn't apply
   frontmatter such as `allowed-tools`, `context: fork` or `disable-model-invocation`. Claude still reads a
   skill's `SKILL.md` on its own when a task needs it, as in the other agents.
+- Two bound skills with one name both reach the session. The first keeps `/release`, the next gets its source's
+  name in front: `/obs-team-release`.
 - A command that is already there wins: a built-in, your own skill or command, another plugin's. The bound
   skill with that name then has no command. Names other than letters, digits, `_` and `-` have none either.
 - A session has the commands of the skills bound when it started. A skill bound later gets its command in
@@ -495,8 +498,17 @@ configuration.
 
 Use `mcp list`, `context explain` and `mcp status` to check selection, sign-in and approval. Tools still use the
 short prefix `linear__`. If two identities with that prefix match one folder, the first binding wins and ctxtra
-reports the other. It never falls back to the other account if the winner fails or lacks approval. Narrow a global
-binding or use distinctly named config servers if you need both accounts in one session.
+reports the other. It never falls back to the other account if the winner fails or lacks approval. To get both,
+give one a new name in your config's `mcp-servers`:
+
+```yaml
+mcp-servers:
+  jira_iam: {use: 'iam-team:jira'}   # its tools are jira_iam__TOOL
+```
+
+The new name applies wherever the server comes from: your bindings, your collections, and a source's collection
+that adds it. `jira_iam` and `iam-team:jira` are then one server, served once. Its sign-in and approval stay with
+`iam-team:jira`, so a new name needs no new approval. Two names for one server are an error.
 
 Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
 changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already

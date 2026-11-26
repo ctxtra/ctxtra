@@ -7,8 +7,15 @@ exec ctxtra source validate pkg
 stdout '0 errors, 0 warnings'
 exec ctxtra source add --repo pkg --name work
 stdout 'MCP definition work:build:'
-exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
-stdout 'MCP servers: work:build'
+# binding add refuses a server that isn't approved, and gives the command
+# to approve it first; a binding written by hand gets the error at session
+# start.
+! exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stderr 'MCP server work:build: it isn''t approved on this machine'
+stderr '^approve the servers first, then add the binding again:$'
+stderr '^  ctxtra mcp approve work:build$'
+! grep 'name: work' .config/ctxtra/config.yaml
+exec sh -c 'cat work-binding.yaml >> .config/ctxtra/config.yaml'
 exec ctxtra mcp list --json
 stdout '"id": "work:build"'
 stdout '"name": "build"'
@@ -106,7 +113,14 @@ stderr 'approval needed'
 exec ctxtra binding remove work
 exec ctxtra mcp add build --no-login -- missing-mcp-command
 exec ctxtra binding add mine --mcp-server build
+
+# binding add refused, mcp approve, then binding add succeeds.
+! exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stderr '^  ctxtra mcp approve work:build$'
+stdin yes.txt
+exec ctxtra-tty mcp approve work:build
 exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stdout 'MCP servers: work:build'
 exec ctxtra context explain dev/app
 stdout 'MCP servers build and work:build are both named build; the session gets build, the first in binding order'
 runhook claude-code SessionStart dev/app
@@ -127,6 +141,11 @@ exec ctxtra mcp remove work:secure
 stdout 'deleted leftover credentials of work:secure'
 ! exists .local/state/ctxtra/mcp/credentials/work%3Asecure.v1.age
 
+-- work-binding.yaml --
+bindings:
+  - name: work
+    location: {dirs: ['~/dev/**']}
+    mcp-servers: ['work:build']
 -- yes.txt --
 y
 -- no.txt --

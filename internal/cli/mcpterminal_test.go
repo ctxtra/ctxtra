@@ -43,7 +43,8 @@ func TestMCPStatusSanitizesUnapprovedCommand(t *testing.T) {
 		manifest.FileName: "schema: ctxtra/source/v1\nmcp-servers:\n  build:\n    command: [\"evil\\e]0;title\\a\\u009b2J\"]\n"})
 	writeLock(t, testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.com/context', branch: main}\nbindings:\n  - {name: global, mcp-servers: ['work:build']}\n"), entry)
 	var output bytes.Buffer
-	if n := Run([]string{"mcp", "status", h}, IO{Out: &output, Err: &output}, "test"); n != 0 || strings.ContainsAny(output.String(), "\x1b\x07\u009b") || !strings.Contains(output.String(), `evil\u001b]0;title\u0007\u009b2J`) {
+	// Exit 1: the server isn't approved, an error of the session.
+	if n := Run([]string{"mcp", "status", h}, IO{Out: &output, Err: &output}, "test"); n != 1 || strings.ContainsAny(output.String(), "\x1b\x07\u009b") || !strings.Contains(output.String(), `evil\u001b]0;title\u0007\u009b2J`) {
 		t.Fatalf("unsafe status: %d, %q", n, output.String())
 	}
 }

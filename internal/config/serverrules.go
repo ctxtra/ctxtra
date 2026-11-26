@@ -21,7 +21,7 @@ func CheckServerName(name string) error {
 		return nil
 	}
 	msg := fmt.Sprintf("server name %q: names are 1 to %d characters of a-z, 0-9 and _, start with a letter, and have no __ and no _ at the end", name, MaxServerName)
-	if s := suggestServerName(name); s != "" && s != name {
+	if s := SuggestServerName(name); s != "" && s != name {
 		msg += "; for example " + s
 	}
 	return fmt.Errorf("%s", msg)
@@ -29,8 +29,8 @@ func CheckServerName(name string) error {
 
 var reServer = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// suggestServerName is name made valid, or "" when nothing is left of it.
-func suggestServerName(name string) string {
+// SuggestServerName is name made valid, or "" when nothing is left of it.
+func SuggestServerName(name string) string {
 	s := regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(strings.ToLower(name), "_")
 	s = strings.TrimLeft(s, "_0123456789")
 	if len(s) > MaxServerName {

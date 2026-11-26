@@ -33,6 +33,12 @@ func TestSummary(t *testing.T) {
 		}
 		return hits
 	}
+	origin := func(hits []resolve.Hit, binding string) []resolve.Hit {
+		for i := range hits {
+			hits[i].Origin = binding
+		}
+		return hits
+	}
 	skills := []resolve.Hit{{Name: "deploy", Source: "team"}, {Name: "review", Source: "team"}}
 	for want, res := range map[string]*resolve.Result{
 		"✓ ctxtra added 2 instructions\nInstructions:\n  team\n  - a.md\n  - b.md": {Files: files("a.md", "b.md")},
@@ -44,6 +50,9 @@ func TestSummary(t *testing.T) {
 		"✓ ctxtra added 1 instruction; dropped b.md, c.md, d.md, +1 more (over Claude Code's limit of 360,000 characters), dropped z.md (over max-ctx-chars) (run ctxtra doctor)\nInstructions:\n  team\n  - a.md": {
 			Files: files("a.md"), Dropped: append(over(files("b.md", "c.md", "d.md", "e.md"), "Claude Code's limit of 360,000 characters"),
 				over(files("z.md"), "max-ctx-chars")...)},
+		// A glob adds a large folder: the message names the bindings.
+		"ctxtra added nothing; 1 error, dropped a.md, b.md of binding big (over max-ctx-chars) (run ctxtra doctor)": {
+			Errors: errs(1), Dropped: origin(over(files("a.md", "b.md"), "max-ctx-chars"), "big")},
 		"ctxtra added nothing; 2 errors (run ctxtra doctor)": {Errors: errs(2)},
 		"ctxtra added nothing; 1 error (run ctxtra doctor)":  {Errors: errs(1)},
 		"✓ ctxtra added 1 instruction\nInstructions:\n  team\n  - a.md\n\nℹ team has new commits on main\nℹ n2": {

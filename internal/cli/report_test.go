@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
@@ -204,4 +205,25 @@ func TestAgentDropsSameNames(t *testing.T) {
 		}
 	}
 	t.Error("copilot isn't over its limit")
+}
+
+// A result fit to its agent still lists that agent as over in --json, and
+// has its error once: the one fitting added.
+func TestAgentDropsFitted(t *testing.T) {
+	h := testenv.Home(t)
+	big := strings.Repeat("x", 100_000)
+	res := &resolve.Result{Files: []resolve.Hit{
+		{Path: filepath.Join(h, "a.md"), Content: big, Origin: "me"},
+		{Path: filepath.Join(h, "b.md"), Content: big, Origin: "me"},
+	}}
+	a, _ := registry.Get("github-copilot")
+	a.Delivery().Fit(res)
+	r := report{agent: "github-copilot"}
+	drops := r.agentDrops(res)
+	if len(drops) != 1 || !slices.Equal(drops[0].Dropped, []string{"b.md"}) {
+		t.Errorf("drops %+v", drops)
+	}
+	if errs := r.capacityErrors(res); len(errs) != 0 {
+		t.Errorf("errors %v", errs)
+	}
 }

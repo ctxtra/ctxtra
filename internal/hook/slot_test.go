@@ -429,7 +429,7 @@ func TestSlotsWithoutSession(t *testing.T) {
 func TestSlotsOverCapacity(t *testing.T) {
 	h, r := bigSession(t, 370_000)
 	got := runSlots(t, "SessionStart", `{"cwd": "`+r+`", "session_id": "s3"}`)
-	if !strings.Contains(got[0].summary, "dropped big.md, z.md (over Claude Code's limit of 360,000 characters)") {
+	if !strings.Contains(got[0].summary, "dropped big.md, z.md of binding a (over Claude Code's limit of 360,000 characters)") {
 		t.Errorf("summary %q", got[0].summary)
 	}
 	if e := logEntries(t, h); len(e) != 1 || len(e[0].Dropped) != 2 || !strings.HasSuffix(e[0].Dropped[0], "big.md") {

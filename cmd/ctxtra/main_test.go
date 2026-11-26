@@ -390,6 +390,9 @@ func mcpClient(ts *testscript.TestScript, neg bool, args []string) {
 		fmt.Fprint(ts.Stderr(), stderr.String())
 	}()
 	fmt.Fprintf(ts.Stdout(), "server: %s\n", cs.InitializeResult().ServerInfo.Name)
+	if in := cs.InitializeResult().Instructions; in != "" {
+		fmt.Fprintf(ts.Stdout(), "instructions: %s\n", strings.ReplaceAll(in, "\n", " "))
+	}
 	res, err := cs.ListTools(ctx, nil)
 	ts.Check(err)
 	for _, t := range res.Tools {

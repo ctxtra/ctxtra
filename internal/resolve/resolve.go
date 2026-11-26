@@ -39,6 +39,11 @@ type Hit struct {
 type MCPServer struct {
 	upstream.Server
 	Origin string // the binding that added it
+	// Unapproved is why a source's server isn't approved on this machine,
+	// "" when it is or needs no approval. The session keeps its name, so
+	// no other server is served in its place, and the proxy doesn't start
+	// it.
+	Unapproved string
 }
 
 // MCPConflict records why one selected identity was suppressed.
