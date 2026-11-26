@@ -1,0 +1,49 @@
+# State removed: with the state folder deleted, no stored profile is active,
+# servers from sources aren't started, and the session message says to
+# approve them again. Files of accepted commits stay in the data folder.
+mkdir dev/app
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+exec ctxtra setup --agent claude-code
+exec ctxtra profile set iam
+stdin yes.txt
+exec ctxtra-tty mcp approve iam-team:deploy
+mcp dev/app
+stdout '^tool deploy__echo'
+runhook claude-code SessionStart dev/app
+stdout 'IAM_NOTES'
+stdout 'PROFILE_NOTES'
+stdout 'Profiles: iam \(from stored selection\)'
+
+rm .local/state/ctxtra
+runhook claude-code SessionStart dev/app
+stdout 'IAM_NOTES'
+! stdout 'PROFILE_NOTES'
+! stdout 'Profiles:'
+stdout 'iam-team:deploy needs approval: run ctxtra mcp approve iam-team:deploy'
+mcp dev/app
+! stdout 'deploy__'
+
+-- yes.txt --
+y
+-- bindings.yaml --
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+  - name: profile
+    profiles: [iam]
+    instructions: ['iam-team:profile.md']
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    mcp-servers: [deploy]
+mcp-servers:
+  deploy:
+    command: [mcptest]
+-- srv/iam-team/docs/a.md --
+IAM_NOTES
+-- srv/iam-team/profile.md --
+PROFILE_NOTES

@@ -65,6 +65,18 @@ exec sh -c 'ctxtra profile set; test "$?" = 2'
 exec sh -c 'ctxtra profile clear extra; test "$?" = 2'
 exec sh -c 'ctxtra profile list --unknown; test "$?" = 2'
 
+# Case: IAM and iam are two profiles.
+cp case.yaml .config/ctxtra/config.yaml
+env CTXTRA_PROFILES=iam
+exec ctxtra profile list
+stdout '^IAM \(inactive\): upper$'
+stdout '^iam \(active\): lower$'
+
+-- case.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - {name: upper, profiles: [IAM], instructions: [~/rules.md]}
+  - {name: lower, profiles: [iam], instructions: [~/rules.md]}
 -- selected.json --
 {"profiles":["iam","Observability"]}
 -- cleared.json --

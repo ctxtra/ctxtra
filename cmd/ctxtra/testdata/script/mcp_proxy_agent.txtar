@@ -9,6 +9,12 @@ mcp dev/app
 stdout 'instructions: .*run `ctxtra mcp status --agent claude-code` in the session folder'
 stdout 'linear needed sign-in'
 
+# MCP servers for one agent: Codex's proxy doesn't serve linear.
+env MCP_AGENT=codex
+mcp dev/app
+! stdout 'linear'
+env MCP_AGENT=claude-code
+
 exec ctxtra mcp status dev/app --agent claude-code
 stdout '^  linear  remote, https://mcp.example.invalid'
 exec ctxtra mcp status dev/app
