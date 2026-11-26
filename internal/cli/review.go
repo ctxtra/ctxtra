@@ -147,6 +147,10 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	top := reviewTop(name)
 	after := env.Catalog.WithFiles(name, now, top)
 	u, bu := usedFrom(env, after, name), &used{}
+	if old == "" {
+		// Reviewed from nothing, as source add shows a source.
+		u.addOffered(env, after, name)
+	}
 	var before *catalog.Catalog
 	if old != "" {
 		before = env.Catalog.WithFiles(name, was, top)

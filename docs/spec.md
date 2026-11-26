@@ -269,7 +269,8 @@ What counts as new depends on what the source follows:
 - A changed `branch`, `tag` or `rev` in the config is always reviewed as a change from the locked commit,
   and can be accepted when nothing under `subdir` changed: the review says so.
 - A changed `repo` (another repository, not another spelling) or `subdir` is a new source: the review shows
-  it from nothing, as `source add` does, and its servers need approval and sign-in again. A source without a
+  it from nothing, as `source add` does, with the files its collections offer in full and checked for
+  content warnings, and its servers need approval and sign-in again. A source without a
   lock entry is reviewed the same way.
 
 `source update` shows changes in every directly referenced file and every file inside a referenced skill,
