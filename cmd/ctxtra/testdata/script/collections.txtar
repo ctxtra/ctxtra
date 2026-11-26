@@ -1,0 +1,84 @@
+# A binding adds a source's collection by name: nested collections first,
+# then its own entries, minus every ! entry, the binding's included.
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+
+exec ctxtra context files .
+stdout 'docs/conventions/naming.md'
+stdout 'docs/overview.md'
+stdout 'skills/release'
+! stdout 'draft-auth.md'
+! stdout 'testing.md'
+exec ctxtra context explain .
+stdout 'excluded iam-team:docs/testing.md \(by !iam-team:docs/testing.md\)'
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart .
+stdout 'NAMING_TEXT(.|\n)*OVERVIEW_TEXT(.|\n)*GO_NOTES'
+! stdout 'TESTING_TEXT'
+
+# The config's own collection, bound by its bare name, in two bindings.
+exec ctxtra context explain .
+stdout 'go-notes.md'
+
+# A cycle adds nothing, and doctor names it.
+cp cycle.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'collections base and essentials nest each other'
+! exec ctxtra doctor .
+stdout 'collections base and essentials nest each other, so they add nothing'
+! exec ctxtra context files .
+! stdout 'naming.md'
+stdout 'go-notes.md'
+
+-- bindings.yaml --
+collections:
+  go-kit:
+    instructions: [go-notes.md]
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+    instructions: ['!iam-team:docs/testing.md']
+  - name: go
+    collections: [go-kit]
+  - name: go-again
+    location: {dirs: [~/**]}
+    collections: [go-kit]
+-- .config/ctxtra/go-notes.md --
+GO_NOTES
+-- yes.txt --
+y
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  base:
+    instructions: [docs/conventions/*.md]
+  essentials:
+    collections: [base]
+    instructions: [docs/*.md, '!docs/draft-*.md']
+    skills: [skills/*]
+-- cycle.yaml --
+schema: ctxtra/source/v1
+collections:
+  base:
+    collections: [essentials]
+    instructions: [docs/conventions/*.md]
+  essentials:
+    collections: [base]
+    instructions: [docs/*.md]
+-- srv/iam-team/docs/conventions/naming.md --
+NAMING_TEXT
+-- srv/iam-team/docs/overview.md --
+OVERVIEW_TEXT
+-- srv/iam-team/docs/testing.md --
+TESTING_TEXT
+-- srv/iam-team/docs/draft-auth.md --
+DRAFT_TEXT
+-- srv/iam-team/skills/release/SKILL.md --
+---
+name: release
+description: Releases a service.
+---
+Release it.

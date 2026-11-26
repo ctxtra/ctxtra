@@ -65,7 +65,9 @@ so that every agent gets them. Do every step; don't skip the files of an agent.
 2. Choose `location` by what the user means: omit it for every session; use `repos` for repositories
    wherever cloned, including worktrees, or `dirs` for folders. Both are alternatives inside location.
    `agents` is an additional condition; preview it with `ctxtra context explain DIR --agent ID`.
-   Profile selection, collections and repo sets are not available yet.
+   To use a source's named set, add `collections: ['SOURCE:NAME']` to the binding in the config; a
+   collection of the config itself is named without `SOURCE:`. Profile selection and repo sets are not
+   available yet.
 3. List files and skill folders by name or use quoted glob patterns. Use `ctxtra context files` or
    `ctxtra context show` to check the expansion. Local globs include new matching files immediately; pinned-source globs change
    after accepting a commit. A skill folder needs a `SKILL.md` with a `description` in its frontmatter.

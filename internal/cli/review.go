@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,6 +21,22 @@ type used struct {
 	dirs  []string
 	// errors are the errors of the entries that read the source.
 	errors []string
+	// named are the bindings that name each of the source's collections,
+	// directly or in the config's own collections, and using those that
+	// use each, nested ones included; by the collection's name.
+	named, using useMap
+}
+
+// useMap is the bindings that use each collection, by its name.
+type useMap map[string][]string
+
+// add records that binding uses colls.
+func (m useMap) add(colls []string, binding string) {
+	for _, c := range colls {
+		if !slices.Contains(m[c], binding) {
+			m[c] = append(m[c], binding)
+		}
+	}
 }
 
 func (u *used) has(p string) bool {
@@ -38,25 +55,67 @@ func reviewTop(name string) string {
 // reads and limits filter them, with the errors a session would report for
 // those entries.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
-	u := &used{files: map[string]bool{manifest.FileName: true}}
+	u := &used{files: map[string]bool{manifest.FileName: true}, named: useMap{}, using: useMap{}}
 	alone := *env
 	alone.Catalog = cat
 	for _, b := range env.Config.Bindings {
 		if b.Broken() {
 			continue
 		}
-		files, skills, errs := alone.Referenced(b, name)
-		for _, it := range files {
+		ref := alone.Referenced(b, name)
+		u.named.add(ref.Named, b.Name)
+		u.using.add(ref.Used, b.Name)
+		for _, it := range ref.Files {
 			u.files[it.Rel] = true
 		}
-		for _, it := range skills {
+		for _, it := range ref.Skills {
 			u.dirs = append(u.dirs, it.Rel)
 		}
-		for _, e := range errs {
-			u.errors = append(u.errors, strings.ReplaceAll(e.Err.Error(), reviewTop(name)+string(filepath.Separator), name+":"))
+		for _, e := range ref.Errors {
+			u.errors = append(u.errors, reviewError(env, name, e))
 		}
 	}
 	return u
+}
+
+// reviewError is e in the review of source name: the config's own errors
+// without its file name, and paths in the source as SOURCE:PATH.
+func reviewError(env *resolve.Env, name string, e *catalog.Error) string {
+	msg := e.Err.Error()
+	if e.File != env.Path {
+		msg = e.Error()
+	}
+	return strings.ReplaceAll(msg, reviewTop(name)+string(filepath.Separator), name+":")
+}
+
+// addOffered adds what the collections of source name's manifest in cat
+// offer, each read by itself, and their errors.
+func (u *used) addOffered(env *resolve.Env, cat *catalog.Catalog, name string) {
+	m, _ := cat.Manifest(cat.Source(name))
+	if m == nil {
+		return
+	}
+	for _, c := range m.Collections {
+		x, ok := cat.Collection(name, c.Name)
+		if !ok {
+			continue
+		}
+		for _, it := range x.Files {
+			if it.Source == name {
+				u.files[it.Rel] = true
+			}
+		}
+		for _, it := range x.Skills {
+			if it.Source == name {
+				u.dirs = append(u.dirs, it.Rel)
+			}
+		}
+		for _, e := range x.Errors {
+			if msg := reviewError(env, name, e); !slices.Contains(u.errors, msg) {
+				u.errors = append(u.errors, msg)
+			}
+		}
+	}
 }
 
 // printErrors prints the errors of now that before doesn't have.
@@ -88,6 +147,10 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	top := reviewTop(name)
 	after := env.Catalog.WithFiles(name, now, top)
 	u, bu := usedFrom(env, after, name), &used{}
+	if old == "" {
+		// Reviewed from nothing, as source add shows a source.
+		u.addOffered(env, after, name)
+	}
 	var before *catalog.Catalog
 	if old != "" {
 		before = env.Catalog.WithFiles(name, was, top)
@@ -96,8 +159,21 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	for f := range bu.files {
 		u.files[f] = true
 	}
+	for c, bs := range bu.named {
+		for _, b := range bs {
+			u.named.add([]string{c}, b)
+		}
+	}
+	for c, bs := range bu.using {
+		for _, b := range bs {
+			u.using.add([]string{c}, b)
+		}
+	}
 	u.dirs = append(u.dirs, bu.dirs...)
 	s.printErrors(u.errors, bu.errors)
+	if before != nil {
+		s.collectionChanges(name, u, before, after)
+	}
 	s.mcpDefinitionWarnings(name, before, after)
 
 	var shown, other []source.Change
@@ -154,6 +230,60 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 		fmt.Fprintln(s.Out, "Accepting accepts these files too: a file you reference later is used without review. ctxtra source update --full shows them, with content warnings.")
 	}
 	return nil
+}
+
+// collectionChanges reports, for each collection of source name that the
+// bindings use with either commit, nested ones included, whether the new
+// commit removes it, and for each that they name, what it newly adds:
+// servers, skills and files.
+func (s *sources) collectionChanges(name string, u *used, before, after *catalog.Catalog) {
+	m, _ := after.Manifest(after.Source(name))
+	by := func(bindings []string) string {
+		if len(bindings) > 1 {
+			return "bindings " + strings.Join(bindings, ", ") + " use it"
+		}
+		return "binding " + bindings[0] + " uses it"
+	}
+	for _, c := range slices.Sorted(maps.Keys(u.using)) {
+		if m == nil || m.Collection(c) == nil {
+			msg := fmt.Sprintf("collection %s is removed; %s", c, by(u.using[c]))
+			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
+			s.diags = append(s.diags, diagnostic{"warning", source.Sanitize(name + ": " + msg)})
+		}
+	}
+	for _, c := range slices.Sorted(maps.Keys(u.named)) {
+		// A removed collection is reported above; one with errors, by the
+		// review's errors.
+		now, ok := after.Collection(name, c)
+		if !ok {
+			continue
+		}
+		was, _ := before.Collection(name, c)
+		if was == nil {
+			was = &catalog.Expansion{}
+		}
+		var added []string
+		for _, srv := range now.Servers {
+			if !slices.ContainsFunc(was.Servers, func(o catalog.Server) bool { return o.ID == srv.ID }) {
+				added = append(added, "MCP server "+strings.TrimPrefix(srv.ID, name+":"))
+			}
+		}
+		for _, l := range []struct {
+			what     string
+			now, was []catalog.Item
+		}{{"skill", now.Skills, was.Skills}, {"file", now.Files, was.Files}} {
+			for _, it := range l.now {
+				if !slices.ContainsFunc(l.was, func(o catalog.Item) bool { return o.Ref() == it.Ref() }) {
+					added = append(added, l.what+" "+it.Rel)
+				}
+			}
+		}
+		if len(added) > 0 {
+			msg := fmt.Sprintf("collection %s newly adds %s; %s", c, strings.Join(added, ", "), by(u.named[c]))
+			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
+			s.diags = append(s.diags, diagnostic{"notice", source.Sanitize(name + ": " + msg)})
+		}
+	}
 }
 
 // regular reports whether a git mode is a regular file's.

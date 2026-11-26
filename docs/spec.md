@@ -237,9 +237,10 @@ mcp-servers:
 
 A manifest can declare `mcp-servers`, `collections` and `repo-sets`. It cannot declare sources or bindings.
 Manifest paths refer only to files under that source; they cannot name another source or the user's disk.
+A bare name in a collection's `collections` or `mcp-servers` is a collection or server of the same manifest.
+See [Collections](#collections).
 
-Collections and repo sets parse, but using them currently reports "not implemented yet".
-Use direct file, skill and server references for now.
+Repo sets parse, but using them currently reports "not implemented yet".
 
 ### Check a source repository
 
@@ -248,9 +249,14 @@ ctxtra source validate .
 ctxtra source validate . --json
 ```
 
-Validation reads only `DIR/ctxtra-source.yaml`. It checks YAML, names, keys, entry shapes and MCP
-definitions. Secret-looking header and environment values are warnings. Errors exit 1.
-It does not yet check the files named by collections, their skill headers, or whether their globs match.
+Validation reads `DIR/ctxtra-source.yaml`, with the size limit that sessions use, and the files its
+collections name, and nothing outside DIR. It
+checks YAML, names, keys, entry shapes and MCP definitions. It reads each collection the way a session reads
+it from an accepted commit, and reports what a session would: a path that matches nothing, a missing nested
+collection, a cycle, a `!` entry that excludes nothing, and a skill whose `SKILL.md` has no valid header.
+A symlink, a file in a nested repository or submodule, and `.git` are not in a commit that ctxtra reads,
+and an entry that names one is an error that says so.
+Secret-looking header and environment values are warnings. Errors exit 1.
 A missing manifest is an error. A symlinked manifest is refused, as it would be in a repo source.
 
 ### Review
@@ -264,7 +270,8 @@ What counts as new depends on what the source follows:
 - A changed `branch`, `tag` or `rev` in the config is always reviewed as a change from the locked commit,
   and can be accepted when nothing under `subdir` changed: the review says so.
 - A changed `repo` (another repository, not another spelling) or `subdir` is a new source: the review shows
-  it from nothing, as `source add` does, and its servers need approval and sign-in again. A source without a
+  it from nothing, as `source add` does, with the files its collections offer in full and checked for
+  content warnings, and its servers need approval and sign-in again. A source without a
   lock entry is reviewed the same way.
 
 `source update` shows changes in every directly referenced file and every file inside a referenced skill,
@@ -276,6 +283,13 @@ nothing, a `SKILL.md` that can't be parsed. Paths are relative to the source's t
 by filename; `--full` shows their contents too. A branch that no longer continues the accepted commit gets a
 force-push warning, and a moved tag says where it was. Nothing is accepted until the user answers yes in a
 terminal.
+
+For each of the source's collections that a binding uses, nested ones included, the review says when the new
+commit removes it. For each that a binding names, directly or through the config's own collections, it lists
+the MCP servers, skills and files that it newly adds, nested collections included, with the bindings: `collection essentials newly adds MCP server deploy, skill
+skills/release; binding iam uses it`. Errors in those collections are reviewed like other new errors, so a
+new cycle is named. `--json` lists these in `diagnostics`: a removed collection as a `warning`, new content as
+a `notice`.
 
 The review reads both commits from ctxtra's copy of the repository in the cache. The new commit reaches the
 store only when you accept it. The question goes to stderr. Nonterminal use and `--no-input` fail before
@@ -304,8 +318,9 @@ for example.
 - `source update` checks only the lines that the files shown in full add, and shows each warning after its
   line: `warning: line 14: remote code: ...`. It reads the whole new file to know where a comment starts.
 - Files listed by name are not checked. `--full` shows and checks them.
-- `source add --repo` checks files already referenced under that source name by config bindings.
-  Add-time warnings for files offered by manifest collections are not implemented yet.
+- `source add --repo` checks the files the source offers: every file of its manifest's collections, nested
+  ones and the files of their skills included, and files that config bindings already reference under that
+  source name. Other files of the repository are not checked. It also shows errors in the collections.
 - A file that isn't UTF-8 text, or has a NUL byte, is not checked, and the review says so:
   `note: not checked for content warnings: binary or not UTF-8`.
 - At most 50 warnings about a file's text are shown. A file with more gets a note with their number. A URL
@@ -526,7 +541,7 @@ profile condition does not hold and an exclusion-only profile condition holds.
   out `~/notes/x.md`. Quote it: YAML reads an unquoted `!` as a tag. For a relative path whose name starts
   with `!`, write `./!name`.
 - An exclusion that leaves nothing out is reported, and the binding still applies. A list of only
-  exclusions, and an exclusion that can't be resolved (an unknown source, a source that isn't available,
+  exclusions without `collections` in the binding, and an exclusion that can't be resolved (an unknown source, a source that isn't available,
   a path outside the pinned source), are errors, and the binding is skipped: without the exclusion, it
   would add more than intended. `context explain` lists the paths that exclusions left out.
 - Live glob expansion follows symlinks only when each link and destination pass the trust check.
@@ -553,6 +568,73 @@ profile condition does not hold and an exclusion-only profile condition holds.
   replaced by `ARGS` (or `ARGS` added at the end), and starts a turn. A session without a surface (`claude -p`,
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
   and their frontmatter has no effect. Setup leaves a folder there that isn't ctxtra's alone, with a warning.
+
+## Collections
+
+A collection is a named set of what a binding adds: `instructions`, `skills`, `mcp-servers` and nested
+`collections`, with patterns and `!` entries as in a binding. A source's manifest and the config can both
+have a `collections` map.
+
+```yaml
+# ctxtra-source.yaml of iam-team
+schema: ctxtra/source/v1
+collections:
+  base:
+    instructions: [docs/conventions/*.md]
+  essentials:
+    collections: [base]
+    instructions: [docs/*.md, '!docs/draft-*.md']
+    skills: [skills/*]
+    mcp-servers: [jira]
+mcp-servers:
+  jira:
+    url: https://mcp.atlassian.com/v1/mcp
+```
+
+```yaml
+# the config
+collections:
+  go-kit:
+    instructions: [go-notes.md, 'go-style:go/*.md']
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+    instructions: ['!iam-team:docs/testing.md']
+  - name: go
+    location: {dirs: [~/dev/**]}
+    collections: [go-kit]
+```
+
+| Entry | In a manifest | In the config |
+|---|---|---|
+| `docs/x.md` | A file in the source | A file relative to the config's real folder |
+| `~/x.md`, `/abs/x.md` | Error | A file on disk |
+| `SOURCE:docs/x.md` | Error | A file in that source |
+| `base` in `collections` | A collection of the manifest | The config's own collection |
+| `SOURCE:base` in `collections` | Error | That source's collection |
+| `jira` in `mcp-servers` | A server of the manifest | The config's own server |
+
+- A binding names a source's collection as `SOURCE:NAME`, and the config's own by its bare name. A
+  `collections` entry is a pattern over names: `'iam-team:team-*'` adds each matching collection, in name order.
+- A collection adds its nested collections first, in list order, then its own entries, minus its `!` entries.
+  A binding adds its collections first, in list order, then its own instructions and skills. Each file, skill
+  and server counts once, at its first position.
+- A `!` entry in a binding's content list removes what it matches from everything the binding adds, its
+  collections included. `'!iam-team:team-legacy'` in `collections` leaves out that collection wherever it is
+  nested; a file it shares with another collection still comes through that one. A list of only `!` entries
+  needs `collections` in the binding: without them there is nothing to remove from.
+- A source's server that a collection adds gets the config's name for it, if the config's `mcp-servers` gives
+  one with `use`.
+- Errors in a collection leave out only the entry: a path that matches nothing, a nested collection that
+  doesn't exist, a `!` entry that excludes nothing, an entry that names another source in a manifest. A
+  collection with an unknown key adds nothing. Collections that nest each other form a cycle: each adds
+  nothing, and the error names them. A pattern in a collection's `collections` matches that collection
+  too: `all: {collections: ['*']}` nests itself.
+- A binding entry that names a collection the source doesn't have, or a source without a manifest, is an
+  error, and the rest of the binding applies.
+- Each collection is read once per session, however many bindings and collections nest it, and expanded
+  once for each set of `!` entries that leave out collections nested in it. Past 10,000 new expansions
+  for one binding's collections, a collection adds nothing, with an error.
 
 ## Order and capacity guard
 
@@ -1266,15 +1348,16 @@ SHA-1 with collision detection, which catches the known collision attacks.
 | `max-ctx-chars` | Integer at least 0; 0 means no configured limit. |
 | `check-releases` | Release checks; default true. |
 | `session-message.max-instructions`, `session-message.max-skills` | Per-source list limits; default 30, 0 hides the list. |
-| `collections`, `repo-sets` | Parsed; use is not implemented yet. |
+| `collections` | The config's own collections; see [Collections](#collections). |
+| `repo-sets` | Parsed; use is not implemented yet. |
 
 | Binding key | Meaning |
 |---|---|
 | `name` | Required, unique in the config. |
 | `location.dirs`, `location.repos` | Folder or repository conditions. |
 | `profiles`, `agents` | Additional conditions, AND with location. |
-| `instructions`, `skills`, `mcp-servers` | Content to add; at least one content list must add something. |
-| `collections`, `location.repo-sets` | Use is not implemented yet. |
+| `collections`, `instructions`, `skills`, `mcp-servers` | Content to add; at least one content list must add something. |
+| `location.repo-sets` | Use is not implemented yet. |
 
 The session folder is the hook input's `cwd`, then Cursor's first `workspace_roots` entry,
 then Antigravity's first `workspacePaths` entry, then the hook's working folder.

@@ -123,6 +123,8 @@ type session struct {
 	files, skills, servers map[string]bool
 	// manifests are the sources whose manifests this session read.
 	manifests map[string]bool
+	// reported are the errors in collections reported already.
+	reported map[*catalog.Error]bool
 }
 
 // repository is the session's repository, found once when first needed:
@@ -489,22 +491,14 @@ func repoMatch(e config.RepoEntry, repo *gitrepo.Repo) (hit bool, not string) {
 // add reads what binding b adds: its collections, then its instructions,
 // skills and servers, each in list order, minus what its ! entries remove.
 func (r *session) add(b *config.Binding, t *Trace) {
-	cat := r.env.Catalog
-	for _, e := range b.Collections {
-		if e.Err != nil {
-			continue
-		}
-		if _, err := cat.Collections(e); err != nil {
-			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "collections %s: %v", e.Text, err)
-		}
-	}
-	for _, it := range r.items(b, t, b.Instructions, catalog.Files) {
+	x := r.collections(b, t)
+	for _, it := range r.items(b, t, b.Instructions, catalog.Files, x.Files) {
 		if content, real, ok := r.read(b, t, it, r.files); ok {
 			r.res.Files = append(r.res.Files, r.hit(b, it, real, content))
 			t.Files = append(t.Files, real)
 		}
 	}
-	for _, it := range r.items(b, t, b.Skills, catalog.Skills) {
+	for _, it := range r.items(b, t, b.Skills, catalog.Skills, x.Skills) {
 		md := it.Child("SKILL.md")
 		content, real, ok := r.read(b, t, md, r.skills)
 		if !ok {
@@ -526,13 +520,47 @@ func (r *session) add(b *config.Binding, t *Trace) {
 		r.res.Skills = append(r.res.Skills, h)
 		t.Skills = append(t.Skills, h.Path)
 	}
-	r.addServers(b, t)
+	r.addServers(b, t, x.Servers)
 }
 
-// items are what the positive path entries of list add, minus what its !
-// entries match, each once.
-func (r *session) items(b *config.Binding, t *Trace, list []config.Entry, kind catalog.Kind) []catalog.Item {
-	var items []catalog.Item
+// collections is what b's collections add, with their errors in t: those
+// of b's entries, and those in the collections, once a session.
+func (r *session) collections(b *config.Binding, t *Trace) *catalog.Expansion {
+	if len(b.Collections) == 0 {
+		return &catalog.Expansion{}
+	}
+	x, errs := r.env.Catalog.Expand(b.Collections)
+	for _, e := range errs {
+		r.entryErrors(b, t, e.Entry, []error{e.Err})
+	}
+	for _, name := range x.Manifests {
+		if err := r.countManifest(name); err != nil {
+			r.fail(t, b, yamlx.Pos{}, yamlx.BrokenEntry, "%v", err)
+			x = x.Without(name)
+		}
+	}
+	for _, name := range x.Unavailable {
+		if !slices.Contains(t.Unavailable, name) {
+			t.Unavailable = append(t.Unavailable, name)
+		}
+	}
+	if r.reported == nil {
+		r.reported = map[*catalog.Error]bool{}
+	}
+	for _, e := range x.Errors {
+		if !r.reported[e] {
+			r.reported[e] = true
+			t.Errors = append(t.Errors, e)
+		}
+	}
+	return x
+}
+
+// items are what the collections added of a kind, from, then what the
+// positive path entries of list add, minus what its ! entries match, each
+// once.
+func (r *session) items(b *config.Binding, t *Trace, list []config.Entry, kind catalog.Kind, from []catalog.Item) []catalog.Item {
+	items := slices.Clone(from)
 	for _, e := range list {
 		if e.Err != nil || e.Not {
 			continue
@@ -545,14 +573,15 @@ func (r *session) items(b *config.Binding, t *Trace, list []config.Entry, kind c
 			}
 		}
 	}
+	cat := r.env.Catalog
 	for _, e := range list {
-		if e.Not && e.Err == nil && !slices.ContainsFunc(items, func(it catalog.Item) bool { return r.excludes(e, it) }) {
+		if e.Not && e.Err == nil && !slices.ContainsFunc(items, func(it catalog.Item) bool { return cat.Excludes(e, it) }) {
 			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
 		}
 	}
 	return slices.DeleteFunc(items, func(it catalog.Item) bool {
 		for _, e := range list {
-			if e.Not && e.Err == nil && r.excludes(e, it) {
+			if e.Not && e.Err == nil && cat.Excludes(e, it) {
 				t.Excluded = append(t.Excluded, Exclusion{Entry: e.Text, Item: it.Ref()})
 				return true
 			}
@@ -570,23 +599,12 @@ func (r *session) entryErrors(b *config.Binding, t *Trace, e config.Entry, errs 
 			if !slices.Contains(t.Unavailable, u.Source.Name) {
 				t.Unavailable = append(t.Unavailable, u.Source.Name)
 			}
-		case catalog.IsUntrusted(err):
-			r.fail(t, b, e.Pos, yamlx.UntrustedFile, "%s: %v", e.Text, err)
-		case errors.As(err, new(*catalog.Unreadable)):
-			r.fail(t, b, e.Pos, yamlx.UnreadableFile, "%s: %v", e.Text, err)
+		case catalog.EntryMistake(err) != yamlx.BrokenEntry:
+			r.fail(t, b, e.Pos, catalog.EntryMistake(err), "%s: %v", e.Text, err)
 		default:
 			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%v", err)
 		}
 	}
-}
-
-// excludes reports whether ! entry e matches it: a SOURCE:PATH pattern by
-// its path in that source, a path on disk by where it is.
-func (r *session) excludes(e config.Entry, it catalog.Item) bool {
-	if e.InSource {
-		return it.Source == e.Source && globMatch(path.Clean(e.Value), it.Rel)
-	}
-	return globMatch(r.env.Catalog.DiskPattern(e.Value), filepath.ToSlash(it.Path))
 }
 
 // read is the content of it and its real path, unless seen has it
@@ -620,8 +638,8 @@ func (r *session) hit(b *config.Binding, it catalog.Item, real string, content [
 // addServers adds b's MCP servers. A server is served once; of two servers
 // with one name, the first in config order is served, and the other is
 // recorded as a conflict.
-func (r *session) addServers(b *config.Binding, t *Trace) {
-	var found []catalog.Server
+func (r *session) addServers(b *config.Binding, t *Trace, from []catalog.Server) {
+	found := slices.Clone(from)
 	for _, e := range b.MCPServers {
 		if e.Err != nil || e.Not {
 			continue
@@ -633,6 +651,12 @@ func (r *session) addServers(b *config.Binding, t *Trace) {
 		s, errs := r.env.Catalog.Servers(e)
 		r.entryErrors(b, t, e, errs)
 		found = append(found, s...)
+	}
+	for _, e := range b.MCPServers {
+		if e.Not && e.Err == nil && !r.unavailable(t, e) &&
+			!slices.ContainsFunc(found, func(s catalog.Server) bool { return catalog.ServerExcluded(e, s) }) {
+			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
+		}
 	}
 	for _, s := range found {
 		if r.serverExcluded(b, t, s) {
@@ -655,29 +679,40 @@ func (r *session) addServers(b *config.Binding, t *Trace) {
 // against the session's total read limit.
 func (r *session) countManifests(e config.Entry) error {
 	for _, name := range r.env.Catalog.ManifestSources(e) {
-		r.manifests[name] = true
-		s := r.env.Catalog.Source(name)
-		if s == nil || s.State != catalog.Active {
-			continue
-		}
-		if _, _, err := r.env.Catalog.ManifestWithin(s, r.rd); err != nil {
-			return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
+		if err := r.countManifest(name); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// countManifest reads the manifest of source name, if it is active, and
+// counts it against the session's total read limit.
+func (r *session) countManifest(name string) error {
+	r.manifests[name] = true
+	s := r.env.Catalog.Source(name)
+	if s == nil || s.State != catalog.Active {
+		return nil
+	}
+	if _, _, err := r.env.Catalog.ManifestWithin(s, r.rd); err != nil {
+		return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
+	}
+	return nil
+}
+
+// unavailable reports whether server entry e names a source whose
+// content this session can't use, itself or through the config's new name
+// for one of its servers: what it would match is unknown.
+func (r *session) unavailable(t *Trace, e config.Entry) bool {
+	return slices.ContainsFunc(r.env.Catalog.ManifestSources(e), func(name string) bool {
+		return slices.Contains(t.Unavailable, name)
+	})
+}
+
 // serverExcluded reports whether a ! entry of b matches one of s's names.
 func (r *session) serverExcluded(b *config.Binding, t *Trace, s catalog.Server) bool {
 	for _, e := range b.MCPServers {
-		if !e.Not || e.Err != nil {
-			continue
-		}
-		pat := e.Value
-		if e.InSource {
-			pat = e.Source + ":" + e.Value
-		}
-		if slices.ContainsFunc(s.Refs, func(ref string) bool { return globMatch(pat, ref) }) {
+		if e.Not && e.Err == nil && catalog.ServerExcluded(e, s) {
 			t.Excluded = append(t.Excluded, Exclusion{Entry: e.Text, Item: s.Refs[0]})
 			return true
 		}

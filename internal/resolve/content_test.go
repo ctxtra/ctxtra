@@ -101,15 +101,6 @@ func TestContent(t *testing.T) {
 		eq(t, "skills", skillNames(start(env, h.dir, "")), "a")
 	})
 
-	t.Run("collections are not read yet", func(t *testing.T) {
-		h := newHome(t)
-		h.write("me.md", "me")
-		env := h.load("bindings:\n  - {name: b, collections: [go-kit], instructions: [~/me.md]}\n")
-		res := start(env, h.dir, "")
-		eq(t, "files", bases(res.Files), "me.md")
-		oneError(t, res, "collections go-kit", "not implemented yet")
-	})
-
 	t.Run("only ! in collections", func(t *testing.T) {
 		h := newHome(t)
 		h.write("me.md", "me")
