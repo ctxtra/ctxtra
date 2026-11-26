@@ -16,6 +16,22 @@
 - Codex passes all four XDG variables to its MCP proxy; Muse records
   them in hook and proxy entries. `doctor` reports changed Muse values with the setup command to refresh them.
   Setup refreshes existing proxy entries even when the selected data folder has no source catalogs yet.
+- A new config format, `schema: ctxtra/config/v1`. The `ctxtra/v1` format is not read: write the config again.
+  Bindings are only in the config: `include` and binding files are gone. A binding has `location` (`dirs`,
+  `repos`) instead of `match`; without `location` it applies to every session, so `global` is gone. Files and
+  servers of a source are `SOURCE:PATH` and `SOURCE:SERVER`. A binding with `agents` applies only to those
+  agents; `context` commands and `mcp status` take `--agent`.
+- Sources are `repo` (a git repository, also your clone, at a branch) or `dir` (a folder read live). Accepted
+  commits are in `ctxtra.lock` next to the config, not in the config. `source download` downloads exactly those
+  commits, for example on a new machine. A `dir` source in a repository with remotes is read only after
+  `ctxtra source trust NAME`, and stops when the remotes change.
+- A source declares its MCP servers in `ctxtra-source.yaml`; `source validate DIR` checks it.
+- Renamed: `source add --repo|--dir`, `source update --dry-run`, `source validate`, `binding add --mcp-server`,
+  `mcp add --pass-env`, `pass-env`, `max-ctx-chars`, `check-releases`, `session-message` (0 leaves a list out).
+- Mistakes are errors, reported in the session message, the log, `context explain` and `doctor`; the part
+  with the mistake is left out. Two skills or MCP servers with one name are notices: both skills reach the
+  session, and the first server in binding order is served.
+- `tag`, `rev`, `subdir`, collections and repo sets are parsed but not implemented yet: they are errors.
 
 ## v0.6.0
 
