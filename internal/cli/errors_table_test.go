@@ -33,7 +33,6 @@ func TestErrorTableReports(t *testing.T) {
 		unavailable                              bool
 		whole                                    bool
 		repoFiles                                bool
-		skip                                     string
 	}
 	rows := []row{
 		{name: "unreadable config", raw: "schema: ctxtra/config/v1\nbindings: [\n", want: []string{"YAML"}, whole: true},
@@ -109,14 +108,18 @@ func TestErrorTableReports(t *testing.T) {
 			if err := os.Symlink(filepath.Join(h, "suspect.md"), filepath.Join(gen, "link.md")); err != nil {
 				t.Fatal(err)
 			}
-		}, want: []string{"link.md"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true,
-			skip: "error table row: a symlink in a repo source; a glob silently omits it instead of reporting an error"},
+		}, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
+		{name: "repo source symlink named directly", top: repoSource, bindings: "  - {name: affected, instructions: ['team:link.md', 'team:a.md', ~/rest.md]}\n", prepare: func(t *testing.T, h string) {
+			entry := lockedSource(t, "team", "https://github.com/example/team.git", map[string]string{"a.md": "MARKER-team/a.md\n"})
+			writeLock(t, paths.ConfigPath(), entry)
+			gen := source.GenDir("https://github.com/example/team.git", "", strings.Repeat("a", 40))
+			if err := os.Symlink(filepath.Join(h, "suspect.md"), filepath.Join(gen, "link.md")); err != nil {
+				t.Fatal(err)
+			}
+		}, want: []string{"team:link.md", "symlink"}, files: []string{"team/a.md", "rest.md"}, repoFiles: true},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
-			if r.skip != "" {
-				t.Skip(r.skip)
-			}
 			h := testenv.Home(t)
 			bin, err := os.Executable()
 			if err != nil {

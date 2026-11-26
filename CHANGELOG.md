@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Repo source symlinks matched by a glob or named directly are reported as errors; other matching files still load.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
 - Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
   including collection `--replace`. New and changed entries still validate their content.

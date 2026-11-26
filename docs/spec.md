@@ -175,6 +175,7 @@ the check at its own location: outside git, in a repository without remotes, or 
 trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository.
 Otherwise the source is not read, `source trust` refuses it, and the error names the folder the link leads to.
 A repo source leaves symlinks and submodules out, including links in an explicit path or at its manifest.
+A matched symlink is an error that names its source and path. Other files a glob matches still load.
 Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.

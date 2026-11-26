@@ -154,11 +154,11 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
 	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 	items, err := expand(c, "team:*.md", Files)
-	if err != nil || !slices.Equal(refs(items), []string{"team:a.md"}) {
+	if err == nil || !strings.Contains(err.Error(), "team:b.md can't be read: a symlink") || !slices.Equal(refs(items), []string{"team:a.md"}) {
 		t.Errorf("files %v, %v", refs(items), err)
 	}
-	if _, err := expand(c, "team:b.md", Files); err == nil {
-		t.Error("a symlink in a repo source is read")
+	if _, err := expand(c, "team:b.md", Files); err == nil || !strings.Contains(err.Error(), "team:b.md can't be read: a symlink") {
+		t.Errorf("a named symlink isn't reported: %v", err)
 	}
 }
 

@@ -105,6 +105,16 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
 	}
 	found, errs := c.glob(s.fsys, s.Top, pattern, s.Name+":"+pattern, kind, s.Live())
+	if !s.Live() {
+		for _, err := range errs {
+			var u *Unreadable
+			if errors.As(err, &u) {
+				if rel, ok := paths.Rel(s.Top, u.Path); ok {
+					u.Ref = s.Name + ":" + rel
+				}
+			}
+		}
+	}
 	items := make([]Item, len(found))
 	for i, rel := range found {
 		items[i] = Item{Path: filepath.Join(s.Top, filepath.FromSlash(rel)), Source: s.Name, Rel: rel, stored: !s.Live(), fsys: s.fsys}
@@ -371,7 +381,11 @@ func (t *tree) statStored(full string) (fs.FileInfo, error) {
 	if _, err := trust.Stored(t.root, parent); err != nil {
 		return nil, err
 	}
-	return os.Lstat(full)
+	fi, err := os.Lstat(full)
+	if err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return nil, errSymlink
+	}
+	return fi, err
 }
 
 func (t *tree) spend(n int) error {
@@ -430,10 +444,18 @@ func (t *tree) skip(full string, err error) {
 // couldn't read, such as a symlink to itself: only it is left out.
 type Unreadable struct {
 	Path string
-	Err  error
+	// Ref names the path within its source, when there is one.
+	Ref string
+	Err error
 }
 
-func (u *Unreadable) Error() string { return paths.Tilde(u.Path) + " can't be read: " + u.Err.Error() }
+func (u *Unreadable) Error() string {
+	name := u.Ref
+	if name == "" {
+		name = paths.Tilde(u.Path)
+	}
+	return name + " can't be read: " + u.Err.Error()
+}
 func (u *Unreadable) Unwrap() error { return u.Err }
 
 func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
