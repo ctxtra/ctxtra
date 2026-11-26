@@ -216,3 +216,40 @@ func TestEveryMistakeLeavesOutSomething(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEntry(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want []string // parts of the error; none for an entry that parses
+	}{
+		{name: "a map", data: "profiles: [iam]\ncollections: ['iam-team:essentials']\n"},
+		{name: "a list", data: "- github.com/acme/**\n- '!github.com/acme/legacy'\n"},
+		{name: "empty", data: "# nothing\n", want: []string{"the entry is empty"}},
+		{name: "an unquoted exclusion on its own line", data: "agents:\n  - !cursor\n  - codex\n",
+			want: []string{"YAML reads !cursor as a tag", "'!cursor'"}},
+		{name: "an unquoted exclusion in a flow list", data: "skills: [a, !b]\n", want: []string{"quote it: '!b'"}},
+		{name: "a duplicate key", data: "skills: [a]\nskills: [b]\n", want: []string{"skills is there twice"}},
+		{name: "an alias", data: "a: &x [1]\nb: *x\n", want: []string{"doesn't read anchors"}},
+		{name: "two documents", data: "a: 1\n---\nb: 2\n", want: []string{"more than one YAML document"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := ParseEntry([]byte(tt.data))
+			if len(tt.want) == 0 {
+				if err != nil || d.Root == nil {
+					t.Fatalf("ParseEntry: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("no error for %q", tt.data)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q doesn't say %q", err, w)
+				}
+			}
+		})
+	}
+}

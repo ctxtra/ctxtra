@@ -100,6 +100,10 @@ func NewEditor(data []byte) (*Editor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the config can't be read: %v; fix it first", err)
 	}
+	// YAML reads a lone \r as a line break, and the edits count lines by \n.
+	if bytes.Contains(bytes.ReplaceAll(data, []byte("\r\n"), nil), []byte("\r")) {
+		return nil, errors.New("the config has line breaks written as a lone carriage return (\\r); save it with \\n or \\r\\n line breaks first")
+	}
 	return &Editor{start: data, data: data, doc: d}, nil
 }
 
@@ -212,6 +216,39 @@ func (e *Editor) Replace(s Section, name string, entry *yaml.Node) error {
 	}
 	e.changed = append(e.changed, yamlx.Part{Kind: s.Kind(), Name: name})
 	return nil
+}
+
+// PlaceError is a place given for an entry that Put replaces: a replaced
+// entry keeps its place.
+type PlaceError struct {
+	Section Section
+	Name    string
+}
+
+func (e *PlaceError) Error() string {
+	return fmt.Sprintf("the %s %s exists, and a replaced %s keeps its place", e.Section.Kind(), e.Name, e.Section.Kind())
+}
+
+// Put changes the entry name of section s to entry in its place, or adds
+// it where at says when the section has no such entry. A place for an
+// entry that is there is a *PlaceError. changed is false when the same
+// entry is there already; replaced is true when an entry was there.
+func (e *Editor) Put(s Section, name string, entry *yaml.Node, at Place) (changed, replaced bool, err error) {
+	_, i, err := e.find(s, name)
+	switch {
+	case err != nil:
+		return false, false, err
+	case i < 0:
+		changed, err = e.Add(s, name, entry, at)
+		return changed, false, err
+	case at != Place{}:
+		return false, true, &PlaceError{s, name}
+	}
+	before := e.data
+	if err := e.Replace(s, name, entry); err != nil {
+		return false, true, err
+	}
+	return !bytes.Equal(before, e.data), true, nil
 }
 
 // Remove removes the entry name of section s, and the section's key when it
@@ -672,6 +709,11 @@ func renderNode(n *yaml.Node, indent int, comment string) (string, error) {
 	pad := strings.Repeat(" ", indent)
 	var b strings.Builder
 	for l := range strings.Lines(string(out)) {
+		// YAML writes a long key, or one with a line break, as an explicit
+		// key (? KEY), which the edits can't find again.
+		if t := strings.TrimLeft(l, " -"); t == "?\n" || strings.HasPrefix(t, "? ") {
+			return "", errors.New("a name is too long or has a line break")
+		}
 		if l != "\n" {
 			b.WriteString(pad)
 		}

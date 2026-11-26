@@ -111,6 +111,37 @@ func TestEditorBindings(t *testing.T) {
 			t.Errorf("got\n%s\nwant\n%s", got, want)
 		}
 	})
+	t.Run("replace adds a binding that isn't there, where the place says", func(t *testing.T) {
+		e := editor(t, NewFile+"bindings:\n  - name: me\n    skills: [a]\n  - name: go\n    skills: [c]\n")
+		changed, replaced, err := e.Put(Bindings, "obs", node(t, "{skills: [d]}"), Place{Before: "go"})
+		if err != nil || !changed || replaced {
+			t.Fatalf("Put: %v %v %v", changed, replaced, err)
+		}
+		if got := bindingNames(t, e); !slices.Equal(got, []string{"me", "obs", "go"}) {
+			t.Errorf("bindings %v", got)
+		}
+	})
+	t.Run("replace keeps the place of a binding that is there", func(t *testing.T) {
+		e := editor(t, NewFile+"bindings:\n  - name: me\n    skills: [a]\n  - name: obs\n    skills: [b]\n  - name: go\n    skills: [c]\n")
+		changed, replaced, err := e.Put(Bindings, "obs", node(t, "{skills: [d]}"), Place{})
+		if err != nil || !changed || !replaced {
+			t.Fatalf("Put: %v %v %v", changed, replaced, err)
+		}
+		if got := bindingNames(t, e); !slices.Equal(got, []string{"me", "obs", "go"}) {
+			t.Errorf("bindings %v", got)
+		}
+		if changed, _, err := e.Put(Bindings, "obs", node(t, "{skills: [d]}"), Place{}); err != nil || changed {
+			t.Errorf("the same entry again: changed %v, %v", changed, err)
+		}
+		before := string(e.Bytes())
+		var place *PlaceError
+		if _, _, err := e.Put(Bindings, "obs", node(t, "{skills: [x]}"), Place{After: "go"}); !errors.As(err, &place) {
+			t.Errorf("a place for a replaced binding: %v", err)
+		}
+		if string(e.Bytes()) != before {
+			t.Error("the config changed")
+		}
+	})
 	t.Run("the binding name is taken", func(t *testing.T) {
 		e, before := demoEditor(t)
 		_, err := e.Add(Bindings, "iam", node(t, "{location: {repo-sets: ['iam-team:services']}, collections: ['iam-team:essentials']}"), Place{})
@@ -444,6 +475,18 @@ func TestEditorRefuses(t *testing.T) {
 	t.Run("a config YAML can't read", func(t *testing.T) {
 		_, err := NewEditor([]byte(NewFile + "bindings:\n  - name: me\n   skills: [a]\n"))
 		if err == nil || !strings.Contains(err.Error(), "fix it first") {
+			t.Errorf("err %v", err)
+		}
+	})
+	t.Run("a lone carriage return as a line break", func(t *testing.T) {
+		if _, err := NewEditor([]byte(NewFile + "max-ctx-chars:\r 1000\n")); err == nil || !strings.Contains(err.Error(), "carriage return") {
+			t.Errorf("err %v", err)
+		}
+		editor(t, strings.ReplaceAll(NewFile+"max-ctx-chars: 1000\n", "\n", "\r\n"))
+	})
+	t.Run("a name YAML writes as an explicit key", func(t *testing.T) {
+		e := editor(t, NewFile)
+		if _, err := e.Add(Sources, "a\rb", node(t, "{dir: ~/x}"), Place{}); err == nil || !strings.Contains(err.Error(), "too long or has a line break") {
 			t.Errorf("err %v", err)
 		}
 	})

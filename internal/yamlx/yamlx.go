@@ -46,14 +46,52 @@ type Doc struct {
 
 // Parse reads data as a file of kind. An error leaves out the whole file.
 func Parse(data []byte, kind Kind) (*Doc, *Error) {
-	fail := func(line int, format string, args ...any) (*Doc, *Error) {
-		return nil, &Error{Pos: Pos{Line: line}, Mistake: Unreadable, Msg: fmt.Sprintf(format, args...)}
+	d, top, err := decode(data, func() string { return fmt.Sprintf("the file is empty; it needs schema: %s", kind) })
+	if err != nil {
+		return nil, err
+	}
+	if top.Kind != yaml.MappingNode {
+		return nil, unreadable(top.Line, "the file must be a map of keys, starting with schema: %s", kind)
+	}
+	d.Root = top
+	if err := d.checkSchema(kind); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// ParseEntry reads data as one entry of a file, as a command takes it from
+// a file or stdin: one document, without anchors, aliases, merge keys, YAML
+// tags or duplicate keys. Root is the entry.
+func ParseEntry(data []byte) (*Doc, *Error) {
+	d, top, err := decode(data, func() string { return "the entry is empty" })
+	if err != nil {
+		return nil, err
+	}
+	d.Root = top
+	if errs := d.Check(Part{}, top); len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return d, nil
+}
+
+func unreadable(line int, format string, args ...any) *Error {
+	return &Error{Pos: Pos{Line: line}, Mistake: Unreadable, Msg: fmt.Sprintf(format, args...)}
+}
+
+// decode reads the one document of data, and checks what a file can't have
+// anywhere: a syntax error, more documents, an anchor, alias or merge key,
+// and a tag on the whole. empty is the message for a document without
+// content.
+func decode(data []byte, empty func() string) (*Doc, *yaml.Node, *Error) {
+	fail := func(line int, format string, args ...any) (*Doc, *yaml.Node, *Error) {
+		return nil, nil, unreadable(line, format, args...)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var root yaml.Node
 	if err := dec.Decode(&root); err != nil {
 		if errors.Is(err, io.EOF) {
-			return fail(0, "the file is empty; it needs schema: %s", kind)
+			return fail(0, "%s", empty())
 		}
 		line, msg := syntaxError(err)
 		switch at, entry := unquotedExclusion(data); {
@@ -87,20 +125,13 @@ func Parse(data []byte, kind Kind) (*Doc, *Error) {
 		return fail(n.Line, "%s: ctxtra doesn't read anchors, aliases or <<; write the values out", what)
 	}
 	if len(root.Content) == 0 || root.Content[0].ShortTag() == "!!null" {
-		return fail(0, "the file is empty; it needs schema: %s", kind)
+		return fail(0, "%s", empty())
 	}
 	top := root.Content[0]
 	if d.tagged(top) {
 		return fail(top.Line, "the file starts with a YAML tag; remove it")
 	}
-	if top.Kind != yaml.MappingNode {
-		return fail(top.Line, "the file must be a map of keys, starting with schema: %s", kind)
-	}
-	d.Root = top
-	if err := d.checkSchema(kind); err != nil {
-		return nil, err
-	}
-	return d, nil
+	return d, top, nil
 }
 
 // checkSchema checks the schema key, wherever it is among the top-level keys.
