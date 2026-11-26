@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,5 +36,24 @@ func TestDownloadUsesConfigAddress(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(lockPath); string(got) != lockFile {
 		t.Errorf("the lock changed:\n%s", got)
+	}
+}
+
+// source add lists the files of a source without a manifest, up to a
+// bound, and none of a source with one.
+func TestSourceAddListsFiles(t *testing.T) {
+	h := testenv.Home(t)
+	for i := range 60 {
+		testenv.Write(t, filepath.Join(h, "many", fmt.Sprintf("f%02d.md", i)), "x")
+	}
+	testenv.Write(t, filepath.Join(h, "declared", "a.md"), "x")
+	testenv.Write(t, filepath.Join(h, "declared", "ctxtra-source.yaml"), "schema: ctxtra/source/v1\n")
+	t.Chdir(h)
+	_, out, errOut := run("source", "add", "--dir", "many")
+	if !strings.Contains(out, "  f49.md\n") || strings.Contains(out, "f50.md") || !strings.Contains(out, "only the first 50 are listed") {
+		t.Errorf("many:\n%s%s", out, errOut)
+	}
+	if _, out, _ := run("source", "add", "--dir", "declared"); strings.Contains(out, "a.md") {
+		t.Errorf("declared:\n%s", out)
 	}
 }

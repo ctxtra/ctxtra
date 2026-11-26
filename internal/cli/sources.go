@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/edit"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
@@ -283,6 +285,7 @@ func (s *sources) addRepo(o addOptions) error {
 	s.mcpDefinitionWarnings(name, nil, after.Catalog)
 	s.showExecutables(r, commit)
 	s.checkAdded(after, name, gen)
+	s.listFiles(gen)
 	s.checkHint(name, o.checkUpdates, !isLocal(o.repo))
 	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
 	return nil
@@ -338,8 +341,56 @@ func (s *sources) addDir(o addOptions) error {
 		fmt.Fprintf(s.Out, "its repository has the remotes %s, which others can push to; to read it live, run ctxtra source trust %s\n",
 			strings.Join(remotes, ", "), name)
 	}
+	s.listFiles(dir)
 	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
 	return nil
+}
+
+// Bounds of the file list of a new source without a manifest.
+const (
+	maxListedFiles = 50
+	maxListVisits  = 10000
+)
+
+// listFiles lists the files of a new source's folder top when it has no
+// manifest, which would say what it offers: the first maxListedFiles, in
+// name order, without .git, symlinks and what they lead to.
+func (s *sources) listFiles(top string) {
+	if _, err := os.Lstat(filepath.Join(top, manifest.FileName)); err == nil {
+		return
+	}
+	var files []string
+	more, visits := false, 0
+	_ = filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
+		visits++
+		switch {
+		case visits > maxListVisits:
+			more = true
+			return filepath.SkipAll
+		case err != nil:
+			return nil
+		case d.IsDir() && d.Name() == ".git":
+			return filepath.SkipDir
+		case !d.Type().IsRegular():
+			return nil
+		case len(files) == maxListedFiles:
+			more = true
+			return filepath.SkipAll
+		}
+		files = append(files, filepath.ToSlash(must(filepath.Rel(top, p))))
+		return nil
+	})
+	if len(files) == 0 {
+		fmt.Fprintf(s.Out, "it has no files and no %s\n", manifest.FileName)
+		return
+	}
+	fmt.Fprintf(s.Out, "it has no %s; its files:\n", manifest.FileName)
+	for _, f := range files {
+		fmt.Fprintf(s.Out, "  %s\n", source.Sanitize(f))
+	}
+	if more {
+		fmt.Fprintf(s.Out, "  … (only the first %d are listed)\n", len(files))
+	}
 }
 
 func sameFile(a, b string) bool {

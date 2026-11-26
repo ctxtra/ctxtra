@@ -21,6 +21,8 @@ exec ctxtra context files notes
 # A folder without remotes is live without separate trust.
 exec ctxtra source add --dir notes --name my-notes
 stdout '^added source my-notes: dir ~/notes, read live; changes apply to new sessions right away$'
+stdout '^it has no ctxtra-source.yaml; its files:$'
+stdout '^  me.md$'
 cp .config/ctxtra/config.yaml before.yaml
 exec ctxtra source add --dir notes
 stdout 'is the source my-notes already'

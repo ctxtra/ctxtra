@@ -11,6 +11,9 @@ exec ctxtra source add --repo $GITSRV/team-ctx
 stdout '^fetched team-ctx: main at [0-9a-f]{7} \(https://127.0.0.1:\d+/team-ctx\)$'
 stdout '^added source team-ctx: new commits apply after you accept them in ctxtra source update team-ctx$'
 stdout '^executable files: skills/deploy/run.sh$'
+stdout '^it has no ctxtra-source.yaml; its files:$'
+stdout '^  services-overview.md$'
+stdout '^  skills/deploy/SKILL.md$'
 grep '^    commit: [0-9a-f]{40}$' .config/ctxtra/ctxtra.lock
 exec ctxtra binding add billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
 stdout '^added binding billing to ~/.config/ctxtra/config.yaml: every session$'
