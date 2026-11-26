@@ -185,11 +185,13 @@ func checkBinding(file string, data []byte, name string) error {
 	}
 	wd, _ := os.Getwd()
 	res := env.Alone(b, resolve.Input{Dir: wd})
+	var approve []string
 	for _, e := range res.Errors {
-		// Approval is this machine's state, not a mistake in the config:
-		// the session message and mcp status say how to approve.
-		if e.Err.Mistake != yamlx.NotApproved {
-			problems = append(problems, e.Err.Error())
+		problems = append(problems, e.Err.Error())
+	}
+	for _, m := range res.MCPServers {
+		if m.Unapproved != "" {
+			approve = append(approve, "ctxtra mcp approve "+m.ID)
 		}
 	}
 	for _, h := range res.Dropped {
@@ -213,7 +215,11 @@ func checkBinding(file string, data []byte, name string) error {
 		problems = append(problems, report{agent: a.Name()}.capacityErrors(res)...)
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("sessions wouldn't get the binding as asked; nothing changed:\n  %s", strings.Join(problems, "\n  "))
+		msg := fmt.Sprintf("sessions wouldn't get the binding as asked; nothing changed:\n  %s", strings.Join(problems, "\n  "))
+		if len(approve) > 0 {
+			msg += "\napprove the servers first, then add the binding again:\n  " + strings.Join(approve, "\n  ")
+		}
+		return errors.New(msg)
 	}
 	return nil
 }

@@ -838,8 +838,9 @@ Every pinned-source server needs separate machine-local approval before any MCP 
 execution, even a remote endpoint needing no authentication. Until then, and after its definition changes, the
 server is an error of the binding that selects it, with its `ctxtra mcp approve` command: in the session message,
 the log, `context explain`, `doctor` and `mcp status`, which exit 1. The session keeps its name, so a server with
-the same name is never served in its place, and the proxy doesn't start it. `binding add` doesn't refuse such a
-server: approval is this machine's state, not a mistake in the config. Accepting a source version is not this approval.
+the same name is never served in its place, and the proxy doesn't start it. `binding add` refuses such a server, as
+any binding a session wouldn't get in full, and gives the `ctxtra mcp approve` command to run first; approval
+works before any binding uses the server. Accepting a source version is not this approval.
 Config and dir-source definitions need no extra approval. Agent-native tool permission remains separate and
 comes too late to authorize server startup.
 

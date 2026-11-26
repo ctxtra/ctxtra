@@ -74,7 +74,8 @@
   bindings of the dropped files. In `--json`, a file dropped over `max-ctx-chars` is an error, not a warning.
 - A source's server that isn't approved on this machine, or whose definition changed since its approval, is an
   error with its approve command in the session message, the log, `context explain`, `doctor` and `mcp status`.
-  `mcp status` exits 1 when a session in the folder wouldn't get everything it should.
+  `mcp status` exits 1 when a session in the folder wouldn't get everything it should. `binding add` refuses
+  such a server and gives the approve command to run first.
 
 ## v0.6.0
 
