@@ -234,8 +234,8 @@ follows one of:
   --branch BRANCH  new commits on the branch (the default: the remote's
                    default branch, or your clone's checked-out branch)
   --tag TAG        the tag; when someone moves it, you review the change
-  --rev REV        one commit; REV may be any revision, and the config gets
-                   its full ID
+  --rev REV        one commit; REV may be any revision, such as a short ID,
+                   a tag or main~1, and the config gets its full ID
 
 --subdir PATH makes a folder of the repository the source's top: its
 manifest and every SOURCE:PATH are under it. The size limits still count the

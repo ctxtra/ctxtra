@@ -11,6 +11,9 @@ import (
 var (
 	reTag    = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/+-]*$`)
 	reHexRev = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+	// reRevSuffix is what may follow a revision's name: steps back in
+	// history, and peeling to an object type.
+	reRevSuffix = regexp.MustCompile(`^(?:[~^][0-9]*|\^\{[a-z]*\})*$`)
 )
 
 // CheckTag accepts ordinary tag names.
@@ -66,9 +69,11 @@ func (r *Repo) FetchTag(ctx context.Context, tag string) (string, error) {
 	return commit, nil
 }
 
-// ResolveRev fetches rev, any revision the remote has: a full or short
-// commit ID, a tag or a branch. It returns the full commit ID. A full ID is
-// fetched alone; anything else needs the remote's branches and tags.
+// ResolveRev fetches rev, any revision the remote has, and returns its full
+// commit ID: a full or short commit ID, a tag or a branch, each with the
+// suffixes that walk history (main~1, v1.4^2, v1^{commit}). A full ID is
+// fetched alone; anything else needs the remote's branches and tags, which
+// are fetched into a private namespace that rev's name is looked up in.
 func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 	if ValidCommit(rev) {
 		if err := r.FetchCommit(ctx, rev); err != nil {
@@ -76,8 +81,13 @@ func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 		}
 		return rev, nil
 	}
-	if strings.HasPrefix(rev, "-") || (CheckBranch(rev) != nil && !reHexRev.MatchString(rev)) {
-		return "", fmt.Errorf("%q is not a revision ctxtra accepts: give a commit ID, a tag or a branch", rev)
+	name, suffix := rev, ""
+	if i := strings.IndexAny(rev, "~^"); i >= 0 {
+		name, suffix = rev[:i], rev[i:]
+	}
+	if name == "" || strings.HasPrefix(name, "-") || !reRevSuffix.MatchString(suffix) ||
+		(CheckBranch(name) != nil && CheckTag(name) != nil && !reHexRev.MatchString(name)) {
+		return "", fmt.Errorf("%q is not a revision ctxtra accepts: give a commit ID, a tag or a branch, with ~N or ^N after it if you like", rev)
 	}
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
@@ -100,17 +110,16 @@ func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 		return "", err
 	}
 	// A tag or a branch first: a name of hex digits could also be a short ID.
-	for _, ref := range []string{ns + "/tags/" + rev, ns + "/heads/" + rev} {
-		if c, err := r.commit(ctx, ref); err == nil {
+	bases := []string{ns + "/tags/" + name, ns + "/heads/" + name}
+	if reHexRev.MatchString(name) {
+		bases = append(bases, strings.ToLower(name))
+	}
+	for _, base := range bases {
+		if c, err := r.commit(ctx, base+suffix); err == nil {
 			return c, nil
 		}
 	}
-	if reHexRev.MatchString(rev) {
-		if c, err := r.commit(ctx, strings.ToLower(rev)); err == nil {
-			return c, nil
-		}
-	}
-	return "", fmt.Errorf("%s has no branch, tag or commit %s (or the ID is ambiguous: give more digits)", r.URL, rev)
+	return "", fmt.Errorf("%s has no commit %s (or a short ID is ambiguous: give more digits)", r.URL, rev)
 }
 
 // TagHead is the commit that tag points to in the remote, through an

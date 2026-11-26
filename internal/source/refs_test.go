@@ -60,14 +60,16 @@ func TestResolveRev(t *testing.T) {
 	testenv.Run(t, dir, "git", "tag", "-a", "v1", "-m", "x")
 	second := commit(t, dir, map[string]string{"a.md": "B"})
 	testenv.Run(t, dir, "git", "branch", "side", first)
+	testenv.Run(t, dir, "git", "tag", "v1+build", second)
 	for _, c := range []struct{ rev, want string }{
 		{second, second}, {first[:9], first}, {strings.ToUpper(first[:9]), first}, {"v1", first}, {"side", first}, {"main", second},
+		{"main~1", first}, {"main^", first}, {"v1+build", second}, {"v1+build~1", first}, {"v1^{commit}", first}, {second[:9] + "~1", first},
 	} {
 		if got, err := Open(url).ResolveRev(ctx, c.rev); err != nil || got != c.want {
 			t.Errorf("%s: %q, %v; want %q", c.rev, got, err, c.want)
 		}
 	}
-	for _, bad := range []string{"nope", "-x", "abc"} {
+	for _, bad := range []string{"nope", "-x", "abc", "main~5", "main:a.md", "main@{1}", "~1", "main^{tree}", "--output=x"} {
 		if _, err := Open(url).ResolveRev(ctx, bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}

@@ -68,6 +68,19 @@ stdout '^added source pinned: it stays at this commit until you change rev$'
 grep '^    rev: [0-9a-f]{40}$' .config/ctxtra/config.yaml
 ! grep 'check-updates' .config/ctxtra/config.yaml
 
+# Any revision: a step back in history, and a tag name with a +.
+exec git -C srv/obs tag v1+build
+exec git -C srv/obs rev-parse HEAD~1
+cp stdout older.txt
+exec ctxtra source add --repo $GITSRV/obs --rev main~1 --name older
+exec sh -c 'grep -q "rev: $(cat older.txt)" .config/ctxtra/config.yaml'
+exec ctxtra source add --repo $GITSRV/obs --rev v1+build --name built
+stdout '^added source built: '
+! exec ctxtra source add --repo $GITSRV/obs --rev=--upload-pack=x --name bad
+stderr 'not a revision ctxtra accepts'
+! exec ctxtra source add --repo $GITSRV/obs --rev main:conventions.md --name bad
+stderr 'not a revision ctxtra accepts'
+
 # Rev: there is nothing new; the version changes only when the user edits rev.
 exec ctxtra source update pinned --dry-run
 stdout '^pinned: up to date \(rev [0-9a-f]{7}\); it changes only when you edit rev$'

@@ -144,7 +144,7 @@ local paths too and writes them as absolute paths.
 |---|---|---|
 | `branch` | New commits of the branch. | `--branch BRANCH`, or by default the remote's default branch, or the local clone's checked-out branch. A detached local clone needs `--branch`. |
 | `tag` | The tag. When someone moves it, the update check reports it and `source update` reviews the new commit. | `--tag TAG`. An annotated tag counts by the commit it points to. |
-| `rev` | One commit: a full ID, 40 hex digits or 64 in a SHA-256 repository. Nothing is new until you edit it. | `--rev REV` takes any revision (a short ID, a tag or a branch) and writes its full ID. |
+| `rev` | One commit: a full ID, 40 hex digits or 64 in a SHA-256 repository. Nothing is new until you edit it. | `--rev REV` takes any revision (a short ID, a tag or a branch, also with `~N` or `^N` after it, as in `main~1`) and writes its full ID. |
 
 Local sources follow their named branch, never its upstream or uncommitted files.
 
