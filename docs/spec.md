@@ -87,7 +87,7 @@ such as a flow-style root, is refused with an explanation. Write that part in bl
 Config and lock writes share an operating-system lock in the state folder. Each writer re-reads both files,
 changes its own entries and replaces each file atomically. A symlinked config stays a symlink.
 A lock with invalid YAML or another schema stops every write, also one that changes only the config, until
-it is fixed or removed. A broken lock entry stops only writes that need that entry.
+it is fixed or removed. A broken lock entry stops only writes that change the lock.
 
 ## Sources and trust
 
