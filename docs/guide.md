@@ -416,6 +416,7 @@ ctxtra config unset session-message.max-skills
 Only `check-releases`, `max-ctx-chars`, `session-message.max-skills` and
 `session-message.max-instructions` can be set. Counts are whole numbers of 0 or more.
 `unset` restores the default. `ctxtra help config` still shows the config format.
+Counts use decimal values, including when written with leading zeros.
 Every list command accepts `--json`. Exit codes are 0 for success, 1 for a mistake or refused change,
 and 2 for bad flags or arguments.
 
@@ -644,6 +645,8 @@ ctxtra mcp add jira_iam --use iam-team:jira
 
 This contacts no server and changes no sign-in or approval. Use `--dry-run` to preview it. The same
 definition or alias added again changes nothing.
+An identical collection or alias add succeeds even when its files or source server are no longer
+available. Use `ctxtra doctor` to check the current content.
 
 Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
 changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already

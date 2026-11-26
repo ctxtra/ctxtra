@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,6 +32,7 @@ func FuzzEditor(f *testing.F) {
 		{NewFile + "sources: {}\nbindings: []\n", "b", "*x", "#a", true},
 		{NewFile + "bindings:\n- name: me\n  skills: [a]\n", "c", "x\ny", "'q'", false},
 		{NewFile + "sources:\n  a:\n    dir: |-\n      ~/a\n", "d", "2001-01-01", "~", true},
+		{NewFile + "max-ctx-chars: 010\nsession-message:\n  max-skills: 010\n  max-instructions: 8\n", "a", "8", "010", false},
 	} {
 		f.Add([]byte(seed.config), seed.name, seed.a, seed.b, seed.flow)
 	}
@@ -134,6 +136,28 @@ func FuzzEditor(f *testing.F) {
 			}
 			if _, perr := yamlx.Parse(e.Bytes(), yamlx.ConfigKind); perr != nil {
 				t.Fatalf("written setting: %v\n%s", perr, e.Bytes())
+			}
+			cfg := Parse(e.Bytes(), Options{})
+			top, _, _ := strings.Cut(setting.key, ".")
+			if !slices.ContainsFunc(cfg.Errors, func(e *yamlx.Error) bool { return e.Part.Kind == "key" && e.Part.Name == top }) {
+				if setting.key == "check-releases" {
+					want, err := strconv.ParseBool(d.Root.Value)
+					if err != nil || cfg.CheckReleases == nil || *cfg.CheckReleases != want {
+						t.Fatalf("setting %s did not become %q\n%s", setting.key, setting.value, e.Bytes())
+					}
+				} else {
+					want, err := strconv.Atoi(d.Root.Value)
+					got := cfg.MaxCtxChars
+					switch setting.key {
+					case "session-message.max-skills":
+						got = cfg.SessionMessage.MaxSkills
+					case "session-message.max-instructions":
+						got = cfg.SessionMessage.MaxInstructions
+					}
+					if err != nil || got == nil || *got != want {
+						t.Fatalf("setting %s did not become decimal %q\n%s", setting.key, setting.value, e.Bytes())
+					}
+				}
 			}
 			if slices.Equal(e.Bytes(), before) {
 				continue

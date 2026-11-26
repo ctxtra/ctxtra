@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
+- Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
+  including collection `--replace`. New and changed entries still validate their content.
+
 - `collection` and `repo-set` have `add`, `remove` and `list --json` commands. Add accepts entry flags,
   `--file FILE|-` and `--replace`; add and remove accept `--dry-run`.
 - `config set KEY VALUE` and `config unset KEY` change program settings and restore their defaults.

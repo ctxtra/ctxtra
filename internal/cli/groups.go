@@ -150,7 +150,7 @@ func groupAdd(stdio IO, section config.Section, b newBinding, o addFlags) error 
 		} else {
 			changed, err = ed.Add(section, b.Name, n, config.Place{})
 		}
-		if err != nil {
+		if err != nil || !changed {
 			return err
 		}
 		if err := ed.Check(config.Options{Agents: registry.Names()}); err != nil {

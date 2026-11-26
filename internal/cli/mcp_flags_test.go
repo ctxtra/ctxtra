@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,5 +90,51 @@ func TestASourcesServerUnderAnotherName(t *testing.T) {
 		if !bytes.Equal(before, after) {
 			t.Fatal("refused alias changed config")
 		}
+	}
+}
+
+func TestTheSameAliasRemainsSuccessfulWhenItsServerDisappears(t *testing.T) {
+	for _, removeManifest := range []bool{true, false} {
+		t.Run(fmt.Sprintf("manifest=%t", removeManifest), func(t *testing.T) {
+			h := testenv.Home(t)
+			manifest := filepath.Join(h, "source", "ctxtra-source.yaml")
+			testenv.Write(t, manifest, "schema: ctxtra/source/v1\nmcp-servers:\n  jira: {url: https://example.com/jira}\n")
+			testenv.Config(t, h, config.NewFile+"sources:\n  team: {dir: '~/source'}\n")
+			args := []string{"mcp", "add", "jira_team", "--use", "team:jira"}
+			if n, out, e := run(args...); n != 0 {
+				t.Fatalf("add: %d %s %s", n, out, e)
+			}
+			if removeManifest {
+				if err := os.Remove(manifest); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				testenv.Write(t, manifest, "schema: ctxtra/source/v1\n")
+			}
+			before, err := os.ReadFile(paths.ConfigPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, dry := range []bool{false, true} {
+				call := slices.Clone(args)
+				if dry {
+					call = append(call, "--dry-run")
+				}
+				if n, out, e := run(call...); n != 0 || !strings.Contains(out, "already") {
+					t.Fatalf("same alias: %d %s %s", n, out, e)
+				}
+				after, _ := os.ReadFile(paths.ConfigPath())
+				if !bytes.Equal(before, after) {
+					t.Fatal("same alias changed config")
+				}
+			}
+			if n, _, e := run("mcp", "add", "missing", "--use", "team:missing"); n != 1 {
+				t.Fatalf("a new alias needs validation: %d %s", n, e)
+			}
+			testenv.Write(t, paths.ConfigPath(), "schema: [\n")
+			if n, _, e := run(args...); n != 1 {
+				t.Fatalf("a fatal config must still fail: %d %s", n, e)
+			}
+		})
 	}
 }

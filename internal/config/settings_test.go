@@ -77,3 +77,51 @@ func TestSettingsRefuseAMistakeWithoutChangingText(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsCompareEffectiveDecimalCounts(t *testing.T) {
+	for _, key := range []string{"max-ctx-chars", "session-message.max-skills", "session-message.max-instructions"} {
+		for _, pair := range [][2]string{{"010", "8"}, {"8", "010"}, {"010", "10"}} {
+			t.Run(key+"/"+pair[0]+" to "+pair[1], func(t *testing.T) {
+				before := NewFile + key + ": " + pair[0] + "\n"
+				if child, nested := strings.CutPrefix(key, "session-message."); nested {
+					before = NewFile + "session-message:\n  " + child + ": " + pair[0] + "\n"
+				}
+				ed, err := NewEditor([]byte(before))
+				if err != nil {
+					t.Fatal(err)
+				}
+				d, perr := yamlx.ParseEntry([]byte(pair[1]))
+				if perr != nil {
+					t.Fatal(perr)
+				}
+				if err := ed.Setting(key, d.Root); err != nil {
+					t.Fatal(err)
+				}
+				cfg := Parse(ed.Bytes(), Options{})
+				if len(cfg.Errors) > 0 {
+					t.Fatal(cfg.Errors)
+				}
+				got := cfg.MaxCtxChars
+				if key == "session-message.max-skills" {
+					got = cfg.SessionMessage.MaxSkills
+				}
+				if key == "session-message.max-instructions" {
+					got = cfg.SessionMessage.MaxInstructions
+				}
+				want := 8
+				if pair[1] != "8" {
+					want = 10
+				}
+				if got == nil {
+					t.Fatalf("setting is missing; want %d; config:\n%s", want, ed.Bytes())
+				}
+				if *got != want {
+					t.Fatalf("effective value %d, want %d; config:\n%s", *got, want, ed.Bytes())
+				}
+				if pair[1] == "10" && string(ed.Bytes()) != before {
+					t.Fatal("an equal effective value changed the text")
+				}
+			})
+		}
+	}
+}

@@ -188,6 +188,10 @@ func (e *Editor) Add(s Section, name string, entry *yaml.Node, at Place) (bool, 
 
 // Replace changes the entry name of section s to entry, in its place.
 func (e *Editor) Replace(s Section, name string, entry *yaml.Node) error {
+	return e.replace(s, name, entry, yamlx.Same)
+}
+
+func (e *Editor) replace(s Section, name string, entry *yaml.Node, same func(*yaml.Node, *yaml.Node) bool) error {
 	n, err := e.newEntry(s, name, entry)
 	if err != nil {
 		return err
@@ -198,7 +202,7 @@ func (e *Editor) Replace(s Section, name string, entry *yaml.Node) error {
 		return err
 	case i < 0:
 		return &NotFoundError{s, name}
-	case yamlx.Same(entryNode(c, s, i), n):
+	case same(entryNode(c, s, i), n):
 		return nil
 	}
 	err = e.change(s, func(c *yaml.Node) {

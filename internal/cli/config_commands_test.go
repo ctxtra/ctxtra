@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -242,5 +244,56 @@ func TestConfigHelpShowsTheFormatAndSettingsCommands(t *testing.T) {
 	}
 	if n, out, e := run("config", "--help"); n != 0 || !strings.Contains(out, "set") || !strings.Contains(out, "unset") {
 		t.Fatalf("settings commands: %d %s %s", n, out, e)
+	}
+}
+
+func TestTheSameCollectionRemainsSuccessfulWhenAFileDisappears(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		for _, asFile := range []bool{false, true} {
+			t.Run(fmt.Sprintf("replace=%t/file=%t", replace, asFile), func(t *testing.T) {
+				h := testenv.Home(t)
+				file := filepath.Join(h, "a.md")
+				testenv.Write(t, file, "A")
+				args := []string{"collection", "add", "docs", "--instruction", "~/a.md"}
+				if asFile {
+					entry := filepath.Join(h, "entry.yaml")
+					testenv.Write(t, entry, "instructions: ['~/a.md']\n")
+					args = []string{"collection", "add", "docs", "--file", entry}
+				}
+				if n, out, e := run(args...); n != 0 {
+					t.Fatalf("add: %d %s %s", n, out, e)
+				}
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.ReadFile(paths.ConfigPath())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if replace {
+					args = append(args, "--replace")
+				}
+				for _, dry := range []bool{false, true} {
+					call := slices.Clone(args)
+					if dry {
+						call = append(call, "--dry-run")
+					}
+					if n, out, e := run(call...); n != 0 || !strings.Contains(out, "already") {
+						t.Fatalf("same collection: %d %s %s", n, out, e)
+					}
+					after, _ := os.ReadFile(paths.ConfigPath())
+					if !bytes.Equal(before, after) {
+						t.Fatal("same collection changed config")
+					}
+				}
+				if n, _, e := run("collection", "add", "docs", "--replace", "--instruction", "~/gone.md"); n != 1 {
+					t.Fatalf("a changed collection needs validation: %d %s", n, e)
+				}
+				testenv.Write(t, paths.ConfigPath(), "schema: [\n")
+				if n, _, e := run(args...); n != 1 {
+					t.Fatalf("a fatal config must still fail: %d %s", n, e)
+				}
+			})
+		}
 	}
 }

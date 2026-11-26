@@ -82,6 +82,12 @@ The same entry already there changes nothing; another entry with that name is an
 `session-message.max-skills` or `session-message.max-instructions` (whole numbers of 0 or more).
 `ctxtra config unset KEY` removes the setting, so its default applies. Other keys and values of the
 wrong type are errors and change nothing. A missing setting already uses its default.
+Counts are read as decimal, including values with leading zeros. Setting a count compares those
+decimal values when deciding whether the setting is already there.
+
+`collection add` and `mcp add --use` succeed for an identical entry without checking current file or
+source availability. This includes collection `--replace`. A config or lock that cannot be read
+still stops the command.
 
 Every `list` accepts `--json`. Commands exit 0 on success, 1 on a mistake or refused change, and 2
 on bad flags or arguments. Config writes take the same lock, re-read the files, and change only their

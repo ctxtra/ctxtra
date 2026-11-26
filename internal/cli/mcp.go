@@ -372,7 +372,7 @@ func mcpUse(stdio IO, name, use string, dry bool) int {
 	err := s.editEntry(dry, func(ed *config.Editor) error {
 		var err error
 		changed, err = ed.Add(config.MCPServers, name, n, config.Place{})
-		if err != nil {
+		if err != nil || !changed {
 			return err
 		}
 		if err := ed.Check(config.Options{Agents: registry.Names()}); err != nil {

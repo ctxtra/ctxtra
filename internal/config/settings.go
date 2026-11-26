@@ -21,26 +21,32 @@ func (e *Editor) Setting(key string, value *yaml.Node) error {
 		return fmt.Errorf("unknown setting %q; settings: check-releases, max-ctx-chars, session-message.max-skills, session-message.max-instructions", key)
 	}
 	if value != nil {
-		r := yamlx.NewReader(&yamlx.Doc{}, keyPart(top), yamlx.BadValue)
-		if key == "check-releases" {
-			r.Bool(value, key)
-		} else {
-			r.Count(value, key)
-		}
-		if len(r.Errs) > 0 {
-			return r.Errs[0]
+		if _, err := settingValue(key, value); err != nil {
+			return err
 		}
 	}
+	// YAML equality reads leading-zero integers as octal; settings use
+	// the decimal values returned by the config reader.
+	same := func(a, b *yaml.Node) bool {
+		av, ae := settingValue(key, a)
+		bv, be := settingValue(key, b)
+		return ae == nil && be == nil && av == bv
+	}
 	if child != "" {
+		_, i, err := e.find(Section(top), child)
+		if err != nil {
+			return err
+		}
 		if value != nil {
-			if _, _, err := e.Put(Section(top), child, value, Place{}); err != nil {
-				return err
+			if i < 0 {
+				_, err = e.Add(Section(top), child, value, Place{})
+			} else {
+				err = e.replace(Section(top), child, value, same)
 			}
-		} else {
-			_, i, err := e.find(Section(top), child)
 			if err != nil {
 				return err
 			}
+		} else {
 			if i < 0 {
 				return nil
 			}
@@ -72,7 +78,7 @@ func (e *Editor) Setting(key string, value *yaml.Node) error {
 	if at < 0 && value == nil {
 		return nil
 	}
-	if at >= 0 && value != nil && yamlx.Same(want.Content[2*at+1], value) {
+	if at >= 0 && value != nil && same(want.Content[2*at+1], value) {
 		return nil
 	}
 	from, to, comment := len(lines), len(lines), ""
@@ -107,4 +113,19 @@ func (e *Editor) Setting(key string, value *yaml.Node) error {
 	}
 	e.changed = append(e.changed, keyPart(top))
 	return nil
+}
+
+func settingValue(key string, n *yaml.Node) (any, error) {
+	top, _, _ := strings.Cut(key, ".")
+	r := yamlx.NewReader(&yamlx.Doc{}, keyPart(top), yamlx.BadValue)
+	var value any
+	if key == "check-releases" {
+		value, _ = r.Bool(n, key)
+	} else {
+		value, _ = r.Count(n, key)
+	}
+	if len(r.Errs) > 0 {
+		return nil, r.Errs[0]
+	}
+	return value, nil
 }
