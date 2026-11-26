@@ -107,6 +107,7 @@ removes one.
 Writers keep text they do not change, including comments and order. A layout they cannot edit safely,
 such as a flow-style root, is refused with an explanation. Write that part in block style or edit it by hand.
 A config whose lines end in a lone carriage return is refused too; save it with `\n` or `\r\n` line breaks.
+A change that would make the config or the lock larger than 4 MiB, which ctxtra reads at most, is refused.
 Config and lock writes share an operating-system lock in the state folder. Each writer re-reads both files,
 changes its own entries and replaces each file atomically. A symlinked config stays a symlink.
 A lock with invalid YAML or another schema stops every write, also one that changes only the config, until

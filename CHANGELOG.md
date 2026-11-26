@@ -12,6 +12,8 @@
 - `source add` lists the manifest's collections and repo sets, and prints one `binding add` line that uses them.
 - Commands that write the config refuse a config with lone carriage-return line breaks, and a name that YAML
   would write as an explicit key, instead of writing what they can't edit again.
+- Commands that write the config refuse a change that would make it or the lock larger than 4 MiB, which
+  would leave sessions with nothing from the config.
 - Profiles: `CTXTRA_PROFILES=iam,oncall` sets the active profiles for one launch, else the selection stored
   in `profiles.json` in the state folder applies. A session keeps the profiles it started with for its
   subagents and compaction in Claude Code and Codex; `/clear` takes them anew. The session message, the log,

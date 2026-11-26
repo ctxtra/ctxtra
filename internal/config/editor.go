@@ -454,6 +454,10 @@ func (e *Editor) change(s Section, apply func(c *yaml.Node), edit editFunc) erro
 // keep makes out the editor's text when it reads back as want, ! tags
 // included.
 func (e *Editor) keep(s Section, out []byte, want *yaml.Node) error {
+	// Sessions read nothing from a config over the limit.
+	if len(out) > MaxFileBytes {
+		return fmt.Errorf("can't change %s in the config: the result would have %d bytes, more than the %d that ctxtra reads; nothing changed", s, len(out), MaxFileBytes)
+	}
 	d, perr := yamlx.Parse(out, yamlx.ConfigKind)
 	switch {
 	case perr != nil:

@@ -533,3 +533,44 @@ func TestCommitThatFailsRestoresEveryShape(t *testing.T) {
 		}
 	}
 }
+
+// A write never leaves a file larger than ctxtra reads: sessions would read
+// nothing from it.
+func TestAFileOverTheReadLimit(t *testing.T) {
+	t.Run("the config", func(t *testing.T) {
+		big := config.NewFile + "# " + strings.Repeat("x", maxFileBytes-200) + "\n"
+		f := files(t, big, "")
+		profiles := strings.Repeat("a, ", 100) + "a"
+		_, err := f.Add(config.Bindings, "too-large", node(t, "{profiles: ["+profiles+"], instructions: [x.md]}"), config.Place{})
+		if err == nil || !strings.Contains(err.Error(), "more than the 4194304 that ctxtra reads; nothing changed") {
+			t.Errorf("err %v", err)
+		}
+		if read(t, f.Config) != big {
+			t.Error("the config changed")
+		}
+	})
+	t.Run("the lock", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString(config.NewFile + "sources:\n")
+		// Entries for another address than the config's are still written,
+		// so long ones make a large lock of few entries.
+		const n = 4000
+		for i := range n {
+			fmt.Fprintf(&b, "  s%d: {repo: /r, branch: main}\n", i)
+		}
+		f := files(t, b.String(), "")
+		long := "/" + strings.Repeat("r", 1100)
+		err := f.Run(func(tx *Tx) error {
+			for i := range n {
+				tx.SetLockEntry(&lock.Entry{Name: fmt.Sprintf("s%d", i), Repo: long, Ref: config.Ref{Kind: config.Branch, Name: "main"}, Commit: commitA})
+			}
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "the new lock file would have") {
+			t.Errorf("err %v", err)
+		}
+		if read(t, lock.Path(f.Config)) != "" {
+			t.Error("the lock was written")
+		}
+	})
+}
