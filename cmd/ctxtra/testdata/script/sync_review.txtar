@@ -7,7 +7,8 @@ gitrepo dev/billing https://github.com/acme/billing
 exec ctxtra setup --agent claude-code
 exec ctxtra source add --repo $GITSRV/team-ctx
 exec ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
-stdout '^added binding billing to ~/.config/ctxtra/config.yaml: sessions in repositories github.com/acme/billing$'
+stdout '^added binding billing to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in sessions where its location matches$'
 
 # A change to a file you use and to two you don't.
 cp v2/services-overview.md srv/team-ctx/services-overview.md

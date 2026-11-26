@@ -206,7 +206,7 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 		return 0
 	}
 	created := s.files.Created()
-	if _, err := s.addBinding(name, n, false); err != nil {
+	if _, err := s.addBinding(newBinding{Name: name}, n, addFlags{}); err != nil {
 		fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
 		return 1
 	}

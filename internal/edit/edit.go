@@ -20,7 +20,7 @@ import (
 )
 
 // maxFileBytes is the largest config or lock file ctxtra reads.
-const maxFileBytes = 4 << 20
+const maxFileBytes = config.MaxFileBytes
 
 // writeFile replaces a file; tests replace it to see the order of writes.
 var writeFile = fsutil.WriteAtomic
@@ -214,6 +214,9 @@ func (f Files) write(tx *Tx) error {
 		}
 	}
 	lockData, err := f.lockData(tx, c)
+	if err == nil && len(lockData) > maxFileBytes {
+		err = fmt.Errorf("the new lock file would have %d bytes, more than the %d that ctxtra reads", len(lockData), maxFileBytes)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: %w; nothing changed", paths.Tilde(lock.Path(f.Config)), err)
 	}

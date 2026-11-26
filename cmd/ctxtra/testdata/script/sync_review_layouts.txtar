@@ -5,7 +5,7 @@
 gitrepo srv/skill
 exec ctxtra source add --repo $GITSRV/skill
 exec ctxtra binding add top --instruction skill:..notes.md --skill skill:.
-stdout '^  skills: skill:\.$'
+stdout '^      - skill:\.$'
 
 cp v2/run.sh srv/skill/run.sh
 cp v2/dots.md srv/skill/..notes.md

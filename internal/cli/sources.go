@@ -336,8 +336,41 @@ func (s *sources) addRepo(o addOptions) error {
 	if ref.Kind != config.Rev {
 		s.checkHint(name, checks, !isLocal(o.repo))
 	}
-	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
+	s.showOffer(after, name)
 	return nil
+}
+
+// showOffer prints what the new source name offers to bindings: its
+// manifest's collections and repo sets, and one binding add line that uses
+// them, for a source without a README that gives one.
+func (s *sources) showOffer(env *resolve.Env, name string) {
+	var colls, sets []string
+	if cs := env.Catalog.Source(name); cs != nil {
+		if m, _ := env.Catalog.Manifest(cs); m != nil {
+			for _, c := range m.Collections {
+				colls = append(colls, source.Sanitize(c.Name))
+			}
+			for _, r := range m.RepoSets {
+				sets = append(sets, source.Sanitize(r.Name))
+			}
+		}
+	}
+	if len(colls) > 0 {
+		fmt.Fprintf(s.Out, "collections: %s\n", strings.Join(colls, ", "))
+	}
+	if len(sets) > 0 {
+		fmt.Fprintf(s.Out, "repo sets: %s\n", strings.Join(sets, ", "))
+	}
+	example := "ctxtra binding add " + name + " --source " + name
+	if len(sets) > 0 {
+		example += " --repo-set " + sets[0]
+	}
+	if len(colls) > 0 {
+		example += " --collection " + colls[0]
+	} else {
+		example += " --instruction PATH"
+	}
+	fmt.Fprintf(s.Out, "bind it, for example: %s\n", example)
 }
 
 // refName is a ref in messages: a branch by its name.
@@ -411,7 +444,7 @@ func (s *sources) addDir(o addOptions) error {
 	}
 	// The folder a symlinked dir leads to; links inside it stay unlisted.
 	s.listFiles(os.DirFS(paths.Real(dir)))
-	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
+	s.showOffer(loadEnv(), name)
 	return nil
 }
 

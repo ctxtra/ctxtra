@@ -8,9 +8,13 @@ gitrepo dev/team git@github.com:acme/team.git
 # Relative paths are relative to the current folder, and written from ~.
 cd notes
 exec ctxtra binding add work --dir '~/dev/work/**' --repo 'github.com/acme/**' --instruction work.md --skill ../skills/deploy
-stdout '^added binding work to ~/.config/ctxtra/config.yaml: sessions in folders ~/dev/work/\*\* or in repositories github.com/acme/\*\*$'
-stdout '^  instructions: ~/notes/work.md$'
-stdout '^  skills: ~/skills/deploy$'
+stdout '^added binding work to ~/.config/ctxtra/config.yaml:$'
+stdout '^  - name: work$'
+stdout '^      - ~/notes/work.md$'
+stdout '^it applies in sessions where its location matches$'
+stdout '^a session there gets:$'
+stdout '^  file        ~/notes/work.md$'
+stdout '^  skill       deploy \(~/skills/deploy/SKILL.md\)$'
 stdout '^new sessions get it'
 cd $HOME
 cmp .config/ctxtra/config.yaml want.yaml
@@ -20,14 +24,15 @@ stdout '/skills/deploy/SKILL.md$'
 
 # Flags may come first.
 exec ctxtra binding add --instruction notes/me.md me2
-stdout '^added binding me2 to ~/.config/ctxtra/config.yaml: every session$'
+stdout '^added binding me2 to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in every session$'
 exec ctxtra context files elsewhere
 stdout '/notes/me.md$'
 cp want.yaml .config/ctxtra/config.yaml
 
 # Nothing is written for a binding that wouldn't work.
 ! exec ctxtra binding add me --instruction notes/me.md
-stderr 'a binding named me already exists'
+stderr 'a binding named me already exists; nothing changed \(to change it in place, add --replace\)'
 ! exec ctxtra binding add x --instruction notes/nope.md
 stderr 'nothing changed'
 stderr 'line 18: binding x: ~/notes/nope.md is not a file; the entry is left out$'
@@ -47,7 +52,8 @@ cmp .config/ctxtra/config.yaml want.yaml
 chmod 0555 .config/ctxtra
 chmod 0555 .local/state/ctxtra
 exec ctxtra binding add x --instruction notes/me.md --dry-run
-stdout '^would add binding x to ~/.config/ctxtra/config.yaml: every session$'
+stdout '^would add binding x to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in every session$'
 stdout '^nothing changed \(--dry-run\)$'
 ! exec ctxtra binding add x --instruction notes/nope.md --dry-run
 stderr 'line 18: binding x: ~/notes/nope.md is not a file; the entry is left out$'
@@ -61,7 +67,7 @@ cmp .config/ctxtra/config.yaml want.yaml
 exec ctxtra source add --dir dev/team
 exec ctxtra source trust team
 exec ctxtra binding add team --instruction team:team.md --instruction dev/team/team.md
-stdout '^  instructions: team:team.md, ~/dev/team/team.md$'
+stdout '^  file        team:team.md$'
 grep '^      - team:team.md$' .config/ctxtra/config.yaml
 grep '^      - ~/dev/team/team.md$' .config/ctxtra/config.yaml
 exec ctxtra binding list
@@ -107,7 +113,7 @@ cp original.yaml .config/ctxtra/config.yaml
 
 # Usage errors.
 ! exec ctxtra binding add x
-stderr 'add at least one --instruction, --skill or --mcp-server'
+stderr 'add at least one --collection, --instruction, --skill or --mcp-server, or give the binding with --file'
 ! exec ctxtra binding add 'a b' --instruction notes/me.md
 stderr 'names are 1 to 64 letters, digits, .'
 ! exec ctxtra binding add --instruction notes/me.md

@@ -3,31 +3,37 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
+	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/edit"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // newBinding is what binding add writes: the flags' values as given.
 type newBinding struct {
-	Name         string
-	Dirs, Repos  []string
-	Instructions []string
-	Skills       []string
-	MCPServers   []string
+	Name                                             string
+	Dirs, Repos, Subdirs, RepoSets, Profiles, Agents []string
+	Collections, Instructions, Skills, MCPServers    []string
 }
 
 // node is the binding's entry in the config, without its name: location
-// with dirs and repos, then the content lists.
+// with dirs, repos and repo-sets, the conditions, then the content lists.
+// Subdirs go to the one repository, which a caller has checked.
 func (b newBinding) node() *yaml.Node {
 	list := func(values []string) *yaml.Node {
 		n := &yaml.Node{Kind: yaml.SequenceNode}
@@ -36,27 +42,113 @@ func (b newBinding) node() *yaml.Node {
 		}
 		return n
 	}
+	add := func(m *yaml.Node, key string, values []string) {
+		if len(values) > 0 {
+			m.Content = append(m.Content, yamlx.Text(key), list(values))
+		}
+	}
 	n := &yaml.Node{Kind: yaml.MappingNode}
-	add := func(key string, v *yaml.Node) { n.Content = append(n.Content, yamlx.Text(key), v) }
-	if len(b.Dirs)+len(b.Repos) > 0 {
-		loc := &yaml.Node{Kind: yaml.MappingNode}
-		if len(b.Dirs) > 0 {
-			loc.Content = append(loc.Content, yamlx.Text("dirs"), list(b.Dirs))
-		}
-		if len(b.Repos) > 0 {
-			loc.Content = append(loc.Content, yamlx.Text("repos"), list(b.Repos))
-		}
-		add("location", loc)
+	loc := &yaml.Node{Kind: yaml.MappingNode}
+	add(loc, "dirs", b.Dirs)
+	if len(b.Subdirs) > 0 && len(b.Repos) == 1 {
+		entry := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{yamlx.Text("repo"), yamlx.Text(b.Repos[0])}}
+		add(entry, "subdirs", b.Subdirs)
+		loc.Content = append(loc.Content, yamlx.Text("repos"), &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{entry}})
+	} else {
+		add(loc, "repos", b.Repos)
 	}
-	for _, l := range []struct {
-		key    string
-		values []string
-	}{{"instructions", b.Instructions}, {"skills", b.Skills}, {"mcp-servers", b.MCPServers}} {
-		if len(l.values) > 0 {
-			add(l.key, list(l.values))
-		}
+	add(loc, "repo-sets", b.RepoSets)
+	if len(loc.Content) > 0 {
+		n.Content = append(n.Content, yamlx.Text("location"), loc)
 	}
+	add(n, "profiles", b.Profiles)
+	add(n, "agents", b.Agents)
+	add(n, "collections", b.Collections)
+	add(n, "instructions", b.Instructions)
+	add(n, "skills", b.Skills)
+	add(n, "mcp-servers", b.MCPServers)
 	return n
+}
+
+// entryFlags reports whether b has any flag that writes an entry.
+func (b newBinding) entryFlags() bool {
+	return len(slices.Concat(b.Dirs, b.Repos, b.Subdirs, b.RepoSets, b.Profiles, b.Agents,
+		b.Collections, b.Instructions, b.Skills, b.MCPServers)) > 0
+}
+
+// inSource makes the values that --source applies to names or paths in
+// source name, after any !. A value that names a source already is an
+// error.
+func (b *newBinding) inSource(name string) error {
+	for _, l := range []*[]string{&b.Collections, &b.RepoSets, &b.MCPServers, &b.Instructions, &b.Skills} {
+		for i, v := range *l {
+			rest, not := strings.CutPrefix(v, "!")
+			if namesSource(rest) {
+				return fmt.Errorf("%s names a source already; with --source, give only the name or path in the source", v)
+			}
+			v = name + ":" + rest
+			if not {
+				v = "!" + v
+			}
+			(*l)[i] = v
+		}
+	}
+	return nil
+}
+
+// namesSource reports whether entry v reads as SOURCE:VALUE in the config.
+func namesSource(v string) bool {
+	return strings.Contains(v, ":") && !strings.HasPrefix(v, "./") && !strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "~")
+}
+
+// splitFolder splits the argument of --source into a repository and the
+// folder after //, as in git@github.com:acme/ctx.git//teams/obs.
+func splitFolder(arg string) (repo, folder string, ok bool) {
+	start := 0
+	if i := strings.Index(arg, "://"); i >= 0 {
+		start = i + len("://")
+	}
+	if j := strings.Index(arg[start:], "//"); j >= 0 {
+		return arg[:start+j], arg[start+j+2:], true
+	}
+	return arg, "", false
+}
+
+// findSource is the config's name for the source that the argument of
+// --source names: a source name, or the address of a repo source, compared
+// as host/path, with //FOLDER for the source with that subdir.
+func findSource(c *config.Config, arg string) (string, error) {
+	if !strings.ContainsAny(arg, "/:") {
+		if c.Source(arg) == nil {
+			return "", fmt.Errorf("the config has no source %s (see ctxtra source list)", arg)
+		}
+		return arg, nil
+	}
+	repo, folder, hasFolder := splitFolder(arg)
+	id := config.RepoID(repo)
+	var names []string
+	// An address names a repo source; a dir source, read live, is chosen
+	// by its name.
+	for _, src := range c.Sources {
+		if src.Repo == "" || config.RepoID(src.Repo) != id {
+			continue
+		}
+		if hasFolder && config.CleanSubdir(src.Subdir) != config.CleanSubdir(folder) {
+			continue
+		}
+		names = append(names, src.Name)
+	}
+	switch len(names) {
+	case 0:
+		add := "ctxtra source add --repo " + repo
+		if hasFolder && config.CleanSubdir(folder) != "" {
+			add += " --subdir " + config.CleanSubdir(folder)
+		}
+		return "", fmt.Errorf("no source has %s; add it first: %s", arg, add)
+	case 1:
+		return names[0], nil
+	}
+	return "", fmt.Errorf("the sources %s all have %s; give --source one of their names", strings.Join(names, ", "), arg)
 }
 
 // diskPath is a path argument as the config writes it: absolute, with ~
@@ -78,106 +170,305 @@ func diskPath(wd, p string) string {
 	return abs
 }
 
+// addFlags are how binding add writes the binding.
+type addFlags struct {
+	source  string // --source
+	file    string // --file, "-" for stdin
+	replace bool
+	at      config.Place
+	dryRun  bool
+}
+
+// maxEntryBytes is the largest entry --file reads.
+const maxEntryBytes = 1 << 20
+
+// readEntry is the entry of --file: from file, or stdin for "-".
+func readEntry(in io.Reader, file string) (*yaml.Node, error) {
+	var data []byte
+	var err error
+	if file == "-" {
+		data, err = io.ReadAll(io.LimitReader(in, maxEntryBytes+1))
+		if err == nil && len(data) > maxEntryBytes {
+			err = fmt.Errorf("stdin has more than %d bytes", maxEntryBytes)
+		}
+		file = "stdin"
+	} else {
+		data, err = fsutil.ReadBounded(file, maxEntryBytes)
+	}
+	if err != nil {
+		return nil, err
+	}
+	d, perr := yamlx.ParseEntry(data)
+	if perr != nil {
+		return nil, fmt.Errorf("%s: %v", file, perr)
+	}
+	return d.Root, nil
+}
+
 // bindingAdd is binding add. Only a binding that works is written: a
 // session it applies to would get all it names.
-func bindingAdd(stdio IO, b newBinding, dryRun bool) error {
+func bindingAdd(stdio IO, b newBinding, o addFlags) error {
 	if err := config.CheckName(b.Name); err != nil {
 		return err
 	}
-	if len(b.Instructions)+len(b.Skills)+len(b.MCPServers) == 0 {
-		return errors.New("add at least one --instruction, --skill or --mcp-server")
-	}
-	wd, _ := os.Getwd()
-	for i, p := range b.Dirs {
-		b.Dirs[i] = diskPath(wd, p)
-	}
-	for i, p := range b.Instructions {
-		b.Instructions[i] = diskPath(wd, p)
-	}
-	for i, p := range b.Skills {
-		b.Skills[i] = diskPath(wd, p)
+	switch {
+	case o.file != "" && (b.entryFlags() || o.source != ""):
+		return errors.New("--file gives the whole binding; leave out the flags of its entries")
+	case o.file == "" && len(slices.Concat(b.Collections, b.Instructions, b.Skills, b.MCPServers)) == 0:
+		return errors.New("add at least one --collection, --instruction, --skill or --mcp-server, or give the binding with --file")
+	case o.at.Before != "" && o.at.After != "":
+		return errors.New("a binding goes either --before or --after another, not both")
 	}
 	s := newSources(stdio)
-	added, err := s.addBinding(b.Name, b.node(), dryRun)
-	if err != nil {
+	if len(b.Subdirs) > 0 && len(b.Repos) != 1 {
+		return exitCode(s.fail("binding add", errors.New("--subdir needs exactly one --repo, whose subdirs it writes; for other shapes, give the binding with --file; nothing changed")))
+	}
+	var entry *yaml.Node
+	if o.file != "" {
+		var err error
+		if entry, err = readEntry(stdio.In, o.file); err != nil {
+			return exitCode(s.fail("binding add", fmt.Errorf("%w; nothing changed", err)))
+		}
+	} else {
+		// With --source, files and skills are paths in the source.
+		lists := [][]string{b.Dirs}
+		if o.source == "" {
+			lists = append(lists, b.Instructions, b.Skills)
+		}
+		wd, _ := os.Getwd()
+		for _, l := range lists {
+			for i, p := range l {
+				l[i] = diskPath(wd, p)
+			}
+		}
+	}
+	w, err := s.addBinding(b, entry, o)
+	var place *config.PlaceError
+	switch {
+	case errors.As(err, &place):
+		return fmt.Errorf("%v; leave out --before and --after", place)
+	case err != nil:
+		var exists *config.ExistsError
+		if errors.As(err, &exists) {
+			err = fmt.Errorf("%w; nothing changed (to change it in place, add --replace)", err)
+		}
 		return exitCode(s.fail("binding add", err))
 	}
-	switch {
-	case !added:
-		fmt.Fprintf(s.Out, "the binding %s is in %s already\n", b.Name, paths.Tilde(s.file))
-		return nil
-	case dryRun:
-		fmt.Fprintf(s.Out, "would add binding %s to %s: %s\n", b.Name, paths.Tilde(s.file), where(b))
-	default:
-		fmt.Fprintf(s.Out, "added binding %s to %s: %s\n", b.Name, paths.Tilde(s.file), where(b))
-	}
-	if len(b.Instructions) > 0 {
-		fmt.Fprintf(s.Out, "  instructions: %s\n", strings.Join(b.Instructions, ", "))
-	}
-	if len(b.Skills) > 0 {
-		fmt.Fprintf(s.Out, "  skills: %s\n", strings.Join(b.Skills, ", "))
-	}
-	if len(b.MCPServers) > 0 {
-		fmt.Fprintf(s.Out, "  MCP servers: %s\n", strings.Join(b.MCPServers, ", "))
-	}
-	if dryRun {
-		fmt.Fprintln(s.Out, "nothing changed (--dry-run)")
-		return nil
-	}
-	fmt.Fprintln(s.Out, "new sessions get it; a running session keeps what it got at its start")
+	s.showBinding(b.Name, w, o)
 	return nil
 }
 
-// where says which sessions binding b applies to.
-func where(b newBinding) string {
-	var parts []string
-	if len(b.Dirs) > 0 {
-		parts = append(parts, "folders "+strings.Join(b.Dirs, ", "))
-	}
-	if len(b.Repos) > 0 {
-		parts = append(parts, "repositories "+strings.Join(b.Repos, ", "))
-	}
-	if len(parts) == 0 {
-		return "every session"
-	}
-	return "sessions in " + strings.Join(parts, " or in ")
+// written is what addBinding wrote.
+type written struct {
+	changed, replaced bool
+	// entry is the binding as in the config; before the config's text
+	// before the change; env the changed config and res what a session
+	// gets from the binding.
+	entry  *yaml.Node
+	before []byte
+	env    *resolve.Env
+	res    *resolve.Result
 }
 
-// addBinding adds the binding name with entry n, the last one, if a
-// session it applies to would get all it names. added is false when the
-// same binding is there already. With dryRun it only checks.
-func (s *sources) addBinding(name string, n *yaml.Node, dryRun bool) (added bool, err error) {
+// addBinding writes binding b, or entry when it isn't nil, if a session it
+// applies to would get all it names. With o.dryRun it only checks.
+func (s *sources) addBinding(b newBinding, entry *yaml.Node, o addFlags) (written, error) {
+	var w written
 	change := func(ed *config.Editor) error {
-		if added, err = ed.Add(config.Bindings, name, n, config.Place{}); err != nil || !added {
+		w = written{before: ed.Bytes()}
+		n := entry
+		if n == nil {
+			if o.source != "" {
+				name, err := findSource(config.Parse(ed.Bytes(), config.Options{Agents: registry.Names()}), o.source)
+				if err != nil {
+					return err
+				}
+				if err := b.inSource(name); err != nil {
+					return err
+				}
+			}
+			n = b.node()
+		}
+		var err error
+		if o.replace {
+			w.changed, w.replaced, err = ed.Put(config.Bindings, b.Name, n, o.at)
+		} else {
+			w.changed, err = ed.Add(config.Bindings, b.Name, n, o.at)
+		}
+		if err != nil || !w.changed {
 			return err
 		}
-		return checkBinding(s.file, ed.Bytes(), name)
+		if w.entry, err = ed.Entry(config.Bindings, b.Name); err != nil {
+			return err
+		}
+		w.env, w.res, err = checkBinding(s.file, ed.Bytes(), b.Name)
+		return err
 	}
-	if dryRun {
+	if o.dryRun {
 		// Reads only: it works where the config can't be written, for
 		// example in an agent's sandbox.
 		data, err := readConfig(s.file)
 		if err != nil {
-			return false, err
+			return w, err
 		}
 		ed, err := config.NewEditor(data)
 		if err != nil {
-			return false, err
+			return w, err
 		}
-		err = change(ed)
-		return added, err
+		return w, change(ed)
 	}
-	err = s.write(func(tx *edit.Tx) error { return change(tx.Config) })
-	return added, err
+	return w, s.write(func(tx *edit.Tx) error { return change(tx.Config) })
+}
+
+// showBinding prints what binding add wrote: the binding as in the config,
+// where it applies, and what a session there gets from it, with the content
+// warnings of the files of repo sources that the config didn't use before.
+func (s *sources) showBinding(name string, w written, o addFlags) {
+	file := paths.Tilde(s.file)
+	if !w.changed {
+		fmt.Fprintf(s.Out, "the binding %s is in %s already\n", name, file)
+		return
+	}
+	verb := map[[2]bool]string{
+		{false, false}: "added binding %s to %s:\n", {true, false}: "would add binding %s to %s:\n",
+		{false, true}: "replaced binding %s in %s:\n", {true, true}: "would replace binding %s in %s:\n",
+	}[[2]bool{o.dryRun, w.replaced}]
+	fmt.Fprintf(s.Out, verb, name, file)
+	if text, err := yamlx.Encode(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{w.entry}}); err == nil {
+		for l := range strings.Lines(string(text)) {
+			fmt.Fprint(s.Out, "  "+l)
+		}
+	}
+	b := w.env.Config.Binding(name)
+	fmt.Fprintf(s.Out, "it applies in %s\n", appliesIn(b))
+	if len(w.res.Files)+len(w.res.Skills)+len(w.res.MCPServers) > 0 {
+		fmt.Fprintln(s.Out, "a session there gets:")
+	}
+	for _, h := range w.res.Files {
+		fmt.Fprintf(s.Out, "  file        %s\n", hitName(h))
+	}
+	for _, h := range w.res.Skills {
+		fmt.Fprintf(s.Out, "  skill       %s (%s)\n", h.Name, hitName(h))
+	}
+	for _, m := range w.res.MCPServers {
+		fmt.Fprintf(s.Out, "  MCP server  %s\n", m.Name)
+	}
+	s.warnNewFiles(w)
+	if o.dryRun {
+		fmt.Fprintln(s.Out, "nothing changed (--dry-run)")
+		return
+	}
+	fmt.Fprintln(s.Out, "new sessions get it; a running session keeps what it got at its start")
+}
+
+// hitName is a file or skill as a binding names it: SOURCE:PATH in a
+// source, else its path.
+func hitName(h resolve.Hit) string {
+	if h.Ref != "" {
+		return h.Ref
+	}
+	return paths.Tilde(h.Path)
+}
+
+// appliesIn says in which sessions binding b applies, such as "sessions of
+// claude-code, where its location matches, with iam active".
+func appliesIn(b *config.Binding) string {
+	split := func(list []config.Entry) (pos, not []string) {
+		for _, e := range list {
+			if e.Not {
+				not = append(not, e.Value)
+			} else {
+				pos = append(pos, e.Value)
+			}
+		}
+		return pos, not
+	}
+	or := func(names []string) string { return strings.Join(names, " or ") }
+	var parts []string
+	switch pos, not := split(b.Agents); {
+	case len(pos) > 0 && len(not) > 0:
+		parts = append(parts, "of "+or(pos)+", but not of "+or(not))
+	case len(pos) > 0:
+		parts = append(parts, "of "+or(pos))
+	case len(not) > 0:
+		parts = append(parts, "of every agent but "+or(not))
+	}
+	where := "every session"
+	if b.Location != nil {
+		where = "sessions"
+		parts = append(parts, "where its location matches")
+	}
+	switch pos, not := split(b.Profiles); {
+	case len(pos) > 0 && len(not) > 0:
+		parts = append(parts, fmt.Sprintf("with %s active and without %s", or(pos), or(not)))
+	case len(pos) > 0:
+		parts = append(parts, fmt.Sprintf("with %s active", or(pos)))
+	case len(not) > 0:
+		parts = append(parts, fmt.Sprintf("without %s active", or(not)))
+	}
+	if len(parts) == 0 {
+		return where
+	}
+	return where + " " + strings.Join(parts, ", ")
+}
+
+// warnNewFiles prints the content warnings of the files of repo sources
+// that the binding adds and the config's bindings didn't use before: each
+// file, and every regular file in the folder of each skill. A source's first
+// version is accepted without a review, and these files are new to the
+// user's sessions.
+func (s *sources) warnNewFiles(w written) {
+	before := resolve.LoadData(s.file, w.before, registry.Names())
+	uses := map[string]*used{}
+	checks := map[string]*contentCheck{}
+	seen := map[string]bool{}
+	// check checks the file p of files, which is rel in source src.
+	check := func(src string, files fs.FS, p, rel string) {
+		ref := src + ":" + rel
+		if seen[ref] || uses[src].has(rel) {
+			return
+		}
+		seen[ref] = true
+		data, ok := read(files, p)
+		if !ok {
+			fmt.Fprintf(s.Out, "note: %s: %s\n", source.Sanitize(ref), notCheckedWhy)
+			return
+		}
+		shown, n := checks[src].scan(rel, data, nil)
+		for _, f := range shown {
+			fmt.Fprintf(s.Out, "warning: %s:%d: %s: %s\n", source.Sanitize(ref), f.Line, f.Check, source.Sanitize(f.Text))
+		}
+		if n > maxWarnings {
+			fmt.Fprintf(s.Out, "note: %s: %d content warnings; the first %d are shown\n", source.Sanitize(ref), n, maxWarnings)
+		}
+	}
+	for i, h := range slices.Concat(w.res.Files, w.res.Skills) {
+		src := before.Config.Source(h.Source)
+		if h.Source == "" || src == nil || src.Repo == "" {
+			continue
+		}
+		if uses[h.Source] == nil {
+			uses[h.Source] = usedFrom(before, before.Catalog, h.Source)
+			checks[h.Source] = s.contentCheck(h.Source)
+		}
+		files := os.DirFS(filepath.Dir(h.Path))
+		if i < len(w.res.Files) {
+			check(h.Source, files, filepath.Base(h.Path), h.SourcePath)
+			continue
+		}
+		dir := path.Dir(h.SourcePath)
+		walkFiles(files, func(p string) { check(h.Source, files, p, path.Join(dir, p)) })
+	}
 }
 
 // checkBinding fails when the binding name of the config data has an error,
-// or when a session it applies to wouldn't get all it names.
-func checkBinding(file string, data []byte, name string) error {
+// or when a session it applies to wouldn't get all it names. It returns the
+// config and what a session gets from the binding.
+func checkBinding(file string, data []byte, name string) (*resolve.Env, *resolve.Result, error) {
 	env := resolve.LoadData(file, data, registry.Names())
 	b := env.Config.Binding(name)
 	if b == nil {
-		return fmt.Errorf("the binding %s isn't in the changed config; nothing changed", name)
+		return nil, nil, fmt.Errorf("the binding %s isn't in the changed config; nothing changed", name)
 	}
 	var problems []string
 	for _, e := range b.Errs {
@@ -206,10 +497,9 @@ func checkBinding(file string, data []byte, name string) error {
 			problems = append(problems, "source "+u+": "+env.Catalog.Source(u).Why)
 		}
 	}
-	// The capacity of each agent the binding reaches: all of them without
-	// an agents condition.
+	// The capacity of each agent the binding reaches.
 	for _, a := range registry.All() {
-		if len(b.Agents) > 0 && !slices.ContainsFunc(b.Agents, func(e config.Entry) bool { return !e.Not && e.Value == a.Name() }) {
+		if !resolve.ForAgent(b.Agents, a.Name()) {
 			continue
 		}
 		problems = append(problems, report{agent: a.Name()}.capacityErrors(res)...)
@@ -219,9 +509,9 @@ func checkBinding(file string, data []byte, name string) error {
 		if len(approve) > 0 {
 			msg += "\napprove the servers first, then add the binding again:\n  " + strings.Join(approve, "\n  ")
 		}
-		return errors.New(msg)
+		return nil, nil, errors.New(msg)
 	}
-	return nil
+	return env, res, nil
 }
 
 // bindingInfo is a binding in the output of binding list: its entries as
@@ -354,4 +644,106 @@ func bindingRemove(stdio IO, name string, dryRun bool) int {
 	}
 	fmt.Fprintf(s.Out, "removed binding %s from %s\n", name, paths.Tilde(s.file))
 	return 0
+}
+
+func (a *app) bindingCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                   "binding",
+		RunE:                  group,
+		DisableFlagsInUseLine: true,
+		Short:                 "Add, list and remove bindings: which sessions get which files",
+		Long: `A binding adds instruction files, skills, collections and MCP servers to the
+sessions where its conditions hold: its location (folders and repositories),
+profiles and agents. A binding without conditions applies to every session.
+Bindings apply in config order, which is the order of their text in a
+session.`,
+		Example: `  ctxtra binding add me --instruction ~/agent-context/profile.md
+  ctxtra binding list`,
+		GroupID: "config",
+	}
+	var b newBinding
+	var o addFlags
+	add := &cobra.Command{
+		Use:   "add NAME [condition flags]... {content flags}... | add NAME --file FILE",
+		Short: "Add a binding to the config",
+		Long: `Add a binding to the config, the last one, or where --before or --after
+says. It is written only when it works: a session it applies to would get all
+it names. It then shows the binding as written, where it applies, and what a
+session there gets.
+
+Conditions: --dir, --repo and --repo-set are its location: a session in a
+matching folder, or in a matching repository. --profile holds while one of
+the profiles is active, --agent in sessions of those agents. Each condition
+is left out when its flags are; a binding without --dir, --repo and
+--repo-set applies everywhere. --subdir PATTERN limits the one --repo given
+to those folders of the repository.
+
+Content: --collection, --instruction, --skill and --mcp-server. A file,
+skill, collection or server of a source is SOURCE:NAME. --source SOURCE
+makes the values of --collection, --repo-set, --mcp-server, --instruction and
+--skill names or paths in that source: SOURCE is a source name, or the
+address of its repository (URL//FOLDER for the source with that subdir).
+
+Each flag is repeatable. A value that starts with ! leaves out what it
+matches: --profile '!oncall'. Quote such values and patterns, or the shell
+reads them: --dir '~/dev/work/**'. x/** also matches x itself.
+
+--file FILE, or --file - for stdin, gives the whole binding in YAML as in the
+config, without its name, instead of the flags of its entries. A binding name
+that exists is an error, unless the binding is the same; --replace changes it
+in its place, and adds it when there is none.`,
+		Example: `  ctxtra binding add me --instruction ~/agent-context/profile.md
+  ctxtra binding add work --dir '~/dev/work/**' --instruction ~/agent-context/work.md --skill ~/skills/deploy
+  ctxtra binding add iam --profile iam --collection iam-team:essentials
+  ctxtra binding add iam-work --source git@github.com:acme/iam-ctx.git --repo-set services --collection essentials
+  ctxtra binding add billing --repo github.com/acme/mono --subdir 'services/billing/**' --instruction 'iam-team:billing.md'
+  ctxtra binding add tracker --agent '!cursor' --profile '!oncall' --mcp-server linear --before go
+  ctxtra binding add obs --replace --file obs.yaml`,
+		Args: exactly("NAME"),
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
+			b.Name = args[0]
+			return bindingAdd(a.IO, b, o)
+		}),
+	}
+	f := add.Flags()
+	f.StringArrayVar(&b.Dirs, "dir", nil, "apply in folders that match `PATTERN`")
+	f.StringArrayVar(&b.Repos, "repo", nil, "apply in repositories whose remote matches `PATTERN`, such as github.com/acme/**")
+	f.StringArrayVar(&b.Subdirs, "subdir", nil, "apply only in folders of the one --repo that match `PATTERN`, relative to its root")
+	f.StringArrayVar(&b.RepoSets, "repo-set", nil, "apply in the repositories of the repo set `NAME`: the config's, or SOURCE:SET")
+	f.StringArrayVar(&b.Profiles, "profile", nil, "apply while the profile `NAME` is active; !NAME while it isn't")
+	f.StringArrayVar(&b.Agents, "agent", nil, "apply in sessions of the agent `NAME`; !NAME in all others")
+	f.StringArrayVar(&b.Collections, "collection", nil, "add the collection `NAME`: the config's, or SOURCE:COLLECTION")
+	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE`; !FILE leaves files out")
+	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md; !DIR leaves skills out")
+	f.StringArrayVar(&b.MCPServers, "mcp-server", nil, "add the MCP server `NAME`: the config's, or SOURCE:SERVER")
+	f.StringVar(&o.source, "source", "", "make collection, repo set, server, file and skill values names or paths in `SOURCE`, a name or a repository address")
+	f.StringVar(&o.file, "file", "", "read the binding from `FILE` in YAML, - for stdin, instead of the entry flags")
+	f.BoolVar(&o.replace, "replace", false, "change the binding in its place if it exists")
+	f.StringVar(&o.at.Before, "before", "", "put the new binding before the binding `NAME`")
+	f.StringVar(&o.at.After, "after", "", "put the new binding after the binding `NAME`")
+	f.BoolVar(&o.dryRun, "dry-run", false, "check the binding and show it; change nothing")
+	var asJSON bool
+	list := &cobra.Command{
+		Use:     "list",
+		Short:   "List the bindings, in config order",
+		Example: "  ctxtra binding list\n  ctxtra binding list --json",
+		Args:    noArgs,
+		RunE: a.run(func(*cobra.Command, []string) error {
+			return code(bindingList(a.IO, asJSON))
+		}),
+	}
+	list.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	var removeDry bool
+	remove := &cobra.Command{
+		Use:     "remove NAME",
+		Short:   "Remove a binding from the config",
+		Example: `  ctxtra binding remove work`,
+		Args:    exactly("NAME"),
+		RunE: a.run(func(_ *cobra.Command, args []string) error {
+			return code(bindingRemove(a.IO, args[0], removeDry))
+		}),
+	}
+	remove.Flags().BoolVar(&removeDry, "dry-run", false, "show the change; change nothing")
+	c.AddCommand(add, list, remove)
+	return c
 }

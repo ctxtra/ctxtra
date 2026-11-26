@@ -63,7 +63,7 @@ stderr 'no MCP server "nope"'
 
 # Bind a server to a folder; an undeclared name changes nothing.
 exec ctxtra binding add work --dir '~/dev/**' --mcp-server gh
-stdout '  MCP servers: gh'
+stdout '^  MCP server  gh$'
 grep '^    mcp-servers:$' .config/ctxtra/config.yaml
 cp .config/ctxtra/config.yaml before.yaml
 ! exec ctxtra binding add typo --dir '~/dev/**' --mcp-server gh_typo
@@ -84,4 +84,4 @@ stderr 'no MCP server named gh in the config'
 mkdir dot
 exec ctxtra source add --dir dot
 exec ctxtra binding add dotb --dir '~/dot/**' --mcp-server linear_work
-stdout '^  MCP servers: linear_work$'
+stdout '^  MCP server  linear_work$'

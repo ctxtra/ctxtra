@@ -50,14 +50,23 @@ func FuzzEditor(f *testing.F) {
 			}
 			return l
 		}
-		binding := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
-			text("location"), {Kind: yaml.MappingNode, Content: []*yaml.Node{text("dirs"), list(a), text("repos"), list(b)}},
+		pairs := func(kv ...*yaml.Node) *yaml.Node { return &yaml.Node{Kind: yaml.MappingNode, Content: kv} }
+		// Every key that binding add writes.
+		binding := pairs(
+			text("location"), pairs(text("dirs"), list(a), text("repos"), &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{
+				text(b), pairs(text("repo"), text(a), text("subdirs"), list(b, a)),
+			}}, text("repo-sets"), list(b)),
 			text("profiles"), list(a, b),
+			text("agents"), list(b),
+			text("collections"), list(a),
 			text("instructions"), list(b, a),
-		}}
+			text("skills"), list(a),
+			text("mcp-servers"), list(b),
+		)
+		collection := pairs(text("instructions"), list(a), text("collections"), list(b))
 		source := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{text("repo"), text(a), text("branch"), text(b)}}
 		added := map[Section]*yaml.Node{}
-		for s, n := range map[Section]*yaml.Node{Bindings: binding, Sources: source, RepoSets: list(a, b)} {
+		for s, n := range map[Section]*yaml.Node{Bindings: binding, Sources: source, RepoSets: list(a, b), Collections: collection} {
 			ok, err := e.Add(s, name, n, Place{})
 			if err != nil || !ok {
 				continue
@@ -82,7 +91,21 @@ func FuzzEditor(f *testing.F) {
 				t.Fatalf("%s %q doesn't read back as written\n%s", s.Kind(), name, e.Bytes())
 			}
 		}
-		for _, s := range []Section{Sources, RepoSets, Bindings} {
+		// Replacing an added entry in place keeps the config readable too.
+		if added[Bindings] != nil {
+			swapped := pairs(text("profiles"), list(b), text("skills"), list(a, b))
+			if _, _, err := e.Put(Bindings, name, swapped, Place{}); err == nil {
+				if _, perr := yamlx.Parse(e.Bytes(), yamlx.ConfigKind); perr != nil {
+					t.Fatalf("the strict layer refuses the replaced binding: %v\n%s", perr, e.Bytes())
+				}
+				got, _ := e.Entry(Bindings, name)
+				want := pairs(append([]*yaml.Node{text("name"), text(name)}, swapped.Content...)...)
+				if got == nil || !yamlx.Same(got, want) {
+					t.Fatalf("binding %q doesn't read back as replaced\n%s", name, e.Bytes())
+				}
+			}
+		}
+		for _, s := range []Section{Sources, RepoSets, Collections, Bindings} {
 			if added[s] == nil {
 				continue
 			}
