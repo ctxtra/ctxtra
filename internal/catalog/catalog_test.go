@@ -198,3 +198,29 @@ func expand(c *Catalog, text string, kind Kind) ([]Item, error) {
 	items, errs := c.Paths(entry(text), kind)
 	return items, errors.Join(errs...)
 }
+
+// A local server's ~/ program is in the home folder, for the config's
+// servers and for a manifest's.
+func TestHomeProgram(t *testing.T) {
+	c, h := catalog(t, `sources: {tools: {dir: ~/tools}}
+mcp-servers:
+  home: {command: ['~/bin/mcp', --stdio]}
+  name: {command: [mcp]}
+`, "", func(h string) {
+		testenv.Write(t, filepath.Join(h, "tools", "ctxtra-source.yaml"), "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: ['~/bin/build', --all]}\n")
+	})
+	want := map[string][]string{
+		"home":        {filepath.Join(h, "bin", "mcp"), "--stdio"},
+		"name":        {"mcp"},
+		"tools:build": {filepath.Join(h, "bin", "build"), "--all"},
+	}
+	for ref, command := range want {
+		s, ok := c.Server(ref)
+		if !ok || !slices.Equal(s.Command, command) {
+			t.Errorf("%s: %v %v, want %v", ref, ok, s.Command, command)
+		}
+	}
+	if raw := c.conf.MCPServers[0].Command[0]; raw != "~/bin/mcp" {
+		t.Errorf("the config's model changed: %s", raw)
+	}
+}

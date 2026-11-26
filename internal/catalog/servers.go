@@ -143,12 +143,20 @@ func origin(s *Source) string {
 	return o
 }
 
-// define is the definition of d, served as name.
+// define is the definition of d, served as name. A local server's program
+// is the one config.CheckProgram gives: ~/ names a program in the home
+// folder, never one in the session's folder.
 func define(d *config.Server, name string) upstream.Server {
+	command := slices.Clone(d.Command)
+	if len(command) > 0 {
+		if p, err := config.CheckProgram(command[0]); err == nil {
+			command[0] = p
+		}
+	}
 	return upstream.Server{
 		Name:          name,
 		URL:           d.URL,
-		Command:       d.Command,
+		Command:       command,
 		Env:           d.Env,
 		EnvPass:       d.PassEnv,
 		SecretEnv:     d.SecretEnv,

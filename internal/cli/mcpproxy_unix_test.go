@@ -215,3 +215,31 @@ func waitRecord(t *testing.T, dir string, began time.Time) sessionstatus.Record 
 	t.Fatal("no status record")
 	return sessionstatus.Record{}
 }
+
+// A ~/ program runs from the home folder, not from a folder called ~ in
+// the session's folder, which a repository can hold.
+func TestHomeProgramNotFromSession(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "bin", "probe"), "#!/bin/sh\nexec '"+exe+"' \"$@\"\n")
+	session := filepath.Join(h, "repo")
+	marker := filepath.Join(h, "ran-from-session")
+	testenv.Write(t, filepath.Join(session, "~", "bin", "probe"), "#!/bin/sh\ntouch '"+marker+"'\n")
+	for _, p := range []string{filepath.Join(h, "bin", "probe"), filepath.Join(session, "~", "bin", "probe")} {
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  probe: {command: ['~/bin/probe'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n")
+	t.Chdir(session)
+	code, out, errOut := run("mcp", "show", "probe")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("ran the session's ~/bin/probe")
+	}
+	if code != 0 {
+		t.Fatalf("mcp show: %d %s\n%s", code, errOut, out)
+	}
+}
