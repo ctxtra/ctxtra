@@ -258,9 +258,28 @@ func changed(ch lock.Changes) string {
 	return strings.Join(parts, " and ")
 }
 
-// commitDir is where the accepted commit of a lock entry is on this
+// CommitDir is where the accepted commit of a lock entry is on this
 // machine: ctxtra's store keeps each commit under the address it was
 // downloaded from.
+func CommitDir(e *lock.Entry) string { return commitDir(e) }
+
+// WithTop is the catalog with source name read from top, a folder in
+// ctxtra's store: what the config would use from another commit, for the
+// review of an update.
+func (c *Catalog) WithTop(name, top string) *Catalog {
+	cp := *c
+	cp.sources = map[string]*Source{}
+	cp.order = nil
+	for _, s := range c.order {
+		if s.Name == name {
+			s = &Source{Source: s.Source, State: Active, Top: top}
+		}
+		cp.sources[s.Name] = s
+		cp.order = append(cp.order, s)
+	}
+	return &cp
+}
+
 func commitDir(e *lock.Entry) string {
 	remote := e.Repo
 	if config.IsLocalRepo(remote) {

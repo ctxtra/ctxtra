@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/risk"
 	"github.com/ctxtra/ctxtra/internal/source"
 )
@@ -249,12 +249,12 @@ func (c *contentCheck) printDiff(w io.Writer, d string, gen string, check map[st
 	})
 }
 
-// checkAdded prints the content warnings of the files that the config uses
-// from the source name at commit, whose files are in gen, now that it is
-// added: the first version of a source is accepted without a review.
-func (s *sources) checkAdded(name, commit, gen string) {
-	u := &used{files: map[string]bool{}}
-	u.add(config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), name, commit), gen)
+// checkAdded prints the content warnings of the files that the config's
+// bindings already use from source name, now that it is added at the
+// commit in gen: the first version of a source is accepted without a
+// review.
+func (s *sources) checkAdded(env *resolve.Env, name, gen string) {
+	u := usedFrom(env, env.Catalog.WithTop(name, gen), name)
 	c := s.contentCheck(name)
 	walkGen(gen, func(rel string) {
 		if !u.has(rel) {
@@ -275,3 +275,6 @@ func (s *sources) checkAdded(name, commit, gen string) {
 		}
 	})
 }
+
+// must is v; the error is impossible.
+func must[T any](v T, _ error) T { return v }
