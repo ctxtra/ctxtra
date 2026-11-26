@@ -17,6 +17,9 @@
 - Commands that write the config refuse a change that would make it or the lock larger than 4 MiB, which
   would leave sessions with nothing from the config.
 
+- `doctor` reports older OpenCode, Hermes and DSH plugins that don't pass session IDs, with the setup
+  command to update them. They keep working with the current-profile fallback; newer protocols are accepted.
+
 - Codex passes `CTXTRA_PROFILES` to its MCP proxy, including an empty value, so its instructions and MCP
   servers use the same profiles. Run `ctxtra setup --agent codex` again to update its allow-list;
   `doctor` reports an entry that doesn't pass the variable.

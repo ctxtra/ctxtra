@@ -163,6 +163,9 @@ func Status(path string, notices []string) agent.Status {
 type Ext struct {
 	Path, Agent string
 	Noun        string // "plugin" or "extension", in notices
+	// SessionProtocol is the first protocol that forwards session and
+	// parent IDs; zero disables this check.
+	SessionProtocol int
 }
 
 // CheckSetup is agent.Agent.Check for the extension e: the binary it runs,
@@ -188,8 +191,10 @@ func CheckSetup(e Ext, bin string, known bool) (notices []string, ours bool) {
 	} else {
 		notices = append(notices, fmt.Sprintf("%s doesn't say which binary it runs; %s", paths.Tilde(e.Path), repair))
 	}
-	if _, ok := protocol(b); !ok {
+	if v, ok := protocol(b); !ok {
 		notices = append(notices, fmt.Sprintf("%s doesn't say its protocol version; %s", paths.Tilde(e.Path), repair))
+	} else if v < e.SessionProtocol {
+		notices = append(notices, fmt.Sprintf("%s doesn't pass session and parent IDs; subagents use the current profiles; %s", paths.Tilde(e.Path), repair))
 	}
 	return notices, true
 }

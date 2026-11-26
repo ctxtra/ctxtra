@@ -428,7 +428,8 @@ names the active profiles and where they came from. A name that no binding uses 
 
 A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.
 Claude Code, Codex, Copilot, Muse, OpenCode, Hermes and DSH can keep the parent's profiles for subagents.
-Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. Muse needs its native parent
+Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. `doctor` reports an older
+plugin that can't forward session IDs, with the setup command to fix it. Muse needs its native parent
 ID; without it, a subagent uses the current selection. Antigravity gives no parent ID, so its subagents
 use the current selection. Cursor, Pi and Devin also use it at every hook event.
 OpenCode's `/clear` makes a new session ID and takes the current profiles.

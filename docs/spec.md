@@ -669,6 +669,8 @@ log has the error. Session IDs are the agent's own; ctxtra never guesses them.
   ID, its subagent uses the current selection. A child's later events keep its own record.
 - OpenCode, Hermes and DSH plugins forward `session_id` and `ctxtra_parent_session`. Run setup again for
   those agents to get this behavior. Older plugins without these fields use the current selection.
+  `doctor` reports OpenCode protocols below 2, Hermes below 4 and DSH below 2 with the setup command;
+  it exits 1 until the plugin is updated. Newer protocols are accepted.
   OpenCode's context callbacks use an existing session record, also after a plugin restart or cache eviction;
   a new child inherits its parent's record. Its `/clear` creates a new session ID and selects profiles anew.
 - Antigravity records each `conversationId`, but gives no parent: each subagent takes the current selection.

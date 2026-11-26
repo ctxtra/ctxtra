@@ -126,7 +126,7 @@ func (a Agent) Check(bin string, known bool) []string {
 		return []string{agent.UnreadableNotice(a.ConfigPath(), err)}
 	}
 	loaded, row := patchPlugin(string(b))
-	notices, plugin := extfile.CheckSetup(extfile.Ext{Path: a.PluginPath(), Agent: a.Name(), Noun: "plugin"}, bin, false)
+	notices, plugin := extfile.CheckSetup(extfile.Ext{Path: a.PluginPath(), Agent: a.Name(), Noun: "plugin", SessionProtocol: 2}, bin, false)
 	switch {
 	case len(notices) > 0 && !plugin: // can't read the plugin
 	case !row && !plugin:

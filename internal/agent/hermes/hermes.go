@@ -129,7 +129,7 @@ func (a Agent) Status(bin string, known bool) agent.Status {
 // Check adds plugin.yaml, and whether the plugin is enabled: a plugin that
 // isn't is set up, but Hermes doesn't load it.
 func (a Agent) Check(bin string, known bool) []string {
-	notices, ours := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin"}, bin, known)
+	notices, ours := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin", SessionProtocol: 4}, bin, known)
 	if !ours {
 		return notices
 	}

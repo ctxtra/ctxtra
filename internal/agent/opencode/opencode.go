@@ -65,7 +65,7 @@ func (a Agent) Status(bin string, known bool) agent.Status {
 }
 
 func (a Agent) Check(bin string, known bool) []string {
-	notices, _ := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin"}, bin, known)
+	notices, _ := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin", SessionProtocol: 2}, bin, known)
 	return notices
 }
 
