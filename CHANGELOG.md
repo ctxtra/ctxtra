@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### Breaking changes
+
+This release starts over. It reads nothing that v0.6 and earlier wrote. To move:
+
+1. Write the config again in the new format, `schema: ctxtra/config/v1`, in `~/.config/ctxtra/config.yaml`
+   (`ctxtra help config`). The `ctxtra/v1` format is not read or converted.
+2. Add each git source again with `ctxtra source add --repo URL`, so its accepted commit goes into
+   `ctxtra.lock` next to the config.
+3. Run `ctxtra setup` for each agent. Earlier hooks and MCP proxy entries add nothing; setup replaces them,
+   and `ctxtra doctor` lists the ones left.
+4. Trust live folders, approve source servers and sign in to MCP servers again: the new state folder starts
+   empty. Then delete `~/.ctxtra`.
+
+What changed:
+
+- Files follow the XDG folders on Linux and macOS: config in `~/.config/ctxtra`, data in
+  `~/.local/share/ctxtra`, state in `~/.local/state/ctxtra` and clones in `~/.cache/ctxtra`. `~/.ctxtra` is
+  not read. `CTXTRA_CONFIG` and `--config` are gone.
+- Bindings are only in the config, as a list with unique names. `include`, binding files, `match` and
+  `global` are gone: a binding has `location` (`dirs`, `repos`, `repo-sets`), `profiles` and `agents`, and
+  one without `location` applies everywhere. Entries that start with `!` must be quoted.
+- Sources are `repo` (with `branch`, `tag` or `rev`) or `dir`. Accepted commits are in `ctxtra.lock`, not in
+  the config: `commit:` is gone. Source servers move from `mcp-servers.yaml` to the source's
+  `ctxtra-source.yaml`. Files of a source are `SOURCE:PATH`.
+- Agent IDs `claude`, `copilot` and `hermes` are now `claude-code`, `github-copilot` and `hermes-agent`, with
+  no aliases.
+- Renamed config keys: `check-updates` at the top is `check-releases`, `budget.max-chars` is
+  `max-ctx-chars`, `summary-message` is `session-message` (without `show-skills` and `show-instructions`:
+  0 leaves a list out), and a server's `env-pass` is `pass-env`.
+- Renamed commands: `source add git URL` and `source add trusted-path DIR` are `source add --repo URL` and
+  `source add --dir DIR`, `source update --check` is `source update --dry-run`, `source check` is
+  `source validate`, `binding add --mcp` is `--mcp-server`, and `mcp add --env-pass` is `--pass-env`.
+  `binding add --global` is gone.
+- Every mistake is an error that `doctor` reports with exit 1, and the part with the mistake is left out.
+  A YAML tag, an anchor, a duplicate key, or a number where text is expected (`tag: 1.10`) is an error.
+
+### Changes
+
+- The session message names the first three errors, with their line in the config or the command that
+  fixes them, and counts the rest.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
 - Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
   including collection `--replace`. New and changed entries still validate their content.
