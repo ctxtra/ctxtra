@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -374,7 +375,7 @@ func TestOverlappingGenerations(t *testing.T) {
 	var want []string
 	for k := range 10 {
 		_, s, err := shared(d, k, func() snapshot {
-			res, e := session(claude, claude.Delivery(), "", "", "SessionStart", p, r)
+			res, e := session(claude, claude.Delivery(), "", "", "SessionStart", p, profile.Event{}, r)
 			return snapshot{Parts: claude.Delivery().Chunks(res), Entry: &e}
 		})
 		if err != nil {

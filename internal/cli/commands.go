@@ -703,7 +703,10 @@ func hookCmd() *cobra.Command {
 hook input (JSON) on stdin and answers with the text for the session, in the
 agent's format. EVENT defaults to SessionStart. Agents with a size limit per
 hook run several hooks, each with its slot K of N. It never fails a session:
-problems go into the answer and the log. You don't run it yourself.`,
+problems go into the answer and the log. You don't run it yourself.
+
+ctxtra hook --clean-sessions deletes the records of sessions that no hook
+used for 30 days. Sessions start it in the background once a day.`,
 		Hidden:                true,
 		DisableFlagParsing:    true,
 		DisableFlagsInUseLine: true,

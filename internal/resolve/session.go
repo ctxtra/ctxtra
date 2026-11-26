@@ -18,6 +18,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -57,8 +58,8 @@ func (env *Env) Resolve(in Input) *Result {
 		rd:    env.reader(),
 		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
 		manifests: map[string]bool{}}
-	r.res = &Result{Dir: dir, Summary: summary(env.Config.SessionMessage)}
-	r.res.Errors = append(r.res.Errors, env.Errors...)
+	r.res = &Result{Dir: dir, Summary: summary(env.Config.SessionMessage), Profiles: in.Profiles}
+	r.res.Errors = slices.Concat(r.res.Errors, env.Errors, in.Profiles.Errors, env.unusedProfiles(in.Profiles.Names))
 	for _, b := range env.Config.Bindings {
 		t := Trace{Origin: b.Name}
 		if b.Broken() {
@@ -94,6 +95,23 @@ func (env *Env) Resolve(in Input) *Result {
 		r.res.Fit(func(res *Result) bool { return Chars(res.Render()) <= res.MaxChars }, "max-ctx-chars")
 	}
 	return r.res
+}
+
+// unusedProfiles are the errors of active profiles that no binding uses:
+// likely typos. A config that can't be read has no bindings to tell.
+func (env *Env) unusedProfiles(active []string) []*catalog.Error {
+	if slices.ContainsFunc(env.Config.Errors, func(e *yamlx.Error) bool { return e.Out() == yamlx.OutFile }) {
+		return nil
+	}
+	used := profile.Used(env.Config)
+	var out []*catalog.Error
+	for _, n := range active {
+		if used[n] == nil {
+			out = append(out, &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.UnusedProfile, Part: yamlx.Part{Kind: "profile", Name: n},
+				Msg: "no binding uses it; check the name for a typo"}})
+		}
+	}
+	return out
 }
 
 // summary is the config's session-message settings.
@@ -167,7 +185,7 @@ func (r *session) conditions(b *config.Binding, t *Trace) []Condition {
 		out = append(out, agents(b.Agents, r.in.Agent))
 	}
 	if b.Profiles != nil {
-		out = append(out, profiles(b.Profiles, r.in.Profiles))
+		out = append(out, profiles(b.Profiles, r.in.Profiles.Names))
 	}
 	if b.Location != nil {
 		out = append(out, r.location(b, t))

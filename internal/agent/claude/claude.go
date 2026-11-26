@@ -14,6 +14,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent/hookjson"
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 )
 
@@ -22,6 +23,7 @@ type Agent struct{}
 
 var (
 	_ agent.Agent    = Agent{}
+	_ agent.Sessions = Agent{}
 	_ agent.Slotted  = Agent{}
 	_ agent.Missing  = Agent{}
 	_ agent.Native   = Agent{}
@@ -117,6 +119,11 @@ func (Agent) SlotAnswer(event, text, summary string) any {
 }
 
 func (Agent) MissingAnswer(event, msg string) string { return agent.SystemMessage(event, msg) }
+
+// SessionEvent: see agent.HookSession.
+func (Agent) SessionEvent(event string, raw []byte) profile.Event {
+	return agent.HookSession(event, raw)
+}
 
 // NativeFiles: CLAUDE.md, then the user-level rules: the .md files in rules/
 // and its subfolders, which Claude finds also through symlinks.

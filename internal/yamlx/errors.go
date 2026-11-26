@@ -73,6 +73,9 @@ const (
 	SelectionUnreadable
 	// BadProfileName: an invalid name in CTXTRA_PROFILES.
 	BadProfileName
+	// UnusedProfile: an active profile that no binding uses, likely a typo.
+	// The other profiles still apply.
+	UnusedProfile
 )
 
 // Out is how much of what the user wrote an error leaves out.
@@ -120,6 +123,7 @@ var leftOut = map[Mistake]Out{
 	OverCapacity:        OutNothing,
 	SelectionUnreadable: OutFile,
 	BadProfileName:      OutEntry,
+	UnusedProfile:       OutNothing,
 }
 
 // Out is what m leaves out.

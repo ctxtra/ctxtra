@@ -29,13 +29,19 @@ type Entry struct {
 	Error     string   `json:"error,omitempty"`
 	Skipped   string   `json:"skipped,omitempty"` // why the hook added nothing, see agent.Skipper
 	Reused    string   `json:"reused,omitempty"`  // the session start got an earlier one's text, see slot.go
+	// Profiles are the active profiles, ProfilesFrom where they come from,
+	// and ProfilesKept is set when they come from the session's record.
+	Profiles     []string `json:"profiles,omitempty"`
+	ProfilesFrom string   `json:"profiles_from,omitempty"`
+	ProfilesKept bool     `json:"profiles_kept,omitempty"`
 	// Kind is set by other writers of the log, such as "mcp" for the MCP
 	// proxy; hook runs have none.
 	Kind string `json:"kind,omitempty"`
 }
 
 func newEntry(ts, harness, event string, p payload, res *resolve.Result, chars int) Entry {
-	e := Entry{Ts: ts, Harness: harness, Event: event, Dir: res.Dir, Chars: chars, Source: p.Source, AgentType: p.AgentType}
+	e := Entry{Ts: ts, Harness: harness, Event: event, Dir: res.Dir, Chars: chars, Source: p.Source, AgentType: p.AgentType,
+		Profiles: res.Profiles.Names, ProfilesFrom: string(res.Profiles.Origin), ProfilesKept: res.Profiles.Kept}
 	for _, err := range res.Errors {
 		e.Errors = append(e.Errors, err.Error())
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -42,8 +43,8 @@ type Input struct {
 	// Agent is the session's agent, by the name ctxtra setup uses; "" when
 	// it is not known, and then no binding with agents applies.
 	Agent string
-	// Profiles are the active profiles.
-	Profiles []string
+	// Profiles are the active profiles, with their origin and errors.
+	Profiles profile.Active
 }
 
 // Load reads the config at path and its lock. agents are the names the

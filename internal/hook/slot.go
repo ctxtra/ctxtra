@@ -18,6 +18,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 )
 
 // Claude Code and Muse run all hooks of an event at once, and ctxtra has a
@@ -83,9 +84,9 @@ type seat struct {
 	first bool
 }
 
-func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, slot int, ts, event string, p payload, in agent.Input, dir string, out, errOut io.Writer) {
+func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, slot int, ts, event string, p payload, ev profile.Event, in agent.Input, dir string, out, errOut io.Writer) {
 	resolveNow := func() (snapshot, Entry) {
-		res, e := session(a, d, version, ts, event, p, dir)
+		res, e := session(a, d, version, ts, event, p, ev, dir)
 		return snapshot{Parts: d.Chunks(res), Summary: agent.Summary(res)}, e
 	}
 	var snap snapshot

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
@@ -86,7 +87,7 @@ func (h *home) accept(name, repo, ref, subdir, id string, files map[string]strin
 
 // start resolves a session in dir.
 func start(env *Env, dir, agent string, profiles ...string) *Result {
-	return env.Resolve(Input{Dir: dir, Agent: agent, Profiles: profiles})
+	return env.Resolve(Input{Dir: dir, Agent: agent, Profiles: profile.Active{Names: profiles}})
 }
 
 // applied are the bindings that applied.

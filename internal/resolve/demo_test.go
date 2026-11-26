@@ -12,6 +12,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
@@ -162,7 +163,7 @@ bindings:
 max-ctx-chars: 400000
 `
 
-var demoProfiles = []string{"observability"}
+var demoProfiles = profile.Active{Names: []string{"observability"}}
 
 // contentChars counts the text of the files and skills of res.
 func contentChars(res *Result) int {
@@ -216,7 +217,7 @@ func TestDemoConfig(t *testing.T) {
 	})
 
 	t.Run("the iam profile", func(t *testing.T) {
-		in := Input{Dir: d.home, Agent: "codex", Profiles: []string{"iam"}}
+		in := Input{Dir: d.home, Agent: "codex", Profiles: profile.Active{Names: []string{"iam"}}}
 		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(in)
 		// iam-team:jira, a repo source's server, needs approval on this machine.
 		for _, m := range res.MCPServers {
