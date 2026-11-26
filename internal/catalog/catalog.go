@@ -179,6 +179,12 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 		}
 		return src
 	}
+	switch {
+	case s.Ref.Kind == config.Tag || s.Ref.Kind == config.Rev:
+		return fail(Broken, yamlx.BrokenSource, "%s is not implemented yet; follow a branch", s.Ref.Kind)
+	case s.Subdir != "":
+		return fail(Broken, yamlx.BrokenSource, "subdir is not implemented yet")
+	}
 	if config.IsLocalRepo(s.Repo) {
 		dir := filepath.Clean(paths.Expand(s.Repo))
 		why := folder(dir)

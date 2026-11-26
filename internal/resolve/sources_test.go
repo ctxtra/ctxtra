@@ -16,6 +16,17 @@ func TestSources(t *testing.T) {
 	const iamTeam = "sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n"
 	iamFiles := map[string]string{"instructions/go.md": "GO", "instructions/rust.md": "RUST"}
 
+	t.Run("tag, rev and subdir are not implemented yet", func(t *testing.T) {
+		h := newHome(t)
+		env := h.load("sources:\n  a: {repo: 'https://h/a', tag: v1}\n  b: {repo: 'https://h/b', rev: " + commit("b") + "}\n" +
+			"  c: {repo: 'https://h/c', branch: main, subdir: x}\nbindings:\n  - {name: b, instructions: ['a:x.md', 'b:x.md', 'c:x.md']}\n")
+		res := start(env, h.dir, "")
+		if errs := errorsOf(res, yamlx.BrokenSource); len(errs) != 3 || !strings.Contains(errs[0].Error(), "tag is not implemented yet") ||
+			!strings.Contains(errs[1].Error(), "rev is not implemented yet") || !strings.Contains(errs[2].Error(), "subdir is not implemented yet") {
+			t.Errorf("errors %v", res.Errors)
+		}
+	})
+
 	t.Run("sessions read the locked commit", func(t *testing.T) {
 		h := newHome(t)
 		entry := h.accept("iam-team", "git@github.com:acme/iam-ctx.git", "branch: main", "", commit("a"), iamFiles)
@@ -38,6 +49,7 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("one team's folder of a shared repository", func(t *testing.T) {
+		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), map[string]string{
 			"teams/billing/skills/pay/SKILL.md": "---\nname: pay\ndescription: Pay.\n---\nbody",
@@ -96,6 +108,7 @@ func TestSources(t *testing.T) {
 	})
 
 	t.Run("subdir changed", func(t *testing.T) {
+		t.Skip("subdir is not implemented yet")
 		h := newHome(t)
 		entry := h.accept("billing-ctx", "git@github.com:acme/agent-context.git", "branch: main", "teams/billing", commit("a"), nil)
 		env := h.load("sources:\n  billing-ctx: {repo: 'git@github.com:acme/agent-context.git', branch: main, subdir: teams}\nbindings:\n  - {name: b, skills: ['billing-ctx:*']}\n", entry)
@@ -105,7 +118,7 @@ func TestSources(t *testing.T) {
 	t.Run("a config without its lock file", func(t *testing.T) {
 		h := newHome(t)
 		h.write("dotfiles/agents/a.md", "A")
-		env := h.load("sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n  obs-team: {repo: 'https://github.com/acme/obs.git', tag: v1.4.0}\n  dotfiles: {dir: ~/dotfiles}\n" +
+		env := h.load("sources:\n  iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}\n  obs-team: {repo: 'https://github.com/acme/obs.git', branch: v1}\n  dotfiles: {dir: ~/dotfiles}\n" +
 			"bindings:\n  - {name: b, instructions: ['iam-team:x.md', 'obs-team:y.md', 'dotfiles:agents/*.md']}\n")
 		res := start(env, h.dir, "")
 		eq(t, "files", bases(res.Files), "a.md")

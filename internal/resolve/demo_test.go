@@ -181,16 +181,20 @@ func TestDemoConfig(t *testing.T) {
 	t.Run("the demo as written", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "tracker")
-		// Repo sets and collections come later: the repo-sets entries of
-		// iam-repos and go-work are errors that match nothing, and no
-		// binding with collections applies.
-		if len(res.Errors) != 2 || !strings.Contains(res.Errors[0].Error(), "binding iam-repos: repo-sets iam-team:services can't be read: repo sets are not implemented yet") ||
-			!strings.Contains(res.Errors[1].Error(), "binding go-work: repo-sets acme") {
-			t.Errorf("errors %v", res.Errors)
+		// Repo sets, collections, tag, rev and subdir are not implemented
+		// yet: the sources obs-team, security and billing-ctx are errors
+		// and add nothing, the repo-sets entries of iam-repos and go-work
+		// are errors that match nothing, and no binding with collections
+		// applies.
+		var errs []string
+		for _, e := range res.Errors {
+			errs = append(errs, e.Err.Msg)
 		}
-		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md",
-			"alerts.md", "capacity.md", "errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md")
-		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
+		eq(t, "errors", errs, "tag is not implemented yet; follow a branch", "rev is not implemented yet; follow a branch",
+			"subdir is not implemented yet", "repo-sets iam-team:services can't be read: repo sets are not implemented yet; the entry matches nothing",
+			"repo-sets acme can't be read: repo sets are not implemented yet; the entry matches nothing")
+		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "billing.md")
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "go", "sql")
 		eq(t, "servers", served(res), "linear")
 		if s := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
 			t.Errorf("iam-dev: %s", s.Why)
@@ -199,13 +203,14 @@ func TestDemoConfig(t *testing.T) {
 
 	t.Run("inlined", func(t *testing.T) {
 		res := Load(d.config(t, "config.yaml", inlined), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
-		noErrors(t, res)
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "go-work", "tracker")
-		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md", "alerts.md",
-			"capacity.md", "errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md", "go-notes.md",
-			"style.md", "testing.md")
-		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
-		if n := contentChars(res); n < 40000 {
+		// The sources with tag, rev and subdir add nothing yet.
+		if errs := errorsOf(res, yamlx.BrokenSource); len(errs) != 3 || len(res.Errors) != 3 {
+			t.Errorf("errors %v", res.Errors)
+		}
+		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "billing.md", "go-notes.md", "style.md", "testing.md")
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "go", "sql")
+		if n := contentChars(res); n < 20000 {
 			t.Errorf("%d characters", n)
 		}
 		if errs := errorsOf(res, yamlx.OverCapacity); len(errs) != 0 {
