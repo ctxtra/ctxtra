@@ -380,6 +380,7 @@ Choose the profiles for one launch with `CTXTRA_PROFILES`:
 CTXTRA_PROFILES=iam claude            # iam
 CTXTRA_PROFILES=iam,oncall codex      # several profiles
 CTXTRA_PROFILES= claude               # none, whatever is stored
+ctxtra context explain --profile iam  # preview, without switching
 ```
 
 Without the variable, a session uses the selection stored on this machine, in
@@ -392,6 +393,8 @@ the current profiles at every hook event for now. The profiles can also differ f
 
 - An agent started from another terminal (for example by Orca, Rex or Herdr) uses the stored selection
   unless started with `CTXTRA_PROFILES`.
+- The MCP proxy uses the profiles of when it started: on resume they can be newer than the instructions',
+  and after `/clear` it keeps the old servers until the session restarts.
 - Muse, and IDE agents started from the Dock, don't pass your shell's variables to hooks: they see only the
   stored selection.
 

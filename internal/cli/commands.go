@@ -581,13 +581,18 @@ bindings. These commands only read: they fetch nothing and change nothing.`,
 	}
 	var filesJSON bool
 	var agentName string
+	var profileNames []string
 	files := &cobra.Command{
 		Use:     "files [DIR]",
 		Short:   "List the instruction files and skills a session gets",
 		Example: `  ctxtra context files ~/dev/work/api`,
 		Args:    atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version, agentName}.files(dirArg(args), filesJSON))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.files(dirArg(args), filesJSON))
 		}),
 	}
 	files.Flags().BoolVar(&filesJSON, "json", false, "print JSON")
@@ -605,7 +610,11 @@ long command output.`,
   ctxtra context show ~/dev/api --exclude-session ~/dev/web --part 1`,
 		Args: atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version, agentName}.show(dirArg(args), o))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.show(dirArg(args), o))
 		}),
 	}
 	show.Flags().StringArrayVar(&o.exclude, "exclude-session", nil, "leave out what a session in `DIR` gets (repeatable)")
@@ -617,12 +626,17 @@ long command output.`,
 		Example: `  ctxtra context explain ~/dev/work/api`,
 		Args:    atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version, agentName}.explain(dirArg(args), explainJSON))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.explain(dirArg(args), explainJSON))
 		}),
 	}
 	explain.Flags().BoolVar(&explainJSON, "json", false, "print JSON")
 	for _, cmd := range []*cobra.Command{files, show, explain} {
 		cmd.Flags().StringVar(&agentName, "agent", "", "as a session of `AGENT`; without it, bindings with agents don't apply")
+		cmd.Flags().StringArrayVar(&profileNames, "profile", nil, "as a session with only `NAME` active, instead of the current profiles (repeatable)")
 	}
 	c.AddCommand(files, show, explain)
 	return c
@@ -640,7 +654,8 @@ and the last hook runs there. It exits with 1 when it finds a problem.`,
 		Args:    atMost(1),
 		GroupID: "inspect",
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version, ""}.doctor(dirArg(args), asJSON))
+			r, _ := a.newReport("", nil)
+			return code(r.doctor(dirArg(args), asJSON))
 		}),
 	}
 	c.Flags().BoolVar(&asJSON, "json", false, "print JSON")

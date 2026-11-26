@@ -14,6 +14,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/hook"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/setup"
 	"github.com/ctxtra/ctxtra/internal/state"
@@ -28,6 +29,27 @@ type report struct {
 	// agent is the session's agent, "" for none: then bindings with
 	// agents don't apply.
 	agent string
+	// profiles are the session's active profiles.
+	profiles profile.Active
+}
+
+// newReport is a report for a session of agentName with the profiles a new
+// session gets, or with the --profile names given.
+func (a *app) newReport(agentName string, given []string) (report, error) {
+	r := report{IO: a.IO, version: a.version, agent: agentName, profiles: profile.Current()}
+	if len(given) > 0 {
+		var err error
+		if r.profiles, err = profile.Given(given); err != nil {
+			return r, err
+		}
+	}
+	return r, nil
+}
+
+// as is r for a session of agentName.
+func (r report) as(agentName string) report {
+	r.agent = agentName
+	return r
 }
 
 // checkAgent fails for an agent name that no agent has.
@@ -48,7 +70,7 @@ func (r report) resolve(dir string) (*resolve.Result, *resolve.Env) {
 		dir = abs
 	}
 	env := loadEnv()
-	res := env.Resolve(resolve.Input{Dir: dir, Agent: r.agent})
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: r.agent, Profiles: r.profiles})
 	// A session of a known agent gets what fits in it.
 	if a, ok := registry.Get(r.agent); ok {
 		a.Delivery().Fit(res)
@@ -57,6 +79,23 @@ func (r report) resolve(dir string) (*resolve.Result, *resolve.Env) {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
 	return res, env
+}
+
+// profilesNote tells, on stderr, which profiles are active when the
+// output is only the session's files or text.
+func (r report) profilesNote() {
+	if r.profiles.Shown() {
+		fmt.Fprintf(r.Err, "profiles: %s\n", r.profiles)
+	}
+}
+
+// profilesInfo is the active profiles in --json output.
+func profilesInfo(a profile.Active) map[string]any {
+	names := a.Names
+	if names == nil {
+		names = []string{}
+	}
+	return map[string]any{"active": names, "from": string(a.Origin)}
 }
 
 // status is the exit code of a command that shows res: 1 when a session
@@ -129,10 +168,11 @@ func (r report) files(dir string, asJSON bool) int {
 	}
 	res, _ := r.resolve(dir)
 	if asJSON {
-		writeJSON(r.Out, map[string]any{"dir": res.Dir, "files": hits(res.Files, false), "skills": hits(res.Skills, true)},
+		writeJSON(r.Out, map[string]any{"dir": res.Dir, "profiles": profilesInfo(r.profiles), "files": hits(res.Files, false), "skills": hits(res.Skills, true)},
 			sessionDiagnostics(res))
 		return status(res)
 	}
+	r.profilesNote()
 	for _, h := range res.Files {
 		fmt.Fprintln(r.Out, h.Path)
 	}
@@ -164,6 +204,7 @@ func (r report) show(dir string, o showOptions) int {
 		return 2
 	}
 	res, _ := r.resolve(dir)
+	r.profilesNote()
 	for _, e := range res.Errors {
 		fmt.Fprintf(r.Err, "error: %s\n", e)
 	}
@@ -466,13 +507,14 @@ func (r report) explain(dir string, asJSON bool) int {
 	total := resolve.Chars(res.Render())
 	if asJSON {
 		writeJSON(r.Out, map[string]any{
-			"config": env.Path, "session": r.sessionInfo(res), "bindings": traces(res),
+			"config": env.Path, "profiles": profilesInfo(r.profiles), "session": r.sessionInfo(res), "bindings": traces(res),
 			"total":         map[string]int{"files": len(res.Files), "skills": len(res.Skills), "chars": total, "tokens": total / 4},
 			"max_ctx_chars": res.MaxChars, "agents_over": r.agentDrops(res),
 		}, slices.Concat(sessionDiagnostics(res), diagnostics("error", r.capacityErrors(res))))
 		return max(status(res), r.overCapacity(res))
 	}
 	fmt.Fprintf(r.Out, "config: %s\n", env.Path)
+	fmt.Fprintf(r.Out, "profiles: %s\n", r.profiles)
 	r.session(res)
 	fmt.Fprintln(r.Out)
 	if len(res.Trace) == 0 {
@@ -571,7 +613,7 @@ func (r report) agentRuns(dir string, setups state.Setups) ([]agentRun, *resolve
 	var env *resolve.Env
 	for _, a := range registry.All() {
 		if setups.Known(a.Name(), a.ConfigPath()) {
-			res, e := report{r.IO, r.version, a.Name()}.resolve(dir)
+			res, e := r.as(a.Name()).resolve(dir)
 			runs, env = append(runs, agentRun{a.Name(), res}), e
 		}
 	}
@@ -669,7 +711,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	// Errors of the session, for each agent that has them; then errors of
 	// bindings that apply to no agent here.
 	errs := byAgent(runs, true, func(run agentRun) []string {
-		return slices.Concat(errorTexts(run.res.Errors), report{r.IO, r.version, run.agent}.capacityErrors(run.res))
+		return slices.Concat(errorTexts(run.res.Errors), r.as(run.agent).capacityErrors(run.res))
 	})
 	inSession := map[string]bool{}
 	for _, run := range runs {
@@ -687,7 +729,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	}
 	notices := byAgent(runs, false, func(run agentRun) []string { return oneLine(run.res.Notices) })
 	for _, run := range runs {
-		rr := report{r.IO, r.version, run.agent}
+		rr := r.as(run.agent)
 		ok = ok && status(run.res) == 0 && rr.overCapacity(run.res) == 0
 	}
 	ok = ok && len(others) == 0
@@ -703,15 +745,16 @@ func (r report) doctor(dir string, asJSON bool) int {
 		sessions := []map[string]any{}
 		over := []agentDrop{}
 		for _, run := range runs {
-			rr := report{r.IO, r.version, run.agent}
+			rr := r.as(run.agent)
 			sessions = append(sessions, map[string]any{"agent": run.agent, "files": hits(run.res.Files, false), "skills": hits(run.res.Skills, true)})
 			over = append(over, rr.agentDrops(run.res)...)
 		}
 		out := map[string]any{
-			"folders": map[string]string{"config": paths.ConfigDir(), "data": paths.DataDir(), "state": paths.StateDir(), "cache": paths.CacheDir()},
-			"ctxtra":  releaseInfo(checks, state.Load(), r.version),
-			"config":  map[string]any{"file": env.Path, "exists": statErr == nil, "bindings": len(env.Config.Bindings)},
-			"sources": sources, "session": r.sessionInfo(res), "sessions": sessions, "agents_over": over,
+			"folders":  map[string]string{"config": paths.ConfigDir(), "data": paths.DataDir(), "state": paths.StateDir(), "cache": paths.CacheDir()},
+			"ctxtra":   releaseInfo(checks, state.Load(), r.version),
+			"config":   map[string]any{"file": env.Path, "exists": statErr == nil, "bindings": len(env.Config.Bindings)},
+			"profiles": profilesInfo(r.profiles),
+			"sources":  sources, "session": r.sessionInfo(res), "sessions": sessions, "agents_over": over,
 			"hooks": agents, "last_hook_runs": hookRuns,
 		}
 		if len(servers) > 0 {
@@ -735,6 +778,7 @@ func (r report) doctor(dir string, asJSON bool) int {
 	}
 	fmt.Fprintf(r.Out, "ctxtra %s: %s\n", r.version, releaseStatus(checks, state.Load(), r.version))
 	fmt.Fprintf(r.Out, "folders:\n  config: %s\n  data: %s\n  state: %s\n  cache: %s\n", paths.ConfigDir(), paths.DataDir(), paths.StateDir(), paths.CacheDir())
+	fmt.Fprintf(r.Out, "profiles: %s\n", r.profiles)
 	fmt.Fprintf(r.Out, "config: %s\n", env.Path)
 	if statErr != nil {
 		fmt.Fprintln(r.Out, "  not found: nothing is added (the format: ctxtra help config)")

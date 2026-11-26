@@ -600,6 +600,10 @@ A new session's active profiles come from, in this order:
 An active profile that no binding uses, a `!` entry included, is an error: likely a typo. The other profiles
 still apply.
 
+`context files`, `context show`, `context explain`, `doctor`, `mcp status` and the MCP proxy use the profiles a
+new session would get. The `context` commands take `--profile NAME`, repeatable, to show a session with only
+those profiles active; nothing is stored.
+
 ### A session keeps its profiles
 
 A session keeps the profiles it started with, also when the variable or the stored selection changes while it
@@ -624,10 +628,15 @@ a day (`ctxtra hook --clean-sessions`); a hook never waits for it.
 
 The session message names the active profiles and their origin when a profile is active or has an error, and
 lists the profile errors. The log records `profiles`, `profiles_from` and, when they come from the session's
-record, `profiles_kept` for every hook event.
+record, `profiles_kept` for every hook event. `context explain`, `doctor` and `mcp status` print `profiles:` at
+the top; `context files` and `context show` print it on stderr when a profile is active or has an error. Their
+`--json` output has `profiles` with `active` and `from`.
 
 Where a session's profiles can differ from what you expect:
 
+- The MCP proxy can't tell which session it belongs to: it uses the current profiles when it starts. On resume,
+  its servers can follow a newer profile than the instructions. After a switch and `/clear`, it keeps the
+  servers of the profiles it started with until the session restarts.
 - An agent started from another terminal (for example by Orca, Rex or Herdr) uses the current selection unless
   started with `CTXTRA_PROFILES`.
 - Agents that don't pass the shell environment to hooks (Muse, IDE agents started from the Dock) see only the
