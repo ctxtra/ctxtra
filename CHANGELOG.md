@@ -16,6 +16,11 @@
   would write as an explicit key, instead of writing what they can't edit again.
 - Commands that write the config refuse a change that would make it or the lock larger than 4 MiB, which
   would leave sessions with nothing from the config.
+
+- `profile set NAME...` replaces the profiles selected on this machine; `profile clear` empties them.
+  `profile list` shows every profile the bindings use, its bindings and the active selection's origin,
+  with `--json` available. The commands never change the config and refuse an unreadable selection file.
+
 - Profiles: `CTXTRA_PROFILES=iam,oncall` sets the active profiles for one launch, else the selection stored
   in `profiles.json` in the state folder applies. A session keeps the profiles it started with for its
   subagents and compaction in Claude Code and Codex; `/clear` takes them anew. The session message, the log,

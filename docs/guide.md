@@ -414,7 +414,16 @@ ctxtra context explain --profile iam  # preview, without switching
 ```
 
 Without the variable, a session uses the selection stored on this machine, in
-`~/.local/state/ctxtra/profiles.json`. Commands that change it are not available yet. The session message
+`~/.local/state/ctxtra/profiles.json`. Choose it with these commands; they don't change the config:
+
+```bash
+ctxtra profile set iam oncall        # replace the selection
+ctxtra profile list                  # names, active selection and bindings
+ctxtra profile clear                 # no stored profile
+```
+
+`set` accepts only names the bindings use, including names after `!`. Invalid or unknown names leave the
+selection unchanged. `set` and `clear` refuse to overwrite a selection file they can't read. The session message
 names the active profiles and where they came from. A name that no binding uses is reported as a likely typo.
 
 A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.

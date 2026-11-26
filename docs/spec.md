@@ -621,11 +621,17 @@ A new session's active profiles come from, in this order:
    names and empty entries are ignored, and a name given twice counts once. An invalid name is an error and is
    left out; the other names apply.
 2. The stored selection, `profiles.json` in the state folder: on this machine, outside the config. A file that
-   can't be read is an error, and no profile comes from it. Commands that change it are not available yet.
+   can't be read is an error, and no profile comes from it.
 3. Otherwise, no profile is active.
 
 An active profile that no binding uses, a `!` entry included, is an error: likely a typo. The other profiles
 still apply.
+
+`ctxtra profile set NAME...` replaces the stored selection. It refuses invalid names and names no binding
+uses, lists the names the config uses, and changes nothing on failure. A `!` entry counts as a use.
+`ctxtra profile clear` empties the selection. Both refuse to overwrite a selection file they can't read,
+and name it. Neither changes the config. `ctxtra profile list` lists every name the bindings use, whether
+it is active now, the active selection's origin and the bindings that use each name. It takes `--json`.
 
 `context files`, `context show`, `context explain`, `doctor`, `mcp status` and the MCP proxy use the profiles a
 new session would get. The `context` commands take `--profile NAME`, repeatable, to show a session with only
