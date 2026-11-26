@@ -166,6 +166,10 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	s := newSources(stdio)
 	n := newBinding{Name: name, Skills: []string{dir}}.node()
 	if b == "" {
+		if old := loadEnv().Config.Binding(name); old != nil && old.Broken() {
+			fmt.Fprintf(stdio.Err, "ctxtra skill install: the binding %s has errors, so it can't add the skill; fix it first (see ctxtra doctor); nothing changed\n", name)
+			return 1
+		}
 		data, err := readConfig(s.file)
 		if err == nil {
 			var ed *config.Editor
@@ -217,14 +221,17 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	return 0
 }
 
-// skillBound is the name of the first binding of the config that adds
-// the installed skill name, or "".
+// skillBound is the name of the first usable binding of the config that
+// adds the installed skill name, or "".
 func skillBound(name string) string {
 	env := loadEnv()
 	dir := paths.Real(paths.SkillDir(name))
 	for _, b := range env.Config.Bindings {
+		if b.Broken() {
+			continue
+		}
 		for _, e := range b.Skills {
-			if !e.Not && !e.InSource && paths.Real(paths.Expand(e.Value)) == dir {
+			if e.Err == nil && !e.Not && !e.InSource && paths.Real(paths.Expand(e.Value)) == dir {
 				return b.Name
 			}
 		}
