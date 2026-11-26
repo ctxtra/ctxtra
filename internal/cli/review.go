@@ -20,6 +20,9 @@ type used struct {
 	dirs  []string
 	// errors are the errors of the entries that read the source.
 	errors []string
+	// collections are the bindings that use each of the source's
+	// collections, by its name.
+	collections map[string][]string
 }
 
 func (u *used) has(p string) bool {
@@ -38,14 +41,20 @@ func reviewTop(name string) string {
 // reads and limits filter them, with the errors a session would report for
 // those entries.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
-	u := &used{files: map[string]bool{manifest.FileName: true}}
+	u := &used{files: map[string]bool{manifest.FileName: true}, collections: map[string][]string{}}
 	alone := *env
 	alone.Catalog = cat
 	for _, b := range env.Config.Bindings {
 		if b.Broken() {
 			continue
 		}
-		files, skills, _, errs := alone.Referenced(b, name)
+		files, skills, entered, errs := alone.Referenced(b, name)
+		for _, ref := range entered {
+			_, coll, _ := strings.Cut(ref, ":")
+			if !slices.Contains(u.collections[coll], b.Name) {
+				u.collections[coll] = append(u.collections[coll], b.Name)
+			}
+		}
 		for _, it := range files {
 			u.files[it.Rel] = true
 		}
@@ -136,8 +145,18 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	for f := range bu.files {
 		u.files[f] = true
 	}
+	for c, bs := range bu.collections {
+		for _, b := range bs {
+			if !slices.Contains(u.collections[c], b) {
+				u.collections[c] = append(u.collections[c], b)
+			}
+		}
+	}
 	u.dirs = append(u.dirs, bu.dirs...)
 	s.printErrors(u.errors, bu.errors)
+	if before != nil {
+		s.collectionChanges(name, u.collections, before, after)
+	}
 	s.mcpDefinitionWarnings(name, before, after)
 
 	var shown, other []source.Change
@@ -194,6 +213,59 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 		fmt.Fprintln(s.Out, "Accepting accepts these files too: a file you reference later is used without review. ctxtra source update --full shows them, with content warnings.")
 	}
 	return nil
+}
+
+// collectionChanges reports, for each collection of source name that the
+// bindings in use use with either commit, whether the new commit removes
+// it, and what it newly adds: servers, skills and files.
+func (s *sources) collectionChanges(name string, use map[string][]string, before, after *catalog.Catalog) {
+	names := make([]string, 0, len(use))
+	for c := range use {
+		names = append(names, c)
+	}
+	slices.Sort(names)
+	for _, c := range names {
+		by := "binding " + use[c][0] + " uses it"
+		if len(use[c]) > 1 {
+			by = "bindings " + strings.Join(use[c], ", ") + " use it"
+		}
+		now, ok := after.Collection(name, c)
+		if m, _ := after.Manifest(after.Source(name)); !ok && m != nil && m.Collection(c) != nil {
+			// It has errors, which the review shows.
+			continue
+		}
+		if !ok {
+			msg := fmt.Sprintf("collection %s is removed; %s", c, by)
+			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
+			s.diags = append(s.diags, diagnostic{"warning", source.Sanitize(name + ": " + msg)})
+			continue
+		}
+		was, _ := before.Collection(name, c)
+		if was == nil {
+			was = &catalog.Expansion{}
+		}
+		var added []string
+		for _, srv := range now.Servers {
+			if !slices.ContainsFunc(was.Servers, func(o catalog.Server) bool { return o.ID == srv.ID }) {
+				added = append(added, "MCP server "+strings.TrimPrefix(srv.ID, name+":"))
+			}
+		}
+		for _, l := range []struct {
+			what     string
+			now, was []catalog.Item
+		}{{"skill", now.Skills, was.Skills}, {"file", now.Files, was.Files}} {
+			for _, it := range l.now {
+				if !slices.ContainsFunc(l.was, func(o catalog.Item) bool { return o.Ref() == it.Ref() }) {
+					added = append(added, l.what+" "+it.Rel)
+				}
+			}
+		}
+		if len(added) > 0 {
+			msg := fmt.Sprintf("collection %s newly adds %s; %s", c, strings.Join(added, ", "), by)
+			fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
+			s.diags = append(s.diags, diagnostic{"notice", source.Sanitize(name + ": " + msg)})
+		}
+	}
 }
 
 // regular reports whether a git mode is a regular file's.

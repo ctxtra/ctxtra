@@ -282,6 +282,13 @@ by filename; `--full` shows their contents too. A branch that no longer continue
 force-push warning, and a moved tag says where it was. Nothing is accepted until the user answers yes in a
 terminal.
 
+For each of the source's collections that a binding uses, directly or through the config's own collections,
+the review says when the new commit removes it, and lists the MCP servers, skills and files that it newly
+adds, with the bindings that use it: `collection essentials newly adds MCP server deploy, skill
+skills/release; binding iam uses it`. Errors in those collections are reviewed like other new errors, so a
+new cycle is named. `--json` lists these in `diagnostics`: a removed collection as a `warning`, new content as
+a `notice`.
+
 The review reads both commits from ctxtra's copy of the repository in the cache. The new commit reaches the
 store only when you accept it. The question goes to stderr. Nonterminal use and `--no-input` fail before
 fetching; `--dry-run` reviews without asking, and writes only to the cache: not the config, the lock, the

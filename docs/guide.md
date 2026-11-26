@@ -324,7 +324,8 @@ bindings:
 ```
 
 A collection's own entries come after the collections it nests. `context explain` shows what a binding's
-collections added and what its `!` entries left out.
+collections added and what its `!` entries left out. `source update` tells you when a commit removes a
+collection you use, or adds servers, skills or files to it.
 
 ### Profiles and agents
 

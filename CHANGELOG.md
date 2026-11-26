@@ -52,6 +52,8 @@
   entries remove what its collections add. Cycles, missing collections and paths that match nothing are errors.
 - `source validate DIR` checks the files that collections name, as a session reads them from a commit.
 - `source add --repo` shows content warnings for the files that the manifest's collections offer.
+- `source update` reports collections in use that a commit removes, and the servers, skills and files it
+  newly adds to them, with the bindings that use them.
 - Repo sets are parsed but not implemented yet: they are errors.
 
 ## v0.6.0
