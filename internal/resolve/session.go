@@ -652,6 +652,12 @@ func (r *session) addServers(b *config.Binding, t *Trace, from []catalog.Server)
 		r.entryErrors(b, t, e, errs)
 		found = append(found, s...)
 	}
+	for _, e := range b.MCPServers {
+		if e.Not && e.Err == nil && !r.unavailable(t, e) &&
+			!slices.ContainsFunc(found, func(s catalog.Server) bool { return catalog.ServerExcluded(e, s) }) {
+			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
+		}
+	}
 	for _, s := range found {
 		if r.serverExcluded(b, t, s) {
 			continue
@@ -692,6 +698,15 @@ func (r *session) countManifest(name string) error {
 		return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
 	}
 	return nil
+}
+
+// unavailable reports whether server entry e names a source whose
+// content this session can't use, itself or through the config's new name
+// for one of its servers: what it would match is unknown.
+func (r *session) unavailable(t *Trace, e config.Entry) bool {
+	return slices.ContainsFunc(r.env.Catalog.ManifestSources(e), func(name string) bool {
+		return slices.Contains(t.Unavailable, name)
+	})
 }
 
 // serverExcluded reports whether a ! entry of b matches one of s's names.

@@ -252,6 +252,21 @@ func TestCollectionExclusions(t *testing.T) {
 		eq(t, "unavailable", trace(t, res, "iam").Unavailable, "iam-team")
 	})
 
+	t.Run("only ! servers when the collections add none", func(t *testing.T) {
+		h := newHome(t)
+		h.write("a.md", "A")
+		res := start(h.load("collections: {kit: {instructions: [~/a.md]}}\nbindings:\n  - {name: test, collections: [kit], mcp-servers: ['!absent']}\n"), h.dir, "")
+		eq(t, "files", bases(res.Files), "a.md")
+		oneError(t, res, "binding test", "!absent excludes nothing")
+	})
+
+	t.Run("a ! server of a source not on this machine", func(t *testing.T) {
+		h := newHome(t)
+		res := start(h.load("sources: {iam-team: {dir: ~/gone}}\nbindings:\n  - {name: iam, mcp-servers: ['iam-team:*', '!iam-team:wiki']}\n"), h.dir, "")
+		noErrors(t, res)
+		eq(t, "unavailable", trace(t, res, "iam").Unavailable, "iam-team")
+	})
+
 	t.Run("only ! instructions with collections", func(t *testing.T) {
 		h := newHome(t)
 		h.skill("iam/skills/release", "release")
