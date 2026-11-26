@@ -30,7 +30,7 @@ stdout 'IAM_NOTES'
 ! stdout 'PROFILE_NOTES'
 ! stdout 'Profiles:'
 stdout 'iam-team:deploy needs approval: run ctxtra mcp approve iam-team:deploy\\n'
-stdout 'iam-team:jira needs approval and may need sign-in: run ctxtra mcp approve iam-team:jira, then ctxtra mcp login iam-team:jira'
+stdout 'iam-team:jira needs approval and may need sign-in: run ctxtra mcp login iam-team:jira'
 mcp dev/app
 ! stdout 'deploy__'
 ! stdout 'jira__'

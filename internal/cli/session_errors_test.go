@@ -70,3 +70,30 @@ bindings:
 		t.Errorf("the log lost the whole text: %v", err)
 	}
 }
+
+// A binding whose name is too long to repeat: its line names it cut, says
+// that the binding is left out, and stays within the bound; doctor has the
+// whole name.
+func TestSessionMessageLongBindingName(t *testing.T) {
+	h := testenv.Home(t)
+	svc := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
+	name := strings.Repeat("b", 5000)
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: "+name+", instructions: [~/x.md]}\n")
+	in, _ := json.Marshal(map[string]string{"cwd": svc, "session_id": "s", "source": "startup"})
+	var out, errOut strings.Builder
+	if n := Run([]string{"hook", "claude-code", "SessionStart", "--slot", "0", "--of", "40", "--setup-version=1"}, IO{In: strings.NewReader(string(in)), Out: &out, Err: &errOut}, "test"); n != 0 {
+		t.Fatalf("hook: %d %s", n, errOut.String())
+	}
+	var answer struct{ SystemMessage string }
+	if err := json.Unmarshal([]byte(out.String()), &answer); err != nil {
+		t.Fatalf("%v: %s", err, out.String())
+	}
+	_, line, _ := strings.Cut(answer.SystemMessage, "\n\n")
+	if !strings.HasPrefix(line, "⚠ ~/.config/ctxtra/config.yaml: line 3: binding bbb") || !strings.HasSuffix(line, "b…; the binding is left out") ||
+		utf8.RuneCountInString(line) != 2+240 {
+		t.Errorf("want one cut line of 240 characters: %d %q", utf8.RuneCountInString(line), line)
+	}
+	if code, doctor, _ := run("doctor", svc); code != 1 || !strings.Contains(doctor, "binding "+name+" is left out") {
+		t.Errorf("doctor lost the whole name: %d\n%.300s", code, doctor)
+	}
+}

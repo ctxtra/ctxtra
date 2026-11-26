@@ -196,6 +196,15 @@ func (e *Error) Effect() string {
 	return ""
 }
 
+// ShortEffect is Effect without the part's name, for a name too long to
+// repeat: "; the binding is left out".
+func (e *Error) ShortEffect() string {
+	if e.Out() == OutPart && e.Part.Name != "" {
+		return "; the " + e.Part.Kind + " is left out"
+	}
+	return e.Effect()
+}
+
 // Errorf is an error at n, in part p.
 func Errorf(n *yaml.Node, m Mistake, p Part, format string, args ...any) *Error {
 	var pos Pos

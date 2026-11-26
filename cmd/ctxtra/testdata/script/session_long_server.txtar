@@ -1,0 +1,23 @@
+# A repo source and a remote server with long names: the approval line
+# names the server once more, in the one command that approves it and signs
+# in, and stays within 240 characters.
+mkdir dev/app
+gitrepo srv/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+exec ctxtra source add --repo $GITSRV/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart dev/app
+stdout '⚠ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss:mmmmmmmmmmmmmmmmmmmm needs approval and may need sign-in: run ctxtra mcp login ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss:mmmmmmmmmmmmmmmmmmmm"}$'
+
+-- bindings.yaml --
+bindings:
+  - name: team
+    collections: ['ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss:all']
+-- srv/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  all:
+    mcp-servers: [mmmmmmmmmmmmmmmmmmmm]
+mcp-servers:
+  mmmmmmmmmmmmmmmmmmmm:
+    url: https://mcp.example.com

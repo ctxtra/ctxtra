@@ -251,7 +251,7 @@ func passEnvNotice(a agent.Agent, res *resolve.Result) string {
 	if len(missing) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("the ctxtra MCP entry doesn't pass %s to the proxy; %s", strings.Join(missing, ", "), agent.Repair(a.Name()))
+	return agent.Diagnostic("the ctxtra MCP entry doesn't pass "+strings.Join(missing, ", ")+" to the proxy", "; "+agent.Repair(a.Name()))
 }
 
 func write(out io.Writer, answer any) {

@@ -408,11 +408,11 @@ func inactiveSources(errs []*catalog.Error) []string {
 		}
 		text := "source " + e.Err.Part.Name + ": " + e.Err.Msg
 		if utf8.RuneCountInString(displayText(text)) <= maxErrorLine {
-			out = append(out, diagnostic(text, ""))
+			out = append(out, Diagnostic(text, ""))
 			continue
 		}
 		msg, tail := repair(e.Err.Part.Name, e.Err.Msg)
-		out = append(out, diagnostic("source "+e.Err.Part.Name+": "+msg, tail))
+		out = append(out, Diagnostic("source "+e.Err.Part.Name+": "+msg, tail))
 	}
 	return out
 }
@@ -442,27 +442,48 @@ func unreadableSets(sets []resolve.UnreadableSet) []string {
 		if strings.HasPrefix(u.Entry, "!") {
 			effect = "; the binding is left out"
 		}
-		out = append(out, diagnostic(fmt.Sprintf("binding %s: repo set %s can't be read (%s)", u.Binding, u.Entry, u.Why), effect))
+		out = append(out, Diagnostic(fmt.Sprintf("binding %s: repo set %s can't be read (%s)", u.Binding, u.Entry, u.Why), effect))
 	}
 	return out
 }
 
 // maxErrorLine is the most characters of an error in the session message;
-// doctor and the log have the whole text.
-const maxErrorLine = 240
+// doctor and the log have the whole text. minText is the least of the text
+// that a line keeps before its tail, when a shorter tail can leave more.
+const (
+	maxErrorLine = 240
+	minText      = 40
+)
 
-// diagnostic is an error line of the session message: text followed by
-// tail, which says what to do or what is left out. Control characters are
-// escaped and line breaks become spaces, so that the line stays one line of
-// the message, and text is cut so that the line has at most maxErrorLine
-// characters, or the tail and 40 characters of text.
-func diagnostic(text, tail string) string {
-	text, tail = displayText(text), displayText(tail)
-	r := []rune(text)
-	if room := max(maxErrorLine-utf8.RuneCountInString(tail), 40); len(r) > room {
-		r = append(r[:room-1], '…')
+// Diagnostic is an error line of the session message: text followed by a
+// tail, which says what to do or what is left out. tails go from the
+// longest to the shortest: the line ends with the first that leaves minText
+// characters of text, or else the last. Control characters are escaped and
+// line breaks become spaces, so that the line stays one line of the
+// message, and text is cut so that the line has at most maxErrorLine
+// characters. A tail too long for that is cut too.
+func Diagnostic(text string, tails ...string) string {
+	text = displayText(text)
+	tail := ""
+	for _, t := range tails {
+		tail = displayText(t)
+		if utf8.RuneCountInString(text)+utf8.RuneCountInString(tail) <= maxErrorLine || maxErrorLine-utf8.RuneCountInString(tail) >= minText {
+			break
+		}
 	}
-	return string(r) + tail
+	return cut(cut(text, maxErrorLine-utf8.RuneCountInString(tail))+tail, maxErrorLine)
+}
+
+// cut is s in at most n characters, with … for what is cut.
+func cut(s string, n int) string {
+	r := []rune(s)
+	switch {
+	case len(r) <= n:
+		return s
+	case n <= 0:
+		return ""
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // displayText is s on one line, without control characters or the
@@ -476,7 +497,7 @@ func displayText(s string) string {
 // message that keeps what e leaves out at its end.
 func errorLine(e *catalog.Error) string {
 	effect := e.Err.Effect()
-	return diagnostic(strings.TrimSuffix(e.Error(), effect), effect)
+	return Diagnostic(strings.TrimSuffix(e.Error(), effect), effect, e.Err.ShortEffect())
 }
 
 // otherErrors are the errors that the lines with a command to run don't
@@ -508,14 +529,15 @@ func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 		case m.Unapproved == creds.Declined:
 			continue
 		case m.Unapproved != "" && mayNeedSignIn(m.Server):
-			approval = append(approval, diagnostic(m.ID, " needs approval and may need sign-in: run ctxtra mcp approve "+m.ID+", then ctxtra mcp login "+m.ID))
+			// mcp login asks for approval first.
+			approval = append(approval, Diagnostic(m.ID, " needs approval and may need sign-in: run ctxtra mcp login "+m.ID))
 			continue
 		case m.Unapproved != "":
-			approval = append(approval, diagnostic(m.ID, " needs approval: run ctxtra mcp approve "+m.ID))
+			approval = append(approval, Diagnostic(m.ID, " needs approval: run ctxtra mcp approve "+m.ID))
 			continue
 		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
-			signIn = append(signIn, diagnostic(m.ID, " needs sign-in: run ctxtra mcp login "+m.ID))
+			signIn = append(signIn, Diagnostic(m.ID, " needs sign-in: run ctxtra mcp login "+m.ID))
 		}
 	}
 	return approval, signIn

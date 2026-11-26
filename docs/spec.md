@@ -1144,11 +1144,12 @@ the [notices](#notices):
 
 The hook reads only the state files: no key, no keychain, no network. A server that no session has tried yet
 has no state, and no line. A server that needs approval has its approval line instead. For a remote server, or
-one with `secret-env`, that line also says to sign in, since only a request tells whether it uses OAuth; deleting
-the state folder removes both approval and sign-in:
+one with `secret-env`, that line also says it may need sign-in, since only a request tells whether it uses OAuth,
+and names `ctxtra mcp login`, which asks for approval first. Deleting the state folder removes both approval and
+sign-in:
 
 ```text
-⚠ iam-team:jira needs approval and may need sign-in: run ctxtra mcp approve iam-team:jira, then ctxtra mcp login iam-team:jira
+⚠ iam-team:jira needs approval and may need sign-in: run ctxtra mcp login iam-team:jira
 ```
 
 The proxy records, per session folder, what the last session started there got from each bound server: its
@@ -1486,8 +1487,8 @@ and `doctor`. Doctor exits 1. The session message counts the errors and names th
 that starts with ⚠: first those with a command that fixes them (a profile, a source that can't be read, a repo set,
 a server to approve), then the others as `doctor` writes them, with their file and line. A last line says how many
 more errors `doctor` shows. Each line is one line of at most 240 characters, with control characters escaped. A longer
-line is cut before its end, which keeps the command to run or what is left out. `doctor` and the log have the whole
-text. A bad entry leaves out the smallest usable part:
+line is cut before its end, which keeps the command to run or what is left out; a name too long to repeat there is
+left out of it ("the binding is left out"). `doctor` and the log have the whole text. A bad entry leaves out the smallest usable part:
 
 | Error | Left out |
 |---|---|

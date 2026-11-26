@@ -108,8 +108,8 @@ func TestSummaryKeepsTheRepair(t *testing.T) {
 }
 
 // An unapproved server that may need sign-in once approved, a remote one or
-// one with secret values, says to sign in after approval; a local one
-// without secrets only to approve it.
+// one with secret values, names mcp login, which asks for approval first; a
+// local one without secrets only mcp approve.
 func TestSummaryApprovalThenSignIn(t *testing.T) {
 	testenv.Home(t)
 	res := &resolve.Result{MCPServers: []resolve.MCPServer{
@@ -119,8 +119,8 @@ func TestSummaryApprovalThenSignIn(t *testing.T) {
 	}}
 	got := Summary(res)
 	for _, want := range []string{
-		"\n⚠ team:jira needs approval and may need sign-in: run ctxtra mcp approve team:jira, then ctxtra mcp login team:jira\n",
-		"\n⚠ team:db needs approval and may need sign-in: run ctxtra mcp approve team:db, then ctxtra mcp login team:db\n",
+		"\n⚠ team:jira needs approval and may need sign-in: run ctxtra mcp login team:jira\n",
+		"\n⚠ team:db needs approval and may need sign-in: run ctxtra mcp login team:db\n",
 		"\n⚠ team:echo needs approval: run ctxtra mcp approve team:echo",
 	} {
 		if !strings.Contains(got, want) {
