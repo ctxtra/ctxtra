@@ -633,8 +633,8 @@ bindings:
 - A binding entry that names a collection the source doesn't have, or a source without a manifest, is an
   error, and the rest of the binding applies.
 - Each collection is read once per session, however many bindings and collections nest it, and expanded
-  once for each set of `!` entries that leave out collections nested in it. Past 10,000 expansions, a
-  collection adds nothing, with an error.
+  once for each set of `!` entries that leave out collections nested in it. Past 10,000 new expansions
+  for one binding's collections, a collection adds nothing, with an error.
 
 ## Order and capacity guard
 

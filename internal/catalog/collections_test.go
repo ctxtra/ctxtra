@@ -77,6 +77,11 @@ func TestEachCollectionIsExpandedOnce(t *testing.T) {
 		if len(x.Errors) != 1 || !strings.Contains(x.Errors[0].Error(), "need more than 3 expansions") {
 			t.Errorf("errors %v", x.Errors)
 		}
+		// Running out is not kept: the next evaluation has its own budget.
+		maxExpansions = 100
+		if x, _ := c.Expand(list); len(x.Errors) != 0 || len(x.Files) != 2 {
+			t.Errorf("again: files %v, errors %v", refs(x.Files), x.Errors)
+		}
 	})
 }
 

@@ -41,8 +41,9 @@ type Catalog struct {
 	store *storeUse
 	// colls are the collections read, by their definition.
 	colls map[*config.Collection]*coll
-	// expansions counts the expansions of collections, up to
-	// maxExpansions; tooMany is the error of the ones past it.
+	// expansions counts the expansions of collections in the current
+	// evaluation, up to maxExpansions; tooMany is the error of the ones
+	// past it.
 	expansions int
 	tooMany    *Error
 }

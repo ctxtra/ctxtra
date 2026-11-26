@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -252,6 +253,31 @@ func TestCollectionExclusions(t *testing.T) {
 		eq(t, "skills", skillNames(res), "release")
 		eq(t, "servers", served(res), "jira")
 	})
+}
+
+// Each evaluation of collections has its own budget of expansions: doctor
+// checks every binding alone, and they don't add up.
+func TestCollectionBudgetPerEvaluation(t *testing.T) {
+	h := newHome(t)
+	h.write("a.md", "A")
+	var conf strings.Builder
+	conf.WriteString("collections:\n  common: {collections: ['leaf*']}\n  suite: {collections: ['kit*']}\n")
+	for i := range 100 {
+		fmt.Fprintf(&conf, "  leaf%d: {instructions: [~/a.md]}\n  kit%d: {collections: [common]}\n", i, i)
+	}
+	conf.WriteString("bindings:\n")
+	for i := range 100 {
+		h.mkdir(fmt.Sprintf("project%d", i))
+		fmt.Fprintf(&conf, "  - {name: project%d, location: {dirs: ['~/project%d/**']}, collections: [suite, '!leaf%d']}\n", i, i, i)
+	}
+	env := h.load(conf.String())
+	res := start(env, h.path("project0"), "")
+	noErrors(t, res)
+	eq(t, "applied", applied(res), "project0")
+	eq(t, "files", bases(res.Files), "a.md")
+	for _, e := range env.OtherErrors(res) {
+		t.Errorf("doctor: %v", e)
+	}
 }
 
 // The config's own collections: one set for several bindings.

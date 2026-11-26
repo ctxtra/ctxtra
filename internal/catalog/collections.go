@@ -132,12 +132,14 @@ type coll struct {
 	reachDone bool
 	// nests caches whether a ! entry names a collection in reach.
 	nests map[string]bool
+	// recorded: the errors of its own ! entries are in errs.
+	recorded bool
 }
 
-// maxExpansions bounds the expansions of collections that one catalog
-// makes: one per collection and set of ! entries of the collections that
-// contain it. Scoped ! entries in many nested collections could make
-// their number grow with every level.
+// maxExpansions bounds the expansions of collections that one evaluation,
+// a binding's collections or one collection, makes: one per collection and
+// set of ! entries of the collections that contain it. Scoped ! entries in
+// many nested collections could make their number grow with every level.
 var maxExpansions = 10000
 
 const (
@@ -209,6 +211,7 @@ func matches(e config.Entry, k *coll) bool {
 // entry matches by pattern comes in name order. errs are the errors of the
 // list's own entries.
 func (c *Catalog) Expand(list []config.Entry) (*Expansion, []EntryError) {
+	c.evaluate()
 	x := &Expansion{}
 	var errs []EntryError
 	var not []config.Entry
@@ -259,6 +262,7 @@ func (c *Catalog) Expand(list []config.Entry) (*Expansion, []EntryError) {
 // Collection is what collection name of source src adds by itself, the
 // config's own when src is "", and whether it exists.
 func (c *Catalog) Collection(src, name string) (*Expansion, bool) {
+	c.evaluate()
 	e := config.Entry{Text: name, Value: name}
 	if src != "" {
 		e.Text, e.InSource, e.Source = src+":"+name, true, src
@@ -537,21 +541,27 @@ func (c *Catalog) flat(k *coll, not []config.Entry) *Expansion {
 	if k.memos == nil {
 		k.memos = map[string]*Expansion{}
 	}
-	var x *Expansion
 	if c.expansions >= maxExpansions {
 		if c.tooMany == nil {
 			c.tooMany = &Error{File: k.file, Err: &yamlx.Error{Pos: k.def.Pos, Mistake: yamlx.BrokenGroup,
 				Part: yamlx.Part{Kind: "collection", Name: k.def.Name},
 				Msg:  fmt.Sprintf("its nested collections and their ! entries need more than %d expansions", maxExpansions)}}
 		}
-		x = &Expansion{Errors: []*Error{c.tooMany}}
-	} else {
-		c.expansions++
-		x = c.expand(k, count, key == "")
+		return &Expansion{Errors: []*Error{c.tooMany}}
 	}
-	k.memos[key] = x
+	c.expansions++
+	x := c.expand(k, count, key == "")
+	// What an evaluation past its budget expanded is not kept: the next
+	// evaluation has a budget of its own.
+	if c.tooMany == nil {
+		k.memos[key] = x
+	}
 	return x
 }
+
+// evaluate starts an evaluation of collections, with its own budget of
+// expansions. Expansions kept from earlier ones are reused.
+func (c *Catalog) evaluate() { c.expansions, c.tooMany = 0, nil }
 
 // expand is flat without reuse: k's nested collections, in list order,
 // then its own entries, minus its ! entries. With record, ! entries that
@@ -590,9 +600,10 @@ func (c *Catalog) expand(k *coll, not []config.Entry, record bool) *Expansion {
 	x.Servers = slices.DeleteFunc(x.Servers, func(s Server) bool {
 		return slices.ContainsFunc(k.notServers, func(e config.Entry) bool { return drop(e, ServerExcluded(e, s)) })
 	})
-	if !record {
+	if !record || k.recorded || c.tooMany != nil {
 		return x
 	}
+	k.recorded = true
 	for _, e := range slices.Concat(k.notFiles, k.notSkills, k.notServers) {
 		if !removed[e.Text] {
 			k.fail(e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
