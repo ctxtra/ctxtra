@@ -69,11 +69,14 @@ func (r *Repo) FetchTag(ctx context.Context, tag string) (string, error) {
 	return commit, nil
 }
 
-// ResolveRev fetches rev, any revision the remote has, and returns its full
-// commit ID: a full or short commit ID, a tag or a branch, each with the
+// ResolveRev fetches rev, any revision the remote has that names one
+// commit, and returns its full commit ID: a full or short commit ID, a tag,
+// a branch, HEAD, refs/heads/NAME or refs/tags/NAME, each with the
 // suffixes that walk history (main~1, v1.4^2, v1^{commit}). A full ID is
-// fetched alone; anything else needs the remote's branches and tags, which
-// are fetched into a private namespace that rev's name is looked up in.
+// fetched alone; anything else needs the remote's refs, which are fetched
+// into a private namespace that rev's name is looked up in. An unqualified
+// name is a tag, else a branch, else a short ID, and the suffix applies to
+// that one only.
 func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 	if ValidCommit(rev) {
 		if err := r.FetchCommit(ctx, rev); err != nil {
@@ -85,9 +88,9 @@ func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 	if i := strings.IndexAny(rev, "~^"); i >= 0 {
 		name, suffix = rev[:i], rev[i:]
 	}
-	if name == "" || strings.HasPrefix(name, "-") || !reRevSuffix.MatchString(suffix) ||
-		(CheckBranch(name) != nil && CheckTag(name) != nil && !reHexRev.MatchString(name)) {
-		return "", fmt.Errorf("%q is not a revision ctxtra accepts: give a commit ID, a tag or a branch, with ~N or ^N after it if you like", rev)
+	bad := fmt.Errorf("%q is not a revision ctxtra accepts: give a commit ID, a tag, a branch or HEAD, with ~N or ^N after it if you like", rev)
+	if !revName(name) || !reRevSuffix.MatchString(suffix) {
+		return "", bad
 	}
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
@@ -106,20 +109,53 @@ func (r *Repo) ResolveRev(ctx context.Context, rev string) (string, error) {
 			_, _ = r.git(ctx, true, bytes.NewReader(out), "update-ref", "--stdin")
 		}
 	}()
-	if err := r.fetch(ctx, r.URL, "+refs/heads/*:"+ns+"/heads/*", "+refs/tags/*:"+ns+"/tags/*"); err != nil {
+	specs := []string{"+refs/heads/*:" + ns + "/heads/*", "+refs/tags/*:" + ns + "/tags/*"}
+	if name == "HEAD" {
+		specs = append(specs, "+HEAD:"+ns+"/HEAD")
+	}
+	if err := r.fetch(ctx, r.URL, specs...); err != nil {
 		return "", err
 	}
-	// A tag or a branch first: a name of hex digits could also be a short ID.
-	bases := []string{ns + "/tags/" + name, ns + "/heads/" + name}
-	if reHexRev.MatchString(name) {
-		bases = append(bases, strings.ToLower(name))
-	}
-	for _, base := range bases {
-		if c, err := r.commit(ctx, base+suffix); err == nil {
-			return c, nil
+	var bases []string
+	switch {
+	case name == "HEAD":
+		bases = []string{ns + "/HEAD"}
+	case strings.HasPrefix(name, "refs/"):
+		bases = []string{ns + "/" + strings.TrimPrefix(name, "refs/")}
+	default:
+		bases = []string{ns + "/tags/" + name, ns + "/heads/" + name}
+		if reHexRev.MatchString(name) {
+			bases = append(bases, strings.ToLower(name))
 		}
 	}
+	for _, base := range bases {
+		if _, err := r.commit(ctx, base); err != nil {
+			continue
+		}
+		c, err := r.commit(ctx, base+suffix)
+		if err != nil {
+			return "", fmt.Errorf("%s has no commit %s", r.URL, rev)
+		}
+		return c, nil
+	}
 	return "", fmt.Errorf("%s has no commit %s (or a short ID is ambiguous: give more digits)", r.URL, rev)
+}
+
+// revName reports whether name can start a revision for ResolveRev: HEAD, a
+// branch or tag name, qualified with refs/heads/ or refs/tags/ or not, or
+// hex digits of a commit ID.
+func revName(name string) bool {
+	switch {
+	case name == "HEAD":
+		return true
+	case strings.HasPrefix(name, "refs/heads/"):
+		return CheckBranch(strings.TrimPrefix(name, "refs/heads/")) == nil
+	case strings.HasPrefix(name, "refs/tags/"):
+		return CheckTag(strings.TrimPrefix(name, "refs/tags/")) == nil
+	case strings.HasPrefix(name, "refs/"), strings.HasPrefix(name, "-"):
+		return false
+	}
+	return CheckBranch(name) == nil || CheckTag(name) == nil || reHexRev.MatchString(name)
 }
 
 // TagHead is the commit that tag points to in the remote, through an

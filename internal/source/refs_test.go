@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,15 +65,32 @@ func TestResolveRev(t *testing.T) {
 	for _, c := range []struct{ rev, want string }{
 		{second, second}, {first[:9], first}, {strings.ToUpper(first[:9]), first}, {"v1", first}, {"side", first}, {"main", second},
 		{"main~1", first}, {"main^", first}, {"v1+build", second}, {"v1+build~1", first}, {"v1^{commit}", first}, {second[:9] + "~1", first},
+		{"HEAD", second}, {"HEAD~1", first}, {"refs/heads/main~1", first}, {"refs/tags/v1", first}, {"refs/heads/side", first},
 	} {
 		if got, err := Open(url).ResolveRev(ctx, c.rev); err != nil || got != c.want {
 			t.Errorf("%s: %q, %v; want %q", c.rev, got, err, c.want)
 		}
 	}
-	for _, bad := range []string{"nope", "-x", "abc", "main~5", "main:a.md", "main@{1}", "~1", "main^{tree}", "--output=x"} {
+	for _, bad := range []string{"nope", "-x", "abc", "main~5", "main:a.md", "main@{1}", "~1", "main^{tree}", "--output=x",
+		"refs/remotes/origin/main", "refs/heads/-x", "refs/tags/v1~5"} {
 		if _, err := Open(url).ResolveRev(ctx, bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
+	}
+	// A tag and a branch with one name: the tag, and its suffix only. The tag
+	// is at the root commit, which has no parent: same~1 is no commit, even
+	// though the branch has one.
+	root := strings.TrimSpace(gitOutput(t, dir, "rev-list", "--max-parents=0", "HEAD"))
+	testenv.Run(t, dir, "git", "tag", "same", root)
+	testenv.Run(t, dir, "git", "branch", "same", second)
+	if got, err := Open(url).ResolveRev(ctx, "same"); err != nil || got != root {
+		t.Errorf("same: %q, %v; want the tag's %q", got, err, root)
+	}
+	if got, err := Open(url).ResolveRev(ctx, "same~1"); err == nil {
+		t.Errorf("same~1: %q; want an error, not the branch's parent", got)
+	}
+	if got, err := Open(url).ResolveRev(ctx, "refs/heads/same~1"); err != nil || got != first {
+		t.Errorf("refs/heads/same~1: %q, %v; want %q", got, err, first)
 	}
 	// The branches and tags it fetched to find the revision are not kept.
 	r := Open(url)
@@ -167,4 +185,13 @@ func TestSnapshot(t *testing.T) {
 	if Exists(StoreDir()) {
 		t.Error("a snapshot wrote to the store")
 	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

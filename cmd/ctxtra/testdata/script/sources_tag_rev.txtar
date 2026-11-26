@@ -74,6 +74,8 @@ exec git -C srv/obs rev-parse HEAD~1
 cp stdout older.txt
 exec ctxtra source add --repo $GITSRV/obs --rev main~1 --name older
 exec sh -c 'grep -q "rev: $(cat older.txt)" .config/ctxtra/config.yaml'
+exec ctxtra source add --repo $GITSRV/obs --rev HEAD~1 --name same
+stdout ', rev [0-9a-f]{40}, is the source pinned already$'
 exec ctxtra source add --repo $GITSRV/obs --rev v1+build --name built
 stdout '^added source built: '
 ! exec ctxtra source add --repo $GITSRV/obs --rev=--upload-pack=x --name bad
