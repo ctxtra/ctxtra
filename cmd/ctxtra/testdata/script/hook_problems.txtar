@@ -13,13 +13,18 @@ stdout '"systemMessage":"✓ ctxtra added 2 instructions; 1 error \(run ctxtra d
 stdout 'CTXMARK-NOTES'
 ! stdout 'CTXMARK-REPO'
 
-# A config with a wrong schema adds nothing.
+# A config with a wrong schema adds nothing. Setup refuses to run over it.
+cp .config/ctxtra/config.yaml good.yaml
 cp broken.yaml .config/ctxtra/config.yaml
 runhook claude-code SessionStart notes
 ! stdout 'CTXMARK'
 stdout 'systemMessage'
 ! exec ctxtra doctor
 stdout 'schema ctxtra/config/v9.*a config has schema: ctxtra/config/v1'
+! exec ctxtra setup --agent claude-code --dry-run
+stderr '^ctxtra setup: ~/.config/ctxtra/config.yaml: line 1: schema ctxtra/config/v9'
+! stdout .
+cp good.yaml .config/ctxtra/config.yaml
 
 # When the binary is gone, the hook command tells the user at session
 # start, and answers {} for a subagent. Set up from a copy of the binary,

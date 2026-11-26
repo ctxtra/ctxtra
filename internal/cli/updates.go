@@ -61,14 +61,14 @@ with 1 when a check fails.`,
 }
 
 func (a *app) checkUpdates(env *resolve.Env) int {
+	if err := env.Fatal(); err != nil {
+		return failEnv(a.IO, "check-updates", false, err)
+	}
 	for _, e := range env.Errors {
 		fmt.Fprintf(a.Err, "warning: %s\n", e)
 	}
 	checks := update.FromConfig(env.Config)
 	switch {
-	case configError(env) != nil:
-		fmt.Fprintln(a.Out, "nothing checked: the config can't be used (see the warning above)")
-		return 1
 	case !checks.Releases && len(checks.Sources) == 0:
 		fmt.Fprintln(a.Out, "nothing to check: the config has check-releases: false, and no repo source has update checks on")
 		return 0

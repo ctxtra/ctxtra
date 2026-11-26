@@ -19,12 +19,17 @@ func TestLoadMCPFromUnboundSourceCatalog(t *testing.T) {
 	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: [nonexistent-mcp], pass-env: [BUILD_HOST]}\n")
 	file := testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.invalid/context.git', branch: main}\n")
 	testenv.Write(t, lock.Path(file), "schema: ctxtra/lock/v1\nsources:\n  work:\n    repo: https://example.invalid/context.git\n    branch: main\n    commit: "+commit+"\n")
-	got := LoadMCP()
-	if !slices.Equal(got.EnvPass, []string{"BUILD_HOST"}) {
-		t.Fatalf("source-only setup: %+v", got)
+	got, err := LoadMCP()
+	if err != nil || !slices.Equal(got.EnvPass, []string{"BUILD_HOST"}) {
+		t.Fatalf("source-only setup: %+v %v", got, err)
+	}
+	// A config that can't be used is an error, with its file and line.
+	testenv.Write(t, file, "schema: ctxtra/config/v1\nsources: [\n")
+	if _, err := LoadMCP(); err == nil || !strings.Contains(err.Error(), "config.yaml: line 3") {
+		t.Fatalf("broken config: %v", err)
 	}
 	testenv.Write(t, file, "schema: [\n")
-	if got := LoadMCP(); len(got.EnvPass) != 0 {
-		t.Fatalf("invalid config still enables MCP: %+v", got)
+	if got, err := LoadMCP(); len(got.EnvPass) != 0 || err == nil {
+		t.Fatalf("invalid config still enables MCP: %+v %v", got, err)
 	}
 }

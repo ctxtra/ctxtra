@@ -18,7 +18,7 @@ import (
 // mcpOrphans are notices about stored credentials of source servers that
 // the config doesn't declare any more.
 func mcpOrphans(env *resolve.Env) []string {
-	if configError(env) != nil {
+	if env.Fatal() != nil {
 		return nil
 	}
 	ids, err := creds.Open().Identities()

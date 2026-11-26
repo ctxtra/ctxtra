@@ -53,12 +53,9 @@ agent: without it, bindings with agents don't apply. Reads local files only.`,
 
 func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
-	env := loadEnv()
-	if fatal := fatalErrors(env); len(fatal) > 0 {
-		for _, p := range fatal {
-			fmt.Fprintf(term.Writer{W: a.Err}, "error: %s\n", p)
-		}
-		return 1
+	env, err := readEnv()
+	if err != nil {
+		return failEnv(a.IO, "mcp status", false, err)
 	}
 	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName})
 	for _, e := range res.Errors {

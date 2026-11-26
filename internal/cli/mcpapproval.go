@@ -31,7 +31,7 @@ func (a *app) removeMCPLeftover(ref string, dryRun bool) error {
 				return fmt.Errorf("%s is declared by the source %s; change its bindings or remove the source instead", ref, scope)
 			}
 		}
-		if configError(env) != nil {
+		if env.Fatal() != nil {
 			return fmt.Errorf("cannot establish that %s is undeclared while the config has errors; fix it before cleanup", ref)
 		}
 		if dryRun {

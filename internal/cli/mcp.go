@@ -336,7 +336,8 @@ func mcpAdd(stdio IO, name, url string, command []string, o mcpAddOptions) int {
 // new pass-env name.
 func agentsNeedingSetup() []string {
 	setups, _, _ := state.LoadSetups()
-	mcp := setup.LoadMCP()
+	// A config that can't be used is reported where it is read.
+	mcp, _ := setup.LoadMCP()
 	var out []string
 	for _, a := range registry.All() {
 		m, ok := a.(agent.MCPAgent)
@@ -514,16 +515,9 @@ func (a *app) mcpListCmd() *cobra.Command {
 		Example: "  ctxtra mcp list\n  ctxtra mcp list --json",
 		Args:    noArgs,
 		RunE: a.run(func(*cobra.Command, []string) error {
-			env := loadEnv()
-			if fatal := fatalErrors(env); len(fatal) > 0 {
-				if asJSON {
-					writeJSON(a.Out, []mcpInfo{}, diagnostics("error", fatal))
-				} else {
-					for _, p := range fatal {
-						fmt.Fprintf(term.Writer{W: a.Err}, "error: %s\n", p)
-					}
-				}
-				return exitCode(1)
+			env, err := readEnv()
+			if err != nil {
+				return exitCode(failEnv(a.IO, "mcp list", asJSON, err))
 			}
 			servers, merrs := env.Catalog.AllServers()
 			out := mcpInfos(servers)
@@ -571,7 +565,11 @@ debug it: an agent that runs this command sees that output too.`,
 		Example: `  ctxtra mcp show pg`,
 		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			found, ok := loadEnv().Catalog.Server(args[0])
+			env, err := readEnv()
+			if err != nil {
+				return exitCode(failEnv(a.IO, "mcp show", false, err))
+			}
+			found, ok := env.Catalog.Server(args[0])
 			if !ok {
 				fmt.Fprintf(a.Err, "ctxtra mcp show: no MCP server %q in %s or the manifests of its sources\n", args[0], paths.Tilde(paths.ConfigPath()))
 				return exitCode(1)

@@ -562,7 +562,8 @@ func (r report) doctor(dir string, asJSON bool) int {
 	setups, _, _ := state.LoadSetups()
 	bin := running()
 	var agents []hookInfo
-	mcp := setup.LoadMCP()
+	// A config that can't be used is reported where it is read.
+	mcp, _ := setup.LoadMCP()
 	for _, a := range registry.All() {
 		known := setups.Known(a.Name(), a.ConfigPath())
 		st := a.Status(bin, known)

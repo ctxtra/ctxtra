@@ -57,39 +57,34 @@ func configFiles() edit.Files { return edit.Default(config.Options{Agents: regis
 // loadEnv reads the config and its lock the way sessions do.
 func loadEnv() *resolve.Env { return resolve.Load(paths.ConfigPath(), registry.Names()) }
 
-// configError is the error of a config that can't be read as a whole, nil
-// when it can.
-func configError(env *resolve.Env) error {
-	for _, e := range env.Config.Errors {
-		if e.Out() == yamlx.OutFile {
-			return fmt.Errorf("%s: %v; fix it first", paths.Tilde(env.Path), e)
-		}
-	}
-	return nil
+// readEnv is loadEnv for a command: a config or lock that can't be used
+// as a whole fails it, with resolve.FatalError, before it does anything.
+func readEnv() (*resolve.Env, error) {
+	env := loadEnv()
+	return env, env.Fatal()
 }
 
-// fatalErrors are the errors of the config and the lock that leave out the
-// whole file, with the file: a command that reads the config reports them
-// and fails.
-func fatalErrors(env *resolve.Env) []string {
-	var out []string
-	for _, e := range env.Config.Errors {
-		if e.Out() == yamlx.OutFile {
-			out = append(out, paths.Tilde(env.Path)+": "+e.Error())
+// failEnv reports err, the error of readEnv or of a command, and returns
+// the exit code: in JSON a fatal file is a document of its diagnostics.
+func failEnv(stdio IO, cmd string, asJSON bool, err error) int {
+	var fe *resolve.FatalError
+	switch {
+	case asJSON && errors.As(err, &fe):
+		writeJSON(stdio.Out, nil, diagnostics("error", fe.Msgs))
+	case errors.As(err, &fe):
+		for _, m := range fe.Msgs {
+			fmt.Fprintf(term.Writer{W: stdio.Err}, "ctxtra %s: %s; fix it first\n", cmd, m)
 		}
+	default:
+		fmt.Fprintf(stdio.Err, "ctxtra %s: %v\n", cmd, err)
 	}
-	for _, e := range env.Lock.Errors {
-		if e.Out() == yamlx.OutFile {
-			out = append(out, paths.Tilde(lock.Path(env.Path))+": "+e.Error())
-		}
-	}
-	return out
+	return 1
 }
 
 // load is the config for a command that changes it or its sources.
 func (s *sources) load() (*resolve.Env, error) {
 	env := resolve.Load(s.file, registry.Names())
-	return env, configError(env)
+	return env, env.Fatal()
 }
 
 // write changes the config and the lock, and says so when it creates the
@@ -790,7 +785,7 @@ func (s *sources) removeSource(name string, dryRun bool) error {
 func (s *sources) cleanStore() {
 	_ = s.files.Locked(func() error {
 		env := resolve.Load(s.file, registry.Names())
-		if configError(env) != nil || !env.Lock.Readable() {
+		if env.Fatal() != nil || !env.Lock.Readable() {
 			// A config or lock that can't be read may name anything: keep it all.
 			fmt.Fprintf(s.Err, "warning: %s or %s can't be read; the store is not cleaned\n", paths.Tilde(s.file), lock.FileName)
 			return nil
@@ -866,7 +861,7 @@ func info(env *resolve.Env, cs *catalog.Source) sourceInfo {
 func (s *sources) list(asJSON bool) int {
 	env, err := s.load()
 	if err != nil {
-		return s.fail("source list", err)
+		return failEnv(s.IO, "source list", asJSON, err)
 	}
 	if asJSON {
 		out := []sourceInfo{}
@@ -889,7 +884,7 @@ func (s *sources) list(asJSON bool) int {
 func (s *sources) show(name string, asJSON bool) int {
 	env, err := s.load()
 	if err != nil {
-		return s.fail("source show", err)
+		return failEnv(s.IO, "source show", asJSON, err)
 	}
 	cs := env.Catalog.Source(name)
 	if cs == nil {

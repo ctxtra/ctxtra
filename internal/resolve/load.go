@@ -2,12 +2,14 @@ package resolve
 
 import (
 	"os"
+	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -78,6 +80,36 @@ func load(path string, data []byte, err error, agents []string) *Env {
 	env.Catalog = catalog.New(env.Config, env.Lock, path)
 	env.Errors = append(env.Errors, env.Catalog.Errors()...)
 	return env
+}
+
+// FatalError is the errors of the config and the lock that leave out a
+// whole file: invalid YAML, another schema, a file that can't be read.
+type FatalError struct {
+	// Msgs are the errors, each with its file and line.
+	Msgs []string
+}
+
+func (e *FatalError) Error() string { return strings.Join(e.Msgs, "; ") + "; fix it first" }
+
+// Fatal is the FatalError of the files env read, nil when they can be
+// used. Commands fail with it before they do anything; sessions carry on
+// without the file.
+func (env *Env) Fatal() error {
+	var msgs []string
+	for _, e := range env.Config.Errors {
+		if e.Out() == yamlx.OutFile {
+			msgs = append(msgs, paths.Tilde(env.Path)+": "+e.Error())
+		}
+	}
+	for _, e := range env.Lock.Errors {
+		if e.Out() == yamlx.OutFile {
+			msgs = append(msgs, paths.Tilde(lock.Path(env.Path))+": "+e.Error())
+		}
+	}
+	if msgs == nil {
+		return nil
+	}
+	return &FatalError{msgs}
 }
 
 // reader is a reader with a session's limits that has counted what Load

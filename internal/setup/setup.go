@@ -33,14 +33,17 @@ type MCPConfig struct {
 	EnvPass []string // every local server's pass-env names
 }
 
-// LoadMCP reads the config the way sessions do.
-func LoadMCP() MCPConfig {
-	servers, _ := resolve.Load(paths.ConfigPath(), registry.Names()).Catalog.AllServers()
+// LoadMCP reads the config the way sessions do. The error is the
+// resolve.FatalError of a config or lock that can't be used as a whole:
+// setup then knows nothing of its servers.
+func LoadMCP() (MCPConfig, error) {
+	env := resolve.Load(paths.ConfigPath(), registry.Names())
+	servers, _ := env.Catalog.AllServers()
 	m := MCPConfig{}
 	for _, s := range servers {
 		m.EnvPass = append(m.EnvPass, s.EnvPass...)
 	}
-	return m
+	return m, env.Fatal()
 }
 
 // MCPKey is the key of an agent's MCP entry in setup.json.

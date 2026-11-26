@@ -352,7 +352,11 @@ func TestMCPNotices(t *testing.T) {
 	wantNotices(t, "no servers")
 	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
 	wantNotices(t, "servers added after setup")
-	o := setup.Options{Agents: []string{"claude-code"}, MCP: setup.LoadMCP()}
+	mcp, err := setup.LoadMCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := setup.Options{Agents: []string{"claude-code"}, MCP: mcp}
 	o.Binary = bin
 	if _, err := setup.Run(o); err != nil {
 		t.Fatal(err)

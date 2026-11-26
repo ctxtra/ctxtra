@@ -34,7 +34,11 @@ func setupHooks(stdio IO, o setup.Options) int {
 			fmt.Fprintln(stdio.Err, "warning:", w)
 		}
 	}
-	o.MCP = setup.LoadMCP()
+	mcp, err := setup.LoadMCP()
+	if err != nil {
+		return failEnv(stdio, "setup", false, err)
+	}
+	o.MCP = mcp
 	r, err := setup.Run(o)
 	if err != nil {
 		fmt.Fprintf(stdio.Err, "ctxtra setup: %v\n", err)
