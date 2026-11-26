@@ -11,17 +11,15 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/oauth"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
-	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 func TestMCPShowSanitizesSourceBeforeApproval(t *testing.T) {
 	h := testenv.Home(t)
-	commit := strings.Repeat("a", 40)
-	root := source.GenDir("https://example.com/context", commit)
-	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  build:\n    command: [missing-mcp, \"\\e]0;command\\a\"]\n    notes: \"\\e]0;notes\\a\\u202e\"\n")
-	// A pinned manifest is displayed even when it cannot be approved or run.
-	testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {git: https://example.com/context, branch: main, commit: '"+commit+"'}\n")
+	entry := lockedSource(t, "work", "https://example.com/context", map[string]string{
+		manifest.FileName: "schema: ctxtra/source/v1\nmcp-servers:\n  build:\n    command: [missing-mcp, \"\\e]0;command\\a\"]\n    notes: \"\\e]0;notes\\a\\u202e\"\n"})
+	// A manifest of a repo source is displayed even when it cannot be approved or run.
+	writeLock(t, testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.com/context', branch: main}\n"), entry)
 	var output bytes.Buffer
 	if n := Run([]string{"mcp", "show", "work:build"}, IO{In: strings.NewReader(""), Out: &output, Err: &output}, "test"); n != 1 {
 		t.Fatalf("unapproved show unexpectedly succeeded: %d, %s", n, &output)
@@ -41,10 +39,9 @@ func TestMCPShowSanitizesSourceBeforeApproval(t *testing.T) {
 
 func TestMCPStatusSanitizesUnapprovedCommand(t *testing.T) {
 	h := testenv.Home(t)
-	commit := strings.Repeat("b", 40)
-	root := source.GenDir("https://example.com/context", commit)
-	testenv.Write(t, filepath.Join(root, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  build:\n    command: [\"evil\\e]0;title\\a\\u009b2J\"]\n")
-	testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {git: https://example.com/context, branch: main, commit: '"+commit+"'}\nbindings:\n  - {name: global, mcp-servers: [work/build]}\n")
+	entry := lockedSource(t, "work", "https://example.com/context", map[string]string{
+		manifest.FileName: "schema: ctxtra/source/v1\nmcp-servers:\n  build:\n    command: [\"evil\\e]0;title\\a\\u009b2J\"]\n"})
+	writeLock(t, testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.com/context', branch: main}\nbindings:\n  - {name: global, mcp-servers: ['work:build']}\n"), entry)
 	var output bytes.Buffer
 	if n := Run([]string{"mcp", "status", h}, IO{Out: &output, Err: &output}, "test"); n != 0 || strings.ContainsAny(output.String(), "\x1b\x07\u009b") || !strings.Contains(output.String(), `evil\u001b]0;title\u0007\u009b2J`) {
 		t.Fatalf("unsafe status: %d, %q", n, output.String())

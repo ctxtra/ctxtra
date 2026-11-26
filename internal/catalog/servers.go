@@ -52,8 +52,11 @@ func (c *Catalog) Servers(e config.Entry) ([]Server, []error) {
 		out = append(out, found...)
 		errs = append(errs, ferrs...)
 	}
-	if !matched {
+	switch {
+	case !matched:
 		return nil, []error{fmt.Errorf("the config has no MCP server %s", e.Value)}
+	case len(out) == 0 && len(errs) == 0:
+		return nil, []error{fmt.Errorf("the config's MCP server %s has errors", e.Value)}
 	}
 	return out, errs
 }
@@ -109,8 +112,11 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) 
 		u.ID, u.Source, u.Origin, u.Pinned = ref, name, origin(s), !s.Live()
 		out = append(out, Server{Server: u, Refs: refs})
 	}
-	if !matched {
+	switch {
+	case !matched:
 		return nil, []error{fmt.Errorf("%s: source %s declares no MCP server %s", text, name, pattern)}
+	case len(out) == 0:
+		return nil, []error{fmt.Errorf("%s: the MCP server of source %s has errors", text, name)}
 	}
 	return out, nil
 }

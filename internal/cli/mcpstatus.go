@@ -54,6 +54,11 @@ agent: without it, bindings with agents don't apply. Reads local files only.`,
 func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
 	res := loadEnv().Resolve(resolve.Input{Dir: dir, Agent: agentName})
+	for _, e := range res.Errors {
+		if e.Err.Part.Kind == "MCP server" {
+			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
+		}
+	}
 	for _, t := range res.Trace {
 		if !t.Matched {
 			continue

@@ -94,7 +94,7 @@ func TestOnboardRerun(t *testing.T) {
 		t.Fatal(errOut)
 	}
 	testenv.Write(t, filepath.Join(h, "notes.md"), "notes")
-	if code, _, errOut := run("binding", "add", "notes", "--global", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
+	if code, _, errOut := run("binding", "add", "notes", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
 		t.Fatal(errOut)
 	}
 	testenv.Write(t, filepath.Join(h, ".claude", "CLAUDE.md"), "old rules")

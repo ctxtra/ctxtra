@@ -21,14 +21,10 @@ func TestCleanStoreKeepsAcceptedCommits(t *testing.T) {
 		testenv.Write(t, filepath.Join(g, "x.md"), "x")
 		os.Chtimes(g, old, old)
 	}
-	cfg := func(name, commit string) string {
-		p := filepath.Join(h, name)
-		testenv.Write(t, p, "schema: ctxtra/config/v1\nsources:\n  team: {git: '"+url+"', branch: main, commit: '"+commit+"'}\n")
-		return p
-	}
-	mine := cfg(".config/ctxtra/config.yaml", a)
+	mine := testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  team: {repo: '"+url+"', branch: main}\n")
+	writeLock(t, mine, "  team:\n    repo: "+url+"\n    branch: main\n    commit: "+a+"\n")
 	var out strings.Builder
-	s := &sources{IO: IO{Out: &out, Err: &out}, file: mine}
+	s := newSources(IO{Out: &out, Err: &out})
 	s.cleanStore()
 	for commit, want := range map[string]bool{a: true, b: false, c: false} {
 		if source.Has(url, commit) != want {

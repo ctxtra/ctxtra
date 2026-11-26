@@ -27,18 +27,17 @@ func TestShowSession(t *testing.T) {
 	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: me
-    match: {global: true}
     instructions: [~/ctx/me.md]
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/shared.md, ~/ctx/svc.md]
     skills: [~/skills/deploy]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/shared.md, ~/ctx/other.md]
     skills: [~/skills/deploy, ~/skills/lint]
   - name: third
-    match: {repos: [{remote: github.com/acme/third}]}
+    location: {repos: [github.com/acme/third]}
     instructions: [~/ctx/shared.md, ~/ctx/other.md, ~/ctx/svc.md, ~/ctx/third.md]
 `)
 
@@ -59,7 +58,7 @@ bindings:
 		}
 		// The file the session has from svc applies here too: listed
 		// without its text.
-		known := fmt.Sprintf("Files that ctxtra also adds for this repository, ~/dev/other, and all its worktrees, which this session already has:\n- %s (binding: other ", filepath.Join(h, "ctx", "shared.md"))
+		known := fmt.Sprintf("Files that ctxtra also adds for this repository, ~/dev/other, and all its worktrees, which this session already has:\n- %s (binding: other)", filepath.Join(h, "ctx", "shared.md"))
 		if !strings.Contains(out, known) {
 			t.Errorf("%v: no list of the files the session has\n%s", args, out)
 		}
@@ -81,13 +80,12 @@ bindings:
 	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/svc.md]
   - name: all
-    match: {global: true}
     instructions: [~/ctx/svc.md]
 `)
-	if _, out, _ := run("context", "show", other, "--exclude-session", svc); strings.Contains(out, "MARK-SVC") || !strings.Contains(out, "- "+filepath.Join(h, "ctx", "svc.md")+" (binding: all ") {
+	if _, out, _ := run("context", "show", other, "--exclude-session", svc); strings.Contains(out, "MARK-SVC") || !strings.Contains(out, "- "+filepath.Join(h, "ctx", "svc.md")+" (binding: all)") {
 		t.Errorf("global here, from a repository binding there:\n%s", out)
 	}
 	if _, out, _ := run("context", "show", other, "--exclude-session", h); !strings.Contains(out, "(nothing is added here beyond") {
@@ -96,10 +94,10 @@ bindings:
 	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/shared.md]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/other.md]
 `)
 
@@ -143,10 +141,10 @@ bindings:
 	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/big.md]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/big.md]
 `)
 	if _, out, _ := run("context", "show", other, "--exclude-session", svc); !strings.Contains(out, "MARK-BIG") || strings.Contains(out, "Files that ctxtra also adds") {
@@ -168,7 +166,7 @@ func TestShowLongTitle(t *testing.T) {
 	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: ["`+strings.ReplaceAll(file, "\x1b", `\e`)+`"]
 `)
 	for n := 1; ; n++ {

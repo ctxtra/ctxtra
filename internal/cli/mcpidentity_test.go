@@ -121,8 +121,8 @@ func TestMCPStatusReportsUnavailableReferencesLocally(t *testing.T) {
 	var output bytes.Buffer
 	a := &app{IO: IO{Out: &output}}
 	a.mcpStatus(h, "")
-	for _, ref := range []string{"build", "missing"} {
-		if !strings.Contains(output.String(), "unavailable MCP reference \""+ref+"\"") {
+	for _, ref := range []string{"MCP server build has errors", "no MCP server missing"} {
+		if !strings.Contains(output.String(), ref) {
 			t.Fatalf("unavailable reference %s not reported: %s", ref, &output)
 		}
 	}
