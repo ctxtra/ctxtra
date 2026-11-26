@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Symlink metadata traversal stays within each pattern's budget. Named reads avoid directory expansion.
 - Repo source symlinks matched by a glob or named directly are errors, including paths omitted during download.
   Other matching files still load.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.

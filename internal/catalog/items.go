@@ -33,6 +33,8 @@ const (
 // maxGlobEntries bounds the folder entries one pattern may visit.
 const maxGlobEntries = 10000
 
+var errGlobLimit = errors.New("the pattern visits more than 10,000 folder entries")
+
 // maxManifestBytes limits a manifest, which is read apart from the
 // session's files.
 const maxManifestBytes = 1 << 20
@@ -255,15 +257,15 @@ func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 // as the config names it.
 func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bool, links *symlinkTree) ([]string, []error) {
 	t := &tree{FS: fsys, root: root, trust: c.trust, live: live, virtual: fsys != nil, left: maxGlobEntries,
-		ids: map[string]fileID{}, skippedPaths: map[string]bool{}}
+		ids: map[string]fileID{}, skippedPaths: map[string]bool{}, pattern: hasMeta(pattern)}
 	if links != nil {
-		t.links, t.extraDirs = links.links, links.extraDirs
+		t.links, t.linkPaths = links.links, links.paths
 	}
 	if fsys == nil {
 		t.FS = os.DirFS(root)
 	}
 	what := map[Kind]string{Files: "file", Skills: "skill folder with a SKILL.md"}[kind]
-	if !hasMeta(pattern) {
+	if !t.pattern {
 		if t.match(pattern, kind) {
 			return []string{pattern}, nil
 		}
@@ -278,11 +280,20 @@ func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bo
 	}
 	var found []string
 	err := doublestar.GlobWalk(t, pattern, func(p string, d fs.DirEntry) error {
+		if t.left < 0 {
+			return errGlobLimit
+		}
 		if t.match(p, kind) {
 			found = append(found, p)
 		}
+		if t.left < 0 {
+			return errGlobLimit
+		}
 		return nil
 	}, opts...)
+	if t.left < 0 && err == nil {
+		err = errGlobLimit
+	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, append(t.skipped, err)
 	}
@@ -300,10 +311,13 @@ type tree struct {
 	trust *trust.Policy
 	live  bool
 	// virtual: the files are in FS only, not under root.
-	virtual   bool
-	links     map[string]bool
-	extraDirs map[string]map[string]fs.DirEntry
-	left      int
+	virtual     bool
+	pattern     bool
+	links       map[string]bool
+	linkPaths   []string
+	extraDirs   map[string]map[string]fs.DirEntry
+	virtualDirs map[string]bool
+	left        int
 	// skipped are the errors of entries left out, once each: folders the
 	// trust rules refuse, and entries that can't be read, such as a symlink
 	// to itself.
@@ -360,6 +374,12 @@ func (t *tree) match(p string, kind Kind) bool {
 	}
 	fi, err := stat(full)
 	if err != nil {
+		if kind == Skills && !t.live && os.IsNotExist(err) {
+			if linkErr := t.repoPathError(path.Join(p, "SKILL.md")); linkErr != nil {
+				t.skip(filepath.Join(full, "SKILL.md"), linkErr)
+				return false
+			}
+		}
 		t.skip(full, err)
 		return false
 	}
@@ -389,8 +409,12 @@ func (t *tree) statFS(full string) (fs.FileInfo, error) {
 		return nil, err
 	}
 	fi, err := fs.Stat(t.FS, rel)
-	if os.IsNotExist(err) && t.extraDirs[rel] != nil {
-		return virtualDir(path.Base(rel)), nil
+	if os.IsNotExist(err) {
+		if exists, lookupErr := t.virtualDirectory(rel); lookupErr != nil {
+			return nil, lookupErr
+		} else if exists {
+			return virtualDir(path.Base(rel)), nil
+		}
 	}
 	return fi, err
 }
@@ -406,14 +430,22 @@ func (t *tree) statStored(full string) (fs.FileInfo, error) {
 		parent = filepath.Dir(full)
 	}
 	if _, err := trust.Stored(t.root, parent); err != nil {
-		if os.IsNotExist(err) && t.extraDirs[rel] != nil {
-			return virtualDir(path.Base(rel)), nil
+		if os.IsNotExist(err) {
+			if exists, lookupErr := t.virtualDirectory(rel); lookupErr != nil {
+				return nil, lookupErr
+			} else if exists {
+				return virtualDir(path.Base(rel)), nil
+			}
 		}
 		return nil, err
 	}
 	fi, err := os.Lstat(full)
-	if os.IsNotExist(err) && t.extraDirs[rel] != nil {
-		return virtualDir(path.Base(rel)), nil
+	if os.IsNotExist(err) {
+		if exists, lookupErr := t.virtualDirectory(rel); lookupErr != nil {
+			return nil, lookupErr
+		} else if exists {
+			return virtualDir(path.Base(rel)), nil
+		}
 	}
 	if err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return nil, errSymlink
@@ -424,7 +456,7 @@ func (t *tree) statStored(full string) (fs.FileInfo, error) {
 func (t *tree) spend(n int) error {
 	t.left -= n
 	if t.left < 0 {
-		return errors.New("the pattern visits more than 10,000 folder entries")
+		return errGlobLimit
 	}
 	return nil
 }
@@ -523,9 +555,13 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 		t.skip(full, err)
 		return nil, nil
 	}
+	children, err := t.linkChildren(name)
+	if err != nil {
+		return nil, err
+	}
 	if !t.live && !t.virtual {
 		if _, err := trust.Stored(t.root, full); err != nil {
-			if !os.IsNotExist(err) || t.extraDirs[name] == nil {
+			if !os.IsNotExist(err) || len(children) == 0 {
 				t.skip(full, err)
 				return nil, nil
 			}
@@ -534,7 +570,7 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 	f, err := t.FS.Open(name)
 	var entries []fs.DirEntry
 	if err != nil {
-		if !os.IsNotExist(err) || t.extraDirs[name] == nil {
+		if !os.IsNotExist(err) || len(children) == 0 {
 			t.skip(full, err)
 			return nil, nil
 		}
@@ -550,6 +586,9 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 			return nil, nil
 		}
 	}
+	if err := t.spend(len(entries) + 1); err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	for i, entry := range entries {
 		seen[entry.Name()] = true
@@ -557,16 +596,13 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 			entries[i] = virtualDir(entry.Name())
 		}
 	}
-	for child, entry := range t.extraDirs[name] {
+	for child, entry := range children {
 		if !seen[child] {
 			entries = append(entries, entry)
 		}
 	}
 	if !t.live {
 		entries = slices.DeleteFunc(entries, func(d fs.DirEntry) bool { return strings.EqualFold(d.Name(), ".git") })
-	}
-	if err := t.spend(len(entries) + 1); err != nil {
-		return nil, err
 	}
 	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return entries, nil

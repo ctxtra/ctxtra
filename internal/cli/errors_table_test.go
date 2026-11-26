@@ -238,7 +238,13 @@ func TestErrorTableReports(t *testing.T) {
 				}
 				jsonArgs := append(slices.Clone(args), "--json")
 				code, out, errOut = run(jsonArgs...)
-				var doc struct{ Diagnostics []diagnostic }
+				var doc struct {
+					Data struct {
+						Sources  []sourceInfo
+						Bindings []traceInfo
+					}
+					Diagnostics []diagnostic
+				}
 				if err := json.Unmarshal([]byte(out), &doc); err != nil || code != wantCode {
 					t.Fatalf("%v: exit %d, parse error %v\n%s%s", jsonArgs, code, err, out, errOut)
 				}
@@ -247,6 +253,25 @@ func TestErrorTableReports(t *testing.T) {
 						return d.Severity == "error" && strings.Contains(d.Message, want)
 					}) {
 						t.Errorf("%v doesn't report error %q: %+v", jsonArgs, want, doc.Diagnostics)
+					}
+				}
+				if r.unavailable {
+					if slices.ContainsFunc(doc.Diagnostics, func(d diagnostic) bool { return d.Severity == "error" }) {
+						t.Errorf("%v reports an error for a source not on this machine: %+v", jsonArgs, doc.Diagnostics)
+					}
+					if args[0] == "doctor" {
+						if len(doc.Data.Sources) != 1 {
+							t.Fatalf("doctor sources: %+v", doc.Data.Sources)
+						}
+						src := doc.Data.Sources[0]
+						if src.Name != "team" || src.State != "not on this machine" || src.Location != "~/missing" || src.Why != "~/missing is not on this machine" {
+							t.Errorf("doctor unavailable source: %+v", src)
+						}
+					} else {
+						index := slices.IndexFunc(doc.Data.Bindings, func(b traceInfo) bool { return b.Binding == "affected" })
+						if index < 0 || !slices.Equal(doc.Data.Bindings[index].Unavailable, []string{"team"}) {
+							t.Errorf("explain unavailable binding: %+v", doc.Data.Bindings)
+						}
 					}
 				}
 			}

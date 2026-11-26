@@ -46,26 +46,83 @@ func (s *Source) repoPathError(rel string) error {
 }
 
 type symlinkTree struct {
-	links     map[string]bool
-	extraDirs map[string]map[string]fs.DirEntry
+	links map[string]bool
+	paths []string
 }
 
 func newSymlinkTree(links []string) *symlinkTree {
 	if len(links) == 0 {
 		return nil
 	}
-	t := &symlinkTree{links: map[string]bool{}, extraDirs: map[string]map[string]fs.DirEntry{}}
+	t := &symlinkTree{links: make(map[string]bool, len(links)), paths: links}
 	for _, link := range links {
 		t.links[link] = true
-		for p := link; p != "."; p = path.Dir(p) {
-			dir := path.Dir(p)
-			if t.extraDirs[dir] == nil {
-				t.extraDirs[dir] = map[string]fs.DirEntry{}
-			}
-			t.extraDirs[dir][path.Base(p)] = virtualDir(path.Base(p))
-		}
 	}
 	return t
+}
+
+func (t *tree) virtualDirectory(name string) (bool, error) {
+	if !t.pattern || len(t.linkPaths) == 0 {
+		return false, nil
+	}
+	if exists, ok := t.virtualDirs[name]; ok {
+		return exists, nil
+	}
+	prefix := name + "/"
+	for _, link := range t.linkPaths {
+		if err := t.spend(1); err != nil {
+			return false, err
+		}
+		if strings.HasPrefix(link, prefix) {
+			if t.virtualDirs == nil {
+				t.virtualDirs = map[string]bool{}
+			}
+			t.virtualDirs[name] = true
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// linkChildren charges each examined record before allocating its child.
+// Only directories this pattern visits are retained, within its budget.
+func (t *tree) linkChildren(name string) (map[string]fs.DirEntry, error) {
+	if len(t.linkPaths) == 0 {
+		return nil, nil
+	}
+	if children, ok := t.extraDirs[name]; ok {
+		return children, nil
+	}
+	if err := t.spend(1); err != nil {
+		return nil, err
+	}
+	children := map[string]fs.DirEntry{}
+	prefix := ""
+	if name != "." {
+		prefix = name + "/"
+	}
+	for _, link := range t.linkPaths {
+		if err := t.spend(1); err != nil {
+			return nil, err
+		}
+		rest, ok := strings.CutPrefix(link, prefix)
+		if !ok {
+			continue
+		}
+		child, _, _ := strings.Cut(rest, "/")
+		if _, ok := children[child]; !ok {
+			children[child] = virtualDir(child)
+			if t.virtualDirs == nil {
+				t.virtualDirs = map[string]bool{}
+			}
+			t.virtualDirs[prefix+child] = true
+		}
+	}
+	if t.extraDirs == nil {
+		t.extraDirs = map[string]map[string]fs.DirEntry{}
+	}
+	t.extraDirs[name] = children
+	return children, nil
 }
 
 func (t *tree) repoPathError(rel string) error {
