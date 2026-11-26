@@ -1364,8 +1364,9 @@ doesn't:
   runs it reads that output. `ctxtra mcp status`, which the proxy's instructions point agents to, shows only
   a server's origin or program name, never a URL's path, its query or a command's arguments.
 - **Repo-source servers need local approval.** A source catalog can declare programs. The proxy runs them only
-  after explicit machine-local consent to the operational definition. Binding files can name servers but cannot
-  declare or override them. Trusted source and config definitions do not need this extra approval.
+  after explicit machine-local consent to the operational definition. Bindings, in the user's config, and source
+  collections select servers but cannot declare or override them. Config and dir-source definitions do not need
+  this extra approval.
 - **A problem in the proxy never fails a session:** a broken config, a failing server or missing credentials
   cost the tools they concern. Only a proxy that can't start at all, such as a moved ctxtra binary, stops a
   Codex session, whose entry is required.

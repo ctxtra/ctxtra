@@ -3,7 +3,8 @@
 ctxtra keeps config in `~/.config/ctxtra`, data and installed skills in `~/.local/share/ctxtra`,
 state and backups in `~/.local/state/ctxtra`, and clones in `~/.cache/ctxtra`, plus agent configs.
 `doctor`, `context`, `list` and `help` only read. Most dry runs write nothing. `source update --dry-run`
-also fetches and writes reviewed content and check results, without accepting or dismissing commits.
+needs the network and may fetch into the cache; it writes nothing outside the cache, and accepts or dismisses
+no commits.
 Absolute XDG variables can move these folders.
 
 When a change is blocked:
