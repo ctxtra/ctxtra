@@ -1,141 +1,93 @@
-# Sources and binding files on your disk: a plain binding file, your own
-# repository as a trusted source, and a folder.
-
+# Sources are explicit repositories or live folders. Only bindings choose
+# which sessions use their content.
 gitrepo dev/dotfiles git@github.com:me/dotfiles.git
 gitrepo srv/team
 
-# A binding file outside git is included as a plain path; the config is
-# created.
-exec ctxtra binding-file add .config/ctxtra/bindings.yaml
+exec ctxtra source add --dir dev/dotfiles --dry-run
+stdout '^would add source dotfiles: dir ~/dev/dotfiles, read live$'
+stdout '^nothing changed \(--dry-run\)$'
+! exists .config/ctxtra/config.yaml
+exec ctxtra source add --dir dev/dotfiles
 stdout '^created ~/.config/ctxtra/config.yaml$'
-stdout '^included bindings.yaml$'
-stdout '^  binding me: for every session$'
-stdout '^  trusted: changes apply right away$'
-exec ctxtra binding-file add .config/ctxtra/bindings.yaml
-stdout 'bindings.yaml is included already'
-exec ctxtra binding-file list
-stdout '^bindings.yaml \(bindings: me\)$'
-exec ctxtra binding-file list
-stdout '^bindings.yaml \(bindings: me\)$'
-
-# A binding file in a repository that isn't a source: binding-file add
-# never adds one; it names the commands that do.
-! exec ctxtra binding-file add dev/dotfiles/ctxtra/work.yaml
-stderr 'is in ~/dev/dotfiles, which isn''t a source'
-stderr '^  ctxtra source add git ~/dev/dotfiles --include ctxtra/work.yaml$'
-stderr '^  ctxtra source add trusted-path ~/dev/dotfiles --include ctxtra/work.yaml$'
-! grep dotfiles .config/ctxtra/config.yaml
-
-# As a pinned source: this clone's branch has no upstream, so it asks which
-# branch to follow.
-! exec ctxtra source add git dev/dotfiles
-stderr 'has no upstream on origin; choose the branch to follow with --branch'
-
-# Your own repository as a trusted source, with its binding file.
-exec ctxtra source add trusted-path dev/dotfiles --include ctxtra/work.yaml --dry-run
-stdout '^would add source dotfiles: trusted-path ~/dev/dotfiles, read from disk$'
-stdout '^would include ctxtra://dotfiles/ctxtra/work.yaml$'
-! grep dotfiles .config/ctxtra/config.yaml
-exec ctxtra source add trusted-path dev/dotfiles --include ctxtra/work.yaml
-stdout '^added source dotfiles \(trusted-path: ~/dev/dotfiles\); changes apply right away$'
-stdout '^included ctxtra://dotfiles/ctxtra/work.yaml$'
-stdout '^  binding work: for github.com/acme/\*\*$'
-stdout '^    instructions: work.md$'
+stdout '^added source dotfiles: dir ~/dev/dotfiles, read live; changes apply to new sessions right away$'
+stdout 'to read it live, run ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+exec ctxtra binding add work --repo 'github.com/acme/**' --instruction dotfiles:work.md
+stdout '^added binding work'
+stdout '^  instructions: dotfiles:work.md$'
 exec ctxtra context files notes
 ! stdout work.md
 
-# A folder.
-exec ctxtra source add trusted-path notes --name my-notes
-stdout '^added source my-notes \(trusted-path: ~/notes\); changes apply right away$'
-exec ctxtra source add trusted-path notes
-stdout 'is the trusted source my-notes already'
-! exec ctxtra binding-file add notes
-stderr 'is a folder'
-! exec ctxtra source add trusted-path notes/me.md
+# A folder without remotes is live without separate trust.
+exec ctxtra source add --dir notes --name my-notes
+stdout '^added source my-notes: dir ~/notes, read live; changes apply to new sessions right away$'
+cp .config/ctxtra/config.yaml before.yaml
+exec ctxtra source add --dir notes
+stdout 'is the source my-notes already'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra source add --dir notes/me.md
 stderr 'is not a folder'
-! exec ctxtra binding-file add ctxtra://dotfiles/../notes/me.md --dry-run
-stderr 'is not a path ctxtra can store'
-! exec ctxtra source add trusted-path dev/dotfiles --name x --include nope.yaml
-stderr 'nope.yaml is not a file in ~/dev/dotfiles; nothing added'
+! exec ctxtra binding add outside --instruction dotfiles:../notes/me.md --dry-run
+stderr 'leaves its source'
 
-# source update has nothing to do for trusted sources.
 exec ctxtra-tty source update
-stdout '^no pinned sources$'
+stdout '^no repo sources$'
 ! exec ctxtra-tty source update dotfiles
-stderr 'is a trusted-path source'
+stderr 'is a dir source'
 
-# A git source written by hand without a commit is inactive until you accept
-# its first commit, in a terminal.
+# A repo written by hand is inactive until the first accepted lock entry.
 expand handwritten.yaml .config/ctxtra/config.yaml
 ! exec ctxtra context files notes
-stderr 'ctxtra://team/a.md: the source team has no accepted commit yet; run: ctxtra source update team'
-exec ctxtra source update --check
-stdout '^team: no accepted commit yet; main is at [0-9a-f]{7}'
+stderr 'source team: ctxtra.lock has no accepted commit of it; run `ctxtra source update team`'
+exec ctxtra source update --dry-run
+stdout '^team: no accepted commit for it yet; main is at [0-9a-f]{7}'
 stdout '^\+team$'
-stdout '^team: not accepted \(--check\)'
-! exec ctxtra source restore team
-stderr 'no accepted commit yet'
+stdout '^team: not accepted \(--dry-run\)'
+! exec ctxtra source download team
+stderr 'ctxtra.lock has no accepted commit of it'
 stdin no.txt
 exec ctxtra-tty source update
 stdout '^not accepted; team has no accepted commit yet$'
 ! exec ctxtra context files notes
 stdin yes.txt
 exec ctxtra-tty source update
-stdout '^accepted team [0-9a-f]{7}, the first version'
+stdout '^accepted team [0-9a-f]{7} \(ctxtra.lock updated\)$'
 exec ctxtra context files notes
 stdout '/.local/share/ctxtra/store/.*/a.md'
 
-# Bad input. A path that doesn't exist is never tried as a URL.
-! exec ctxtra source add git file:///tmp/x
-stderr 'not a git URL ctxtra can fetch'
-! exec ctxtra source add git team/missing
-stderr 'team/missing is not a folder, and "team/missing" is not a git URL'
-! exec ctxtra source add git ./missing
-stderr 'no such file or directory'
-! exec ctxtra source add git $GITSRV/team
-stderr 'is the source team already'
-! exec ctxtra source add git $GITSRV/team/ --name dotfiles
-stderr 'a source named dotfiles already exists \(trusted-path ~/dev/dotfiles\)'
-! exec ctxtra source add git $GITSRV/x --remote origin
-stderr '--remote picks a remote of a clone'
+# Bad inputs never become guessed network addresses.
+! exec ctxtra source add --repo file:///tmp/x
+stderr 'not a git URL'
+! exec ctxtra source add --repo team/missing
+stderr 'is not in a git clone with a working tree'
+! exec ctxtra source add --repo ./missing
+stderr 'is not in a git clone with a working tree'
+cp .config/ctxtra/config.yaml before.yaml
+exec ctxtra source add --repo $GITSRV/team
+stdout 'is the source team already'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra source add --repo $GITSRV/team/ --branch other --name dotfiles
+stderr 'a source named dotfiles already exists \(dir ~/dev/dotfiles\)'
 
 -- no.txt --
 n
 -- yes.txt --
 y
 -- handwritten.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 sources:
   dotfiles:
-    trusted-path: ~/dev/dotfiles
+    dir: ~/dev/dotfiles
   team:
-    git: $GITSRV/team
+    repo: $GITSRV/team
     branch: main
-include: [bindings.yaml, team.yaml]
--- .config/ctxtra/team.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: team
-    match:
-      global: true
-    instructions: [ctxtra://team/a.md]
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/v1
 bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/notes/me.md]
+  - name: team
+    instructions: [team:a.md]
 -- notes/me.md --
 mine
--- dev/dotfiles/ctxtra/work.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: work
-    match:
-      repos:
-        - remote: github.com/acme/**
-    instructions: [../work.md]
 -- dev/dotfiles/work.md --
 work
 -- srv/team/a.md --

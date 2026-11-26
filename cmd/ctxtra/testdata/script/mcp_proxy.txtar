@@ -53,20 +53,20 @@ stdout '^server: ctxtra-proxy$'
 ! stdout '^tool'
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   svc: {command: [mcptest]}
   billing: {command: [mcptest, -tools, create-issue]}
 bindings:
   - name: svc
-    match: {dirs: ['~/dev/svc/**']}
+    location: {dirs: ['~/dev/svc/**']}
     instructions: [svc.md]
     mcp-servers: [svc]
   - name: billing
-    match: {repos: [{remote: github.com/acme/mono, subpath: services/billing/**}]}
+    location: {repos: [{repo: github.com/acme/mono, subdirs: [services/billing/**]}]}
     mcp-servers: [billing]
 -- .config/ctxtra/svc.md --
 CTXMARK-SVC
 -- broken.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers: [

@@ -130,13 +130,14 @@ cmp .config/devin/config.json commented.json
 }
 -- repo/.keep --
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include: [b.yaml]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: me
-    match: {global: true}
+    instructions: [~/me.md]
+-- .config/ctxtra/b.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
     instructions: [~/me.md]
 -- me.md --
 CTXMARK-ME

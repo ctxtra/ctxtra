@@ -74,11 +74,11 @@ exists claude-dir/.claude.json
 grep '"args": \[' claude-dir/.claude.json
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [pg-mcp]}
 -- empty.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 -- .claude.json --
 {
   "numStartups": 3,

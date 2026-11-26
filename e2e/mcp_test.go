@@ -27,13 +27,13 @@ func TestMCPInstructions(t *testing.T) {
 		// Servers are declared in the config itself, not in a binding file.
 		// A local server with tools too: Codex shows the instructions only
 		// with the tools of the server that sent them.
-		s.Write(".config/ctxtra/config.yaml", `schema: ctxtra/v1
+		s.Write(".config/ctxtra/config.yaml", `schema: ctxtra/config/v1
 mcp-servers:
   linear_work: {url: 'https://mcp.example.invalid/mcp'}
   probe: {command: [`+probeBinary(t)+`, mcp, -log, `+s.Path("probe.jsonl")+`]}
 bindings:
   - name: svc
-    match: {dirs: [~/dev/svc]}
+    location: {dirs: [~/dev/svc]}
     mcp-servers: [linear_work, probe]
 `)
 		s.Write(".local/state/ctxtra/mcp/state/linear_work.json",
@@ -41,7 +41,7 @@ bindings:
 		s.Setup()
 		r := s.Run(s.Path("dev/svc"), driver.Options{})
 		body, _ := json.Marshal(r.Requests[0].Body)
-		for _, want := range []string{"run `ctxtra mcp status` in the session folder",
+		for _, want := range []string{"run `ctxtra mcp status --agent " + a.Name() + "` in the session folder",
 			"linear_work needed sign-in at session start and had no tools then. If tools are still missing, the user runs `ctxtra mcp login linear_work`"} {
 			if !strings.Contains(string(body), jsonText(want)) {
 				t.Errorf("the model request lacks %q", want)

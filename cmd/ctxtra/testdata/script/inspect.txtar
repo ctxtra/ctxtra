@@ -11,32 +11,32 @@ stdout 'deploy'
 ! stdout 'other.md'
 
 exec ctxtra context show dev/svc
-stdout '^Contents of .*/ctx/svc.md \(instructions added by ctxtra for this repository, ~/dev/svc, and all its worktrees; binding: svc '
+stdout '^Contents of .*/ctx/svc.md \(instructions added by ctxtra for this repository, ~/dev/svc, and all its worktrees; binding: svc\):'
 stdout '^CTXMARK-SVC$'
 stdout '<location>.*/skills/deploy/SKILL.md</location>'
 
 exec ctxtra context explain dev/other
-stdout '^- svc \(~/.config/ctxtra/b.yaml\): repos do not match github.com/acme/other'
-stdout '^\+ other \(~/.config/ctxtra/b.yaml\): repos remote github.com/acme/other$'
+stdout '^- svc: location: no repos entry matches github.com/acme/other'
+stdout '^\+ other: location: repos github.com/acme/other matches github.com/acme/other$'
 stdout '^total: 1 files, 0 skills'
 
 exec ctxtra context files dev/other
 stdout '/ctx/other.md'
 ! stdout 'svc.md'
 
-# A file over budget.max-chars doesn't reach the session: each command says so
+# A file over max-ctx-chars doesn't reach the session: each command says so
 # and exits with 1.
 cp budget.yaml .config/ctxtra/config.yaml
 ! exec ctxtra context files dev/svc
-stderr '^dropped \(over budget.max-chars\): .*/ctx/svc.md$'
+stderr '^dropped \(over max-ctx-chars\): .*/ctx/svc.md$'
 ! exec ctxtra context files --json dev/svc
-stdout 'dropped \(over budget.max-chars\)'
+stdout 'dropped \(over max-ctx-chars\)'
 ! exec ctxtra context show dev/svc
-stderr '^dropped \(over budget.max-chars\): .*/ctx/svc.md$'
+stderr '^dropped \(over max-ctx-chars\): .*/ctx/svc.md$'
 ! exec ctxtra context explain dev/svc
-stdout 'dropped .*/ctx/svc.md \(over budget.max-chars\)'
+stdout 'dropped +.*/ctx/svc.md \(over max-ctx-chars\)'
 ! exec ctxtra doctor dev/svc
-stdout 'DROPPED \(over budget.max-chars\): .*/ctx/svc.md'
+stdout 'DROPPED \(over max-ctx-chars\): .*/ctx/svc.md'
 cp original.yaml .config/ctxtra/config.yaml
 
 # doctor checks the bindings that don't match its folder too. The context
@@ -44,28 +44,28 @@ cp original.yaml .config/ctxtra/config.yaml
 exec ctxtra doctor dev/svc
 cp broken.yaml .config/ctxtra/config.yaml
 ! exec ctxtra doctor dev/svc
-stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): missing: .*/ctx/gone.md'
-stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): missing: .*/skills/gone/SKILL.md'
-stdout 'PROBLEM: other \(~/.config/ctxtra/config.yaml\): .*/skills/broken/SKILL.md: .*; skipped'
+stdout 'ERROR: ~/.config/ctxtra/config.yaml: line 12: binding other: ~/ctx/gone.md is not a file'
+stdout 'ERROR: ~/.config/ctxtra/config.yaml: line 13: binding other: ~/skills/gone is not a skill folder with a SKILL.md'
+stdout 'ERROR: ~/.config/ctxtra/config.yaml: binding other: .*/skills/broken/SKILL.md: .*'
 ! stdout 'MISSING'
 ! exec ctxtra doctor --json dev/svc
-stdout '"severity": "error",\s+"message": "other \(~/.config/ctxtra/config.yaml\): missing: .*/ctx/gone.md"'
+stdout '"severity": "error",\s+"message": "~/.config/ctxtra/config.yaml: line 12: binding other: ~/ctx/gone.md is not a file; the entry is left out"'
 exec ctxtra context files dev/svc
 ! stderr .
 cp original.yaml .config/ctxtra/config.yaml
 
 -- broken.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match:
+    location:
       repos:
-        - remote: github.com/acme/svc
+        - github.com/acme/svc
     instructions: [~/ctx/svc.md]
   - name: other
-    match:
+    location:
       repos:
-        - remote: github.com/acme/other
+        - github.com/acme/other
     instructions: [~/ctx/other.md, ~/ctx/gone.md]
     skills: [~/skills/gone, ~/skills/broken]
 -- skills/broken/SKILL.md --
@@ -73,30 +73,38 @@ bindings:
 description: [
 ---
 -- budget.yaml --
-schema: ctxtra/v1
-budget:
-  max-chars: 5
+schema: ctxtra/config/v1
+max-ctx-chars: 5
 bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/ctx/svc.md]
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include: [b.yaml]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match:
+    location:
       repos:
-        - remote: github.com/acme/svc
+        - github.com/acme/svc
     instructions: [~/ctx/svc.md]
     skills: [~/skills/deploy]
   - name: other
-    match:
+    location:
       repos:
-        - remote: github.com/acme/other
+        - github.com/acme/other
+    instructions: [~/ctx/other.md]
+-- .config/ctxtra/b.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: svc
+    location:
+      repos:
+        - github.com/acme/svc
+    instructions: [~/ctx/svc.md]
+    skills: [~/skills/deploy]
+  - name: other
+    location:
+      repos:
+        - github.com/acme/other
     instructions: [~/ctx/other.md]
 -- ctx/svc.md --
 CTXMARK-SVC

@@ -12,18 +12,18 @@ stdout 'CTXMARK-NOTES'
 stdout 'CTXMARK-OWN'
 ! stdout 'CTXMARK-TEAM'
 ! stdout 'CTXMARK-DOT'
-stdout '"systemMessage":"✓ ctxtra added 2 instructions; 2 problems \(run ctxtra doctor\)\\nInstructions:\\n  local\\n  - ~/ctx/me.md\\n  - ~/own/own.md"'
+stdout '"systemMessage":"✓ ctxtra added 2 instructions; 3 errors \(run ctxtra doctor\)\\nInstructions:\\n  local\\n  - ~/ctx/me.md\\n  - ~/own/own.md"'
 
 ! exec ctxtra context files notes
-stderr 'problem: .*~/dev/team/team.md is in ~/dev/team, which has the remote github.com/acme/team and is not a trusted source; skipped. If only you push to the repository: ctxtra source add trusted-path ~/dev/team; else pin it: ctxtra source add git ~/dev/team'
-stderr 'problem: .*~/dev/dotfiles/ctxtra/work.yaml is in ~/dev/dotfiles'
+stderr 'error: .*~/dev/team/team.md is in ~/dev/team, which has the remote github.com/acme/team and is not a trusted source; skipped. To read it live, add the folder as a dir source and trust it: ctxtra source add --dir ~/dev/team, then ctxtra source trust NAME; to read reviewed commits: ctxtra source add --repo ~/dev/team'
+stderr 'error: .*~/dev/dotfiles/work.md is in ~/dev/dotfiles'
 
 ! exec ctxtra context explain notes
-stdout 'skip .*/dev/team/team.md \(not added; see problems\)'
+stdout 'error +.*~/dev/team/team.md is in ~/dev/team'
 
-# Trusting the dotfiles makes their binding file and everything in it live,
-# also through ctxtra://. The team repository stays untrusted.
+# Trusting the dotfiles makes their explicitly bound content live. The team repository stays untrusted.
 cp trusted.yaml .config/ctxtra/config.yaml
+exec ctxtra source trust dotfiles
 ! exec ctxtra context files notes
 stdout '/ctx/me.md'
 stdout '/dev/dotfiles/work.md'
@@ -33,48 +33,44 @@ stderr 'dev/team/team.md is in ~/dev/team'
 ! stderr 'dotfiles'
 
 ! exec ctxtra doctor notes
-stdout 'source dotfiles: trusted-path ~/dev/dotfiles'
+stdout 'source dotfiles: dir ~/dev/dotfiles'
 
 # A symlink in a trusted source can lead outside it, but only to a file that
 # is trusted on its own.
 symlink dev/dotfiles/own-link.md -> ../../ctx/outside.md
 symlink dev/dotfiles/team-link.md -> ../team/team.md
-cp links.yaml dev/dotfiles/ctxtra/work.yaml
+cp links.yaml .config/ctxtra/config.yaml
 ! exec ctxtra context files notes
 stdout '/ctx/outside.md'
 stderr 'dev/dotfiles/team-link.md leads through a symlink to ~/dev/team/team.md, which is in ~/dev/team'
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include: [b.yaml, ~/dev/dotfiles/ctxtra/work.yaml]
--- trusted.yaml --
-schema: ctxtra/v1
-sources:
-  dotfiles:
-    trusted-path: ~/dev/dotfiles
-include: [b.yaml, ctxtra://dotfiles/ctxtra/work.yaml]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/ctx/me.md, ~/own/own.md, ~/dev/team/team.md]
--- dev/dotfiles/ctxtra/work.yaml --
-schema: ctxtra/v1
-bindings:
   - name: work
-    match:
-      global: true
-    instructions: [ctxtra://dotfiles/work.md]
-    skills: [../skills/deploy]
+    instructions: [~/dev/dotfiles/work.md]
+    skills: [~/dev/dotfiles/skills/deploy]
+-- trusted.yaml --
+schema: ctxtra/config/v1
+sources:
+  dotfiles:
+    dir: ~/dev/dotfiles
+bindings:
+  - name: me
+    instructions: [~/ctx/me.md, ~/own/own.md, ~/dev/team/team.md]
+  - name: work
+    instructions: [dotfiles:work.md]
+    skills: [dotfiles:skills/deploy]
 -- links.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
+sources:
+  dotfiles:
+    dir: ~/dev/dotfiles
 bindings:
   - name: work
-    match:
-      global: true
-    instructions: [ctxtra://dotfiles/own-link.md, ctxtra://dotfiles/team-link.md]
+    instructions: [dotfiles:own-link.md, dotfiles:team-link.md]
 -- ctx/outside.md --
 CTXMARK-OUTSIDE
 -- ctx/me.md --

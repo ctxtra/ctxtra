@@ -1,4 +1,4 @@
-# Config spec: ctxtra/v1
+# Config spec: ctxtra/config/v1
 
 > **Preview.** The format may still change without a migration path. ctxtra does not protect you from the
 > content of the files you bind: an instruction file or skill is acted on like anything you type to the
@@ -8,16 +8,14 @@ For how this is meant to be used, step by step, see [scenarios.md](scenarios.md)
 
 ## Terms
 
-- **Session folder:** the folder an agent session starts in.
-- **Binding:** an entry of `bindings`, in the config or in a binding file. It says: in sessions that its
-  `match` block matches, add these instruction files and these skills.
-- **Binding file:** a YAML file with a list of bindings, which the config includes.
-- **Config:** the file that declares your sources, has bindings of its own, and includes binding files.
-- **Source:** a folder of your own files (trusted), or a git repository pinned to a commit you
-  accepted (pinned), declared in the config. Files in it are referenced as `ctxtra://<source>/<path>`.
+- Session folder: the folder where an agent session starts.
+- Config: the user's `config.yaml`. It declares sources, servers and ordered bindings.
+- Binding: conditions for a session, and the instructions, skills and servers to add there.
+- Source: a `repo` read at an accepted commit, or a `dir` read live.
+- Lock: `ctxtra.lock`, which records accepted commits for repo sources.
+- Manifest: a source's optional `ctxtra-source.yaml`. It describes content, never bindings.
 
-Instruction files are plain Markdown. Skills are folders with a `SKILL.md`, the same format other agent
-tools use. Neither has anything specific to ctxtra.
+Instructions are plain Markdown. Skills are folders with a `SKILL.md` file.
 
 ## File locations
 
@@ -26,7 +24,7 @@ The hook, MCP proxy and background checks use the same folders. `ctxtra doctor` 
 
 | Folder | Default | Variable | Holds |
 |---|---|---|---|
-| Config | `~/.config/ctxtra` | `XDG_CONFIG_HOME` | `config.yaml` |
+| Config | `~/.config/ctxtra` | `XDG_CONFIG_HOME` | `config.yaml`, `ctxtra.lock` |
 | Data | `~/.local/share/ctxtra` | `XDG_DATA_HOME` | accepted source content and installed skills |
 | State | `~/.local/state/ctxtra` | `XDG_STATE_HOME` | write locks, setup records, backups, MCP approvals and credentials, update results, hook slots and logs |
 | Cache | `~/.cache/ctxtra` | `XDG_CACHE_HOME` | git clones for fetching and review |
@@ -38,293 +36,205 @@ credentials, setup records and update results. `CTXTRA_LOG` still overrides the 
 
 ## Config
 
-`config.yaml` in the config folder: `~/.config/ctxtra/config.yaml` by default.
-There is one config path. `$CTXTRA_CONFIG` and `--config` are not supported.
+There is one config: `config.yaml` in the config folder. Bindings live only in this file.
+Relative paths start at its real folder, after symlinks. There is no `include`, alternate config flag or
+`CTXTRA_CONFIG` override.
 
 ```yaml
-schema: ctxtra/v1
-
+schema: ctxtra/config/v1
 sources:
+  team:
+    repo: git@github.com:acme/team-ctx.git
+    branch: main
   dotfiles:
-    trusted-path: ~/dev/dotfiles      # a repo of your own: read from disk, changes apply right away
-  team-ctx:
-    git: git@github.com:acme/team-ctx.git
-    branch: main                      # where source update looks for new commits
-    commit: '9f8e7d6c5b4a39281706f5e4d3c2b1a098765432'   # the accepted version; source update changes it
-    check-updates: true               # optional; sessions tell you about new commits (default: true)
-
-bindings:                             # your own bindings, see Binding file below
+    dir: ~/dev/dotfiles
+bindings:
   - name: me
-    match:
-      global: true
-    instructions:
-      - ~/agent-context/me.md          # relative paths are relative to this file's folder
-
-include:                              # binding files, applied after the bindings above, in this order
-  - bindings/personal.yaml            # relative to this file's folder
-  - ctxtra://dotfiles/ctxtra/go.yaml  # a file in the dotfiles source
-  - ctxtra://team-ctx/bindings/billing.yaml
-
-budget:
-  max-chars: 40000                    # optional; 0 or missing = no limit
-
-check-updates: false                  # optional; check for new ctxtra releases (default: true)
-summary-message:                      # optional; what the session summary lists
-  show-skills: false                  # default: true; also show-instructions
-  max-instructions: 10                # entries of each source (default: 30, 0 = only their number); also max-skills
+    instructions: [~/agent-context/me.md]
+  - name: work
+    location:
+      dirs: ['~/work/**', '!~/work/clients/**']
+      repos: ['github.com/acme/**']
+    instructions: ['team:docs/*.md']
+    skills: ['dotfiles:skills/*']
+  - name: review
+    agents: [claude-code, codex]
+    skills: ['dotfiles:skills/review']
+max-ctx-chars: 40000
+check-releases: false
+session-message:
+  max-instructions: 10
+  max-skills: 0
 ```
 
-Every key except `schema` is optional. A config with only `schema` and `bindings` is enough for your own
-files.
+Only `schema` is required. `ctxtra/config/v1`, `ctxtra/lock/v1` and `ctxtra/source/v1` are different
+file kinds. The earlier `ctxtra/config/v1` format is not read or converted.
 
-`ctxtra binding add NAME (--global | {--dir PATTERN | --repo PATTERN}...) {--instruction FILE | --skill DIR}... [--dry-run]`
-adds a binding to the config's own `bindings`, after the others. Paths are relative to the current folder
-and are written from `~` when they are under it; `ctxtra://` references are written as they are. The config
-is changed only when a session that the binding matches would get every file and skill in it: none is
-missing, each is trusted, and no other problem is new. `--dry-run` does the same checks and changes
-nothing. `ctxtra binding remove NAME` removes one of the config's own bindings, and `ctxtra binding list`
-lists every binding with the file it is in. A binding in a binding file, and a change to an existing
-binding, are edits by hand.
+Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
+Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
 
-`ctxtra binding-file add (FILE | ctxtra://SOURCE/PATH)` adds a binding file to `include`: a file on your
-disk in a trusted place, or a file of a source you have. It never adds, pins or trusts a source; for a file
-in a repository that isn't a source, it names the `ctxtra source add` commands that would add it.
-`ctxtra binding-file remove ENTRY` removes one entry, and `ctxtra binding-file list` lists them.
+`ctxtra binding add NAME --instruction FILE --skill DIR --mcp-server SERVER` adds a binding last.
+Each content flag is optional, but at least one is required. `--dir` and `--repo` are repeatable conditions;
+without either, the binding applies everywhere. Disk paths passed to the command are relative to the current
+folder and written as absolute paths, using `~` under home. Source references stay as written.
+The command refuses a binding whose content would be missing, untrusted or over capacity.
+`--dry-run` checks it and writes nothing. `ctxtra binding list` shows the entries as written;
+`ctxtra binding remove NAME` removes one. Adding the same binding again succeeds without writing.
+A different binding with that name is an error. Edit existing conditions in YAML.
+
+Writers keep text they do not change, including comments and order. A layout they cannot edit safely,
+such as a flow-style root, is refused with an explanation. Write that part in block style or edit it by hand.
+Config and lock writes share an operating-system lock in the state folder. Each writer re-reads both files,
+changes its own entries and replaces each file atomically. A symlinked config stays a symlink.
 
 ## Sources and trust
 
-ctxtra reads a file from disk only if the file is yours. A file counts as yours when it is:
+A source has exactly one of `repo` and `dir`. Files from a source use `SOURCE:PATH`.
+The path is relative to the source's top and cannot leave it with `..` or an absolute path.
+Paths starting with `./`, `/` or `~` always mean disk paths, even with a colon in the name.
+Other entries without a source prefix are relative to the config's real folder.
+A disk path never maps to a reviewed copy automatically.
 
-- outside git,
-- in a git repository with no remote, or
-- under a `trusted-path` source.
+### Live folders
 
-A file in a repository that has a remote and isn't a trusted source is skipped, with a problem that says
-how to trust the repository. Its content may come from other people, and a binding file there could add
-any file on your disk to the session. This covers binding files, instruction files and `SKILL.md` files.
-The config file itself is always read.
+```bash
+ctxtra source add --dir ~/dev/dotfiles
+ctxtra source trust dotfiles
+ctxtra binding add me --instruction dotfiles:agents/me.md
+```
 
-- `trusted-path` must be absolute or start with `~`. It is usually the top of a repository, but can be a
-  folder inside one: then only the files under that folder are trusted.
-- It trusts one repository. A repository nested below it (a submodule, a clone in a subfolder) needs its
-  own source, unless it has no remote. A file is read only if every repository around it is trusted.
-- Folders are compared as folders, not as text: `~/dev/dotfiles` doesn't cover `~/dev/dotfiles-evil`, and
-  a symlink to the folder or another spelling of it on a case-insensitive disk is the same folder. A second
-  clone or a worktree in another folder is a different folder: add it as its own source if you want it.
-- Symlinks are followed only when every symlink on the way, and the file it leads to, pass the same check.
-  A link in an untrusted repository can't lead to your files, and a link in your files can't lead into an
-  untrusted repository.
-- ctxtra finds repositories by reading `.git` and the repository's git config, without running git.
-  `[include]` and `[includeIf]` in a repository's config aren't supported. A repository it can't read counts
-  as untrusted.
+A `dir` is absolute or starts with `~`. Edits apply to new sessions immediately.
+With no remote in its repository, it needs no trust record. With remotes, `source trust NAME` records
+them on this machine. A change to the remotes stops live reading until the user trusts the folder again.
+`source trust --dry-run NAME` previews that consent. It never converts a repo source to a dir source.
 
-A source has a name (letters, digits, `.`, `_`, `-`) and exactly one kind: `trusted-path`, `git` or
-`local-git`.
+A disk file is read only when it is outside git, in a repository without remotes, or under a trusted dir source.
+The config itself is always read. A remote repository outside trusted dir sources is refused with an error
+and the commands for reviewed commits or live trust. A nested repository needs its own trust unless it has no
+remote. A source covers its folder, not another clone or a worktree elsewhere.
 
-`ctxtra://<source>/<path>` works in `include`, and in `instructions` and `skills` of any binding. The path as
-written must stay inside the source: `..` that leaves it, and absolute paths, are errors. For a trusted
-source it is the same as the path under the source's folder. A symlink there is followed by the rules
-above, so it can lead outside the source, but only to a file that is trusted on its own.
+Symlinks in live paths are followed only when every link and the destination pass the same trust check.
+A link in a trusted folder cannot make an untrusted file readable. A repo source leaves symlinks and
+submodules out. Repository trust is checked without running git; git config includes are not followed.
+
+A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
+`doctor` and `context explain` list it as not on this machine; the session message says nothing about it.
+A path that exists but is not a folder, or a repo path that is not a repository, is an error.
 
 ## Pinned sources
 
-A `git` source is a git repository, usually one that other people push to. ctxtra keeps its own copy, so you don't need a clone, and serves one
-commit of it: the one in `commit`. A new commit on the branch reaches your sessions only after you review
-and accept it with `ctxtra source update`, or after you change `commit` yourself.
-
-```text
-$ ctxtra source add git git@github.com:acme/team-ctx.git --include bindings/billing.yaml
-fetched team-ctx: main at abc1234 (git@github.com:acme/team-ctx.git)
-added source team-ctx (pinned: new commits apply after you accept them in ctxtra source update)
-included ctxtra://team-ctx/bindings/billing.yaml
-  binding billing: for github.com/acme/billing
-    instructions: services-overview.md
+```bash
+ctxtra source add --repo git@github.com:acme/team-ctx.git
+ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md
+ctxtra source update --dry-run team-ctx
+ctxtra source update team-ctx
+ctxtra source download
 ```
 
-- `git` is an `https://` or `ssh://` URL, or `user@host:path`. Other transports and local paths are errors.
-- `branch` is required. `source add git` uses the remote's default branch unless you pass `--branch`.
-- `commit` is a full commit ID in quotes: 40 hex digits, or 64 for SHA-256 repositories. A source without
-  `commit` is inactive until you accept its first commit with `ctxtra source update <name>` in a terminal;
-  `--check` shows that commit without accepting it.
-- **The first version is accepted without review**, the same decision as cloning the repository: read a
-  source repository before you add it. `source add git` and `source add local-git` show its bindings, its
-  executable files, and [content warnings](#content-warnings) for the files your config uses from it.
-- Accepting a commit accepts **every file in it**, also files the review lists only by name: a file you
-  reference later is used at once, without another review.
-- Anyone who can edit your config can choose the version, for example through a dotfiles repository that
-  others push to. A `commit` copied from another laptop was reviewed there.
-- A binding file in a pinned source may only reference files in the same source: relative paths, or
-  `ctxtra://` with its own name. Absolute paths, `~`, `..` that leaves the source and other sources are
-  errors, and the binding is skipped. A source repository can't add your files to a session, and can't
-  declare sources or include other files: only your config does.
-- Files are read from ctxtra's store (below), never from a clone. Symlinks and submodules in the
-  repository are left out.
-- Sessions never fetch. Unless `check-updates: false`, they tell you when the branch has new commits (see
-  [Update checks](#update-checks)); with checks off, run `ctxtra source update` regularly.
+A repo source has `repo` and `branch`. The address is an HTTPS or SSH URL, `user@host:path`, or an
+absolute or `~` path to a local repository. `source add --repo` accepts relative local paths too and writes
+them as absolute paths. Without `--branch`, it uses the remote's default branch, or the local clone's
+checked-out branch. A detached local clone needs `--branch`. Local sources follow that named branch,
+never its upstream or uncommitted files.
+
+`source add` accepts the first commit without review, as cloning does. Read the source before adding it.
+It writes the source and its accepted lock entry, lists executable files and source servers, and adds no binding.
+`--name NAME` chooses its local name; otherwise the repository or folder name is used. Adding the same
+repository and branch again succeeds without writing, even with another requested name. A taken name for
+different content is an error. `--check-updates=false` disables checks on a new repo source.
+
+Two repository addresses compare as lower-case `host/path`, without scheme, user, port, trailing `.git`
+or slash. Local paths compare by their real paths. The original spelling is kept for fetching.
+
+### The lock file
+
+`ctxtra.lock` lives next to the config's real file, after symlinks:
+
+```yaml
+schema: ctxtra/lock/v1
+sources:
+  team:
+    repo: git@github.com:acme/team-ctx.git
+    branch: main
+    commit: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432
+```
+
+Only repo sources have lock entries. Each records the address, branch and full commit ID: 40 hex digits,
+or 64 for a SHA-256 repository. Entries are sorted by source name, with keys in that order.
+A missing or mismatched entry makes the source inactive. Sessions report the source and the
+`ctxtra source update NAME` command that accepts a version. They never guess a commit.
+Changing a URL's spelling to the same repository does not invalidate the lock.
+
+Sessions read only downloaded locked commits. When one is missing, they name the source and say to run
+`ctxtra source download`. This downloads exactly the locked commits, asks nothing and leaves the lock
+unchanged. Sources not on this machine are skipped. Deleting the cache does not remove accepted content.
+
+Adding a source writes the lock before the config. Unused lock entries are removed on the next write.
+Update fetches and reviews outside the write lock. Before accepting it checks that the source and its
+lock entry have not changed during the review; otherwise it stops and asks the user to run it again.
 
 ### Commands
 
 | Command | Does |
 |---|---|
-| `ctxtra source add git URL [--branch BRANCH]` | Fetches the branch and adds the source with its current commit. |
-| `ctxtra source add git DIR [--remote REMOTE] [--branch BRANCH]` | Adds the repository that DIR is a clone of (below). |
-| `ctxtra source add local-git DIR` | Adds your clone as a `local-git` source (below). |
-| `ctxtra source add trusted-path DIR` | Adds a folder as a `trusted-path` source. |
-| `ctxtra source list`, `ctxtra source show NAME` | The sources and their state; one source with its binding files and clones. |
-| `ctxtra source update [--full] [NAME]...` | For each pinned source: makes sure the accepted commit is in the store, fetches the branch, shows what changed (below), and on `y` writes the new commit to the config. Only in a terminal. |
-| `ctxtra source update --check [--json] [NAME]...` | The same fetch and review, without accepting or dismissing anything. Works anywhere. |
-| `ctxtra source restore [NAME]...` | Fetches exactly the commits in the config, and changes nothing in it. Use it on a new laptop, or when the store is gone. It fails when a commit can't be fetched (removed by a force-push, or never pushed). |
-| `ctxtra source trust NAME [DIR]` | Converts a pinned source to `trusted-path` in place (below). |
-| `ctxtra source remove NAME` | Removes the source and its `include` entries, and lists the lines of your config and binding files that still use it. |
-| `ctxtra source check DIR [FILE]...` | Checks a source repository's binding files in a checkout, for maintainers and CI (below). |
+| `ctxtra source add --repo URL --branch BRANCH` | Fetch and accept a branch, and write its source and lock entry. |
+| `ctxtra source add --dir DIR` | Add a live folder. |
+| `ctxtra source list`, `ctxtra source show NAME` | Show sources and their state. Both take `--json`. |
+| `ctxtra source update [NAME]...` | Review branches and accept new commits in a terminal. |
+| `ctxtra source update --dry-run [NAME]...` | Review without accepting or dismissing. Takes `--json` and `--full`. |
+| `ctxtra source download [NAME]...` | Download exactly the lock's commits. |
+| `ctxtra source trust NAME` | Record a dir source's remotes for live reading. |
+| `ctxtra source remove NAME` | Remove the source and its lock entry; report bindings still using it. |
+| `ctxtra source validate DIR` | Validate the one manifest at DIR, without config, trust or network. |
 
-Every `source add` takes `--name NAME` (default: the repository or folder name), `--include PATH` to add
-binding files of the source to `include` in the same edit (repeatable), and `--dry-run`, which checks and
-fetches nothing. Without `--include`, it lists the binding files in the source. `source add git` and
-`source add local-git` check for new commits by default. Pass `--check-updates=false` to write
-`check-updates: false` for the new source. `--check-updates` does not change an existing source.
+`source add`, `source remove` and `source trust` take `--dry-run`. A source removal keeps the user's
+bindings and reports each dangling reference. Source credentials remain until explicitly removed.
 
-### A clone you already have
+### Source manifests
 
-```text
-$ ctxtra source add git ~/dev/team-ctx --include bindings/billing.yaml
-~/dev/team-ctx is a clone of git@github.com:acme/team-ctx.git, added as source team-ctx (pinned)
-starts at your local commit 9f8e7d6; later updates follow origin/main (remote not checked yet)
-included ctxtra://team-ctx/bindings/billing.yaml
-```
-
-- The source is a `git` source with the clone's remote and the upstream of its current branch, starting at
-  the clone's committed `HEAD`. Uncommitted changes are not used. Later, `source update` follows the remote
-  branch, not the clone. A clone with several remotes, or without an
-  upstream, needs `--remote` or `--branch`.
-- Paths under the clone in your own bindings keep working, and are served from the source:
-  `~/dev/team-ctx/jira-ticket.md` is `ctxtra://team-ctx/jira-ticket.md`, also after the clone moves or is
-  deleted. `doctor` suggests the `ctxtra://` form. This mapping is kept in `~/.local/state/ctxtra/mappings.json`, by
-  the source's name and URL; it is never guessed from a matching remote. A `trusted-path` source that covers
-  the folder comes first.
-- A missing file under the clone is skipped, not read from disk. When the source is removed, renamed or its
-  URL changes, paths under the clone are skipped with `not in the config any more`, not read from disk.
-  `ctxtra source remove` lists them.
-- If `mappings.json` is deleted, paths under old clones are ordinary paths again: checked as usual, and
-  skipped in a repository with a remote. If it is broken, ctxtra can't tell which paths were mapped: every
-  plain path outside your `trusted-path` sources is skipped, and ctxtra doesn't write the file, until you
-  fix or delete it.
-- Reading the clone never fetches: git runs without transports and without lazy fetching.
-- If the repository is yours (your dotfiles), `ctxtra source trust NAME` converts the source to
-  `trusted-path` under the same name, reading the clone: its `ctxtra://` references are read from disk from
-  then on. DIR can be left out when ctxtra knows exactly one clone of the source. Other clones mapped to it
-  stay mapped, and their paths stay skipped. `ctxtra source add trusted-path DIR --name OTHER` adds a
-  separate trusted source instead, and the pinned one stays: paths under the clone are then live,
-  `ctxtra://` references to the pinned source stay pinned. Use this to edit a source repository and see
-  your uncommitted changes.
-
-### Your clone, pinned
+A source may have `ctxtra-source.yaml` at its top. ctxtra never searches deeper for manifests.
+A source without one still works by file paths. A broken manifest leaves direct file references usable.
 
 ```yaml
-sources:
-  team-ctx-dev:
-    local-git: ~/dev/team-ctx
-    commit: '1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d'
+schema: ctxtra/source/v1
+mcp-servers:
+  jira:
+    url: https://mcp.atlassian.com/v1/mcp
+    notes: Choose the work account
 ```
 
-A `local-git` source is pinned like a `git` source, but `source update` follows the clone's committed `HEAD`
-(detached works too) instead of a remote: for trying your commits before you push them. ctxtra fetches the
-commit from the clone; it never copies the clone's working tree, index, config or hooks. It adds no mapping:
-reference its files as `ctxtra://team-ctx-dev/<path>`.
+A manifest can declare `mcp-servers`, `collections` and `repo-sets`. It cannot declare sources or bindings.
+Manifest paths refer only to files under that source; they cannot name another source or the user's disk.
+
+Collections and repo sets parse, but using them currently reports "not implemented yet".
+`tag`, `rev` and source `subdir` also parse but leave the source out with that error.
+Use branch sources and direct file, skill and server references for now.
 
 ### Check a source repository
 
-```text
-$ ctxtra source check .
-checked ~/dev/team-ctx as the source team-ctx
-  bindings/billing.yaml: 2 bindings
-error: billing (bindings/billing.yaml): missing: instructions/security.md
-warning: bindings/billing.yaml: line 9: instructions entry "drafts/*.md" (in "drafts"): glob matches no instructions
-1 error, 1 warning
+```bash
+ctxtra source validate .
+ctxtra source validate . --json
 ```
 
-`source check` reads the binding files in DIR, the top of the repository, the way sessions read them from
-a pinned source, with DIR in place of the accepted commit. It reports what someone who includes them would
-find broken:
-
-- Errors: a binding file that is skipped as a whole (broken YAML, a wrong `schema`, a key other than
-  `schema` and `bindings`, `sources`, `include` or `budget`); a binding that is skipped (an unknown key,
-  a broken `match` or pattern, a path outside the source, a reference to another source); a missing
-  instruction file or skill folder; a `SKILL.md` without frontmatter or `description`; two skills with the
-  same `name` in one binding; a path that a pinned source doesn't have: in `.git`, through a symlink
-  (also a glob's folder), or in a nested repository or submodule.
-- Warnings, after which the binding still applies: a glob that matches nothing, an exclusion that leaves
-  nothing out, and a `ctxtra://` reference to the source itself, which works only when users give the
-  source that name. A relative path works under any name.
-
-Without FILE, it checks every `.yaml` and `.yml` file in DIR with a top-level `schema: ctxtra/...` line,
-outside symlinks, `.git` and nested repositories; a YAML file it can't read is an error. FILE limits the
-check to those binding files, relative to DIR: use it when DIR has a YAML file with that line that isn't a
-binding file, an example config for instance.
-
-- `--name NAME` is the source name that `ctxtra://NAME/` references use. The default is DIR's folder name.
-  Every other source is an error, as in a pinned source.
-- It reads only DIR: not your config, sources, store or clones. It runs no git and fetches nothing, and
-  needs no trust: DIR can be a clone with a remote.
-- It reads the files on disk. An uncommitted or ignored file passes here, and is missing for others; in CI
-  the checkout is the commit.
-- Each binding file is read, and each binding checked as if it matched a session, with the limits of a
-  session of its own: users may include any one of them. Globs skip what a pinned source leaves out.
-- It checks that the files are usable, not what they say. It doesn't find unsafe instructions, prompt
-  injection, or risky skill scripts. It doesn't know which agents, budget or other bindings a user has, so
-  it says nothing about whether the text fits.
-- Exit codes: 0 without errors, also with warnings; 1 with an error, or when DIR has no binding files; 2
-  for a usage error. `--json` prints the result and every error and warning as `diagnostics`.
-
-In CI, for example GitHub Actions:
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: actions/setup-go@v5
-    with:
-      go-version: stable
-  - run: go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest   # or a fixed version
-  - run: ctxtra source check . --name team-ctx                     # the name users give the source
-```
+Validation reads only `DIR/ctxtra-source.yaml`. It checks YAML, names, keys, entry shapes and MCP
+definitions. Secret-looking header and environment values are warnings. Errors exit 1.
+It does not yet check the files named by collections, their skill headers, or whether their globs match.
+A missing manifest is an error. A symlinked manifest is refused, as it would be in a repo source.
 
 ### Review
 
-```text
-$ ctxtra source update
-team-ctx: abc1234 -> def5678 (main, git@github.com:acme/team-ctx.git)
-warning: binding billing in bindings/billing.yaml now applies to every session (was: github.com/acme/billing)
-diff --git a/bindings/billing.yaml b/bindings/billing.yaml
-...
-+Install the CLI: curl -fsSL https://get.example.com/cli.sh | sh
-warning: line 14: remote code: curl -fsSL https://get.example.com/cli.sh | sh
-warning: line 14: new URL: https://get.example.com/cli.sh
-also changed, not used by you:
-  changed  README.md
-  added    tools/setup.sh  executable
-Accepting accepts these files too: a file you reference later is used without review. ctxtra source update --full shows them, with content warnings.
-Accept? [y/N]
-```
+`source update` shows changes in every directly referenced file and every file inside a referenced skill,
+under all bindings, whether their conditions match now or not. Patterns select files at both the old and
+new commits, so additions and deletions are reviewed too. Newly broken references are errors in the review.
+Other changes are listed by filename; `--full` shows their contents too. A branch that no longer continues
+the accepted commit gets a force-push warning. Nothing is accepted until the user answers yes in a terminal.
 
-- Shown in full: the files your config uses from the source with the accepted commit or with the new one,
-  under any `match`. That is the binding files in `include`, every file and skill they reference, the
-  source's files and skills in your own bindings, and every file of a used skill. A reference that the new
-  commit removes shows too.
-- Every other changed file is listed by name with the kind of change: added, removed, changed, or mode.
-  `--full` shows them in full too.
-- A warning for every binding in the source's binding files whose `match` changes, and for every new one:
-  `match` decides which sessions get the files.
-- Errors in the source's binding files that the new commit brings, for example a path outside the source.
-- Content warnings (below) for the lines that the files shown in full add, each after its line.
-- The new commit is written to the store before the review. A commit over the limits fails there.
-
-`source update` asks only when stdin and stdout are a terminal, so you see what you accept; the question
-goes to stderr. Without a terminal, or with `--no-input`, it fails before it fetches, and `--check` does
-the fetch and the review without asking. There is no option that accepts without asking.
-
-When you answer `N`, ctxtra remembers the commit as dismissed. Sessions that use the source and
-`context files` say that the source has a newer commit you didn't accept, and `doctor` says
-`def5678 not accepted (dismissed)`. The next `source update` shows the review again. Input that ends without an answer decides nothing: no commit is accepted or dismissed.
+The question goes to stderr. Nonterminal use and `--no-input` fail before fetching; `--dry-run` reviews
+without asking. It currently also downloads the proposed commit and records check results.
+Answering no records a dismissed commit. Sessions using that source show a notice; the next review still
+offers it. Input ending without an answer accepts and dismisses nothing. Accepting writes `ctxtra.lock`.
+It accepts every file in the commit, including files the review lists only by name.
 
 ### Content warnings
 
@@ -345,15 +255,13 @@ for example.
 - `source update` checks only the lines that the files shown in full add, and shows each warning after its
   line: `warning: line 14: remote code: ...`. It reads the whole new file to know where a comment starts.
 - Files listed by name are not checked. `--full` shows and checks them.
-- `source add git` and `source add local-git` check every line of the files your config uses from the new
-  source: with `--include`, the binding files and every file and skill they reference. Without
-  `--include`, the config uses nothing from it yet, and nothing is checked. A file you reference later is
-  not checked.
+- `source add --repo` checks files already referenced under that source name by config bindings.
+  Add-time warnings for files offered by manifest collections are not implemented yet.
 - A file that isn't UTF-8 text, or has a NUL byte, is not checked, and the review says so:
   `note: not checked for content warnings: binary or not UTF-8`.
 - At most 50 warnings about a file's text are shown. A file with more gets a note with their number. A URL
   is new again in the next file when its warning wasn't shown.
-- `source update --check --json` lists them in `diagnostics`: `warning` with `SOURCE: PATH:LINE: CHECK: TEXT`,
+- `source update --dry-run --json` lists them in `diagnostics`: `warning` with `SOURCE: PATH:LINE: CHECK: TEXT`,
   or `SOURCE: PATH: new executable file`, and `notice` for a file that isn't checked or has more than 50.
 - Text from the files is shown with control and format characters escaped, as in the diff.
 - The checks are fixed patterns. They use no network and no model: the same commits give the same warnings.
@@ -382,9 +290,7 @@ commits: run `ctxtra source update` when you want to look.
 When a new commit doesn't continue the accepted one, `source update` warns: the branch was force-pushed.
 Accepting it is still your choice.
 
-The commands that change the config change it as text: they replace the `commit` value or add lines, and keep your
-comments and layout. In a flow-style map (`{...}`) they write the file again from its YAML, which keeps
-comments but not the layout. A changed config is checked before it is written, written atomically, and the
+A changed config is checked before it is written, written atomically, and the
 old one is kept in `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original
 file, pruning only after the config is successfully replaced or removed. Cleanup is best effort: a
 cleanup error can leave extra copies, but does not turn a completed config change into a failed one.
@@ -394,36 +300,32 @@ are resolved before hashing. Timestamps advance even if the clock moves backward
 A symlinked config stays a symlink, and its target path identifies its backups. Import backups and
 unrelated files are not pruned. Older config backups lack the full-path identity and are left alone,
 because their names can refer to several original paths. Remove them manually when no longer needed;
-agent config backups may contain tokens. If the source changed in the config while `source update`
-waited for your answer, nothing is accepted.
+agent config backups may contain tokens. If the source or its lock entry changed while review waited for an answer, nothing is accepted.
 
 ### Store
 
 - `~/.cache/ctxtra/git/<id>.git`: a bare repository per source.
 - `~/.local/share/ctxtra/store/<id>/<commit>/`: the files of each accepted commit, and of each commit `source update` showed you,
   private and read-only. Sessions
-  read only these, and only through `ctxtra://`: a plain path into the store is an error, because a
-  pinned source's binding file read that way could reference any file. A missing commit is reported
-  (`run: ctxtra source restore NAME`), and the references to it are skipped; the rest of the binding still
+  read only these, and only through `SOURCE:PATH`: plain paths into the store are errors. A missing commit is reported
+  (`ctxtra source download`), and the references to it are skipped; the rest of the binding still
   applies.
 - `<id>` comes from the URL: a source whose URL changes doesn't use the old data.
 - A commit is deleted from the store 30 days after the last session that used it started (`source update`
-  cleans up). The accepted commits in the config are never deleted. If the config
+  cleans up). Accepted commits in the lock are never deleted. If the config
   cannot be read, nothing is deleted. A session marks a commit as used before it reads from it; while
   cleaning decides about that commit, the session waits up to a second, and else skips the source's files
   for this session. A session that runs longer than 30 days on an old commit can lose its skill files.
 - `~/.local/state/ctxtra/state.json`: per source, the last fetch, the dismissed commit and what the update checks found;
   what the release check found. Losing it loses the notices.
-- `~/.local/state/ctxtra/mappings.json`: the folders of clones added as git sources (above).
 
 ### How ctxtra runs git
 
 - It runs your `git`, so ssh keys, the ssh agent and credential helpers work. Only `source add`,
-  `source update` and `source restore` fetch, and git may prompt there. Sessions never fetch. The
+  `source update` and `source download` fetch, and git may prompt there. Sessions never fetch. The
   [update checks](#update-checks) run `git ls-remote`, which reads only the branch's commit ID, and git may
   not prompt.
-- Only the https and ssh transports, and the file transport only to fetch from a clone you named (an
-  clone added as a git source, a `local-git` source). No hooks, no submodules, no automatic maintenance. Nothing is checked
+- Only the https and ssh transports, and the file transport only to fetch from a clone you named (a local repo source). No hooks, no submodules, no automatic maintenance. Nothing is checked
   out, so `.gitattributes` filters (git-lfs, smudge) never run. Diffs use no external diff and no textconv.
 - Environment variables that point git at another repository or config are cleared.
 - Every file path in a commit is checked before anything is written: no `..`, no `.git`, no control
@@ -441,8 +343,8 @@ nothing: you still upgrade ctxtra and review commits yourself.
 
 | Check | Default | Turn it on or off | What it asks |
 |---|---|---|---|
-| New ctxtra release | on | `check-updates: false` at the top of the config | GitHub's API, for the latest release (prereleases left out); from the `ctxtra-rc` formula, also for the list of releases, for the newest release candidate |
-| New commits of a source | on | `check-updates: false` on the source | the source's remote, with `git ls-remote` of its branch; a `local-git` source, the clone's `HEAD` |
+| New ctxtra release | on | `check-releases: false` at the top of the config | GitHub's API, for the latest release (prereleases left out); from the `ctxtra-rc` formula, also for the list of releases, for the newest release candidate |
+| New commits of a source | on | `check-updates: false` on the source | `git ls-remote` of the configured branch, remotely or in the named local clone |
 
 Sessions never wait for a check. At session start, the hook shows what earlier checks found, and starts a
 check in the background when the last one is an hour old. The background check runs as a separate
@@ -476,10 +378,10 @@ The notices go only to you, never to the model, in the agents that show a messag
 - `ctxtra check-updates` runs the checks now and shows their results. It exits with 1 when a check fails,
   or when it can't save the results for sessions.
 - `CTXTRA_NO_UPDATE_CHECK=1` stops the checks that sessions start when the hook inherits the variable.
-  Muse clears its hook environment: use top-level `check-updates: false` for release checks and
+  Muse clears its hook environment: use top-level `check-releases: false` for release checks and
   `check-updates: false` on each pinned source instead. Notices from earlier checks still show.
-- Only the config can turn checks on or off: a binding file can't have `check-updates`. A config that is
-  ignored as a whole (see [Validation](#validation)) runs no checks, because its `check-updates: false`
+- Only the config can turn checks on or off. A config that is
+  ignored as a whole (see [Validation](#validation)) runs no checks, because its `check-releases: false`
   may be what failed.
 
 What a check sends:
@@ -490,68 +392,68 @@ What a check sends:
   agent that asks for approval (for example 1Password) or a hardware key can still ask you to approve or
   touch it when a session starts. Set `check-updates: false` for such a source.
 
-## Binding file
+## Bindings and conditions
+
+Bindings are a list with unique names. Their order is the order of content in a session.
+Only the user's config decides conditions: a source cannot target sessions.
 
 ```yaml
-schema: ctxtra/v1
 bindings:
-  - name: soul                        # unique in this file
-    match:
-      global: true                    # every session
-    instructions:
-      - ~/agent-context/me.md
-  - name: work
-    match:                            # matches if ANY entry matches
-      dirs:
-        - ~/dev/work/**
+  - name: me
+    instructions: [~/agent-context/me.md]
+  - name: billing
+    location:
+      dirs: ['~/work/**', '!~/work/clients/**']
       repos:
-        - github.com/acme/**          # a remote pattern
-        - remote: github.com/acme/mono
-          subpath: services/billing/** # remote AND subpath
-    instructions:
-      - ../agents/work.md              # relative to this binding file's folder
-    skills:
-      - ~/skills/deploy               # a folder with a SKILL.md
+        - repo: github.com/acme/mono
+          subdirs: ['services/billing/**', '!services/billing/legacy/**']
+    agents: [claude-code, codex]
+    instructions: ['team:billing/*.md']
 ```
 
-A binding file has only `schema` and `bindings`. `sources`, `include` and `budget` work only in the
-config: in a binding file they are errors, and the whole file is skipped. Bindings in the config itself
-have the same keys.
+`location`, `profiles` and `agents` are conditions. All present conditions must hold. Inside each list,
+any positive entry holds, minus every quoted `!` entry. A missing condition does not limit the binding.
+A binding without conditions applies to every session. Empty conditions are errors, not defaults.
 
-## Match
+### Location
 
-`match` needs at least one key. The binding applies if **any** entry of **any** key matches. There is no
-default: a binding without `match` is an error, so a missing key never makes it apply to every session.
+Location has a folder check (`dirs`) and a repository check (`repos`). Either can make it hold.
+An exclusion affects only its own check. A list with only exclusions holds everywhere but those places.
+A bad positive entry matches nothing; a bad exclusion leaves out the binding so it cannot apply wider.
 
-| Key | Matches when |
-|---|---|
-| `global: true` | Always. `false` is an error: remove the key instead. |
-| `dirs` | A pattern matches the session folder, or, inside git, the repository's main checkout. The second case makes worktrees match wherever they are on disk. Each pattern is absolute or starts with `~`. Symlinks in the fixed part of a pattern are resolved. |
-| `repos` | The session is in a git repository with a remote that matches the entry. An entry is a remote pattern, or a map with `remote` and `subpath`: then, also, the session folder relative to the worktree top must match `subpath` (`.` at the top). |
+`dirs` entries are absolute or start with `~`. They match the session folder, or the repository's main
+checkout, so worktrees elsewhere still match. Symlinks in the fixed prefix are resolved.
+Folder comparisons follow the session volume's case rule. If that rule is unknown, positive checks
+compare exactly and exclusions ignore case, with a notice explaining it.
 
-Patterns use [doublestar](https://github.com/bmatcuk/doublestar) globs: `*` stays inside one path segment,
-`**` matches any number of segments, `x/**` also matches `x`, and `{a,b}` works. A pattern without `/**`
-matches only that exact folder.
+`repos` entries are `host/path` patterns or `{repo: PATTERN, subdirs: [PATTERN, ...]}`.
+The latter checks both the remote and the folder relative to the worktree top (`.` at its top).
+Only negative subdirs mean the rest of that repository. Remote forms compare by the same rule as sources.
+Any remote can match. A session outside git does not match a positive repos entry.
 
-For a submodule, the main checkout is the submodule's folder. For a repository made with
-`git init --separate-git-dir`, git doesn't record where the main checkout is, so `dirs` matches only the
-session folder there.
+Patterns use doublestar globs: `*` stays in one segment, `**` crosses segments, `x/**` includes `x`,
+and `{a,b}` selects alternatives. Without `/**`, a folder pattern matches only that folder.
+For submodules the main checkout is the submodule. With `git init --separate-git-dir`, it is unknown,
+so dirs checks only the session folder. If git does not answer within 3 seconds, the folder counts as outside git.
 
-If git doesn't answer within 3 seconds, the session counts as outside git: `repos` don't match, and every
-other binding still applies.
+### Profiles and agents
 
-Remotes are compared in a short, lower-case form: `git@github.com:Acme/Svc.git` and
-`https://github.com/acme/svc` are both `github.com/acme/svc`. A repository with several remotes matches if
-any of them matches.
+`agents: [claude-code, codex]` selects those agents, ignoring case. The IDs are the ones setup uses.
+An unknown ID leaves out the binding with an error. A subagent has its parent's agent ID.
+`agents: ['!cursor']` selects every other agent. `context files`, `context show`, `context explain`
+and `mcp status` take `--agent ID`. Without it, bindings with agents do not apply.
+
+`profiles` uses case-sensitive names and the same positive and negative rule. Profile selection and
+profile commands are not available yet. Sessions currently resolve with no active profiles, so a positive
+profile condition does not hold and an exclusion-only profile condition holds.
 
 ## Instructions and skills
 
-- `instructions` and `skills` are lists. A binding needs at least one of them.
-- Each path is absolute, starts with `~`, is relative to the folder of the file the binding is in (the
-  config or a binding file), or is a `ctxtra://<source>/<path>` reference.
-- `instructions` and `skills` support the same doublestar globs as `match`. Quote patterns in YAML
+- `instructions` and `skills` are lists. A binding can also add only MCP servers.
+- Each path is absolute, starts with `~`, is relative to the config's real folder, or is a `SOURCE:PATH` reference.
+- `instructions` and `skills` support the same doublestar globs as location. Quote patterns in YAML
   and on the command line, for example `instructions: ['agents/**/*.md']` or
-  `ctxtra binding add mine --global --instruction '~/agent-context/**/*.md'`. Skill patterns select folders containing a regular `SKILL.md`, so `skills/**` can select skills
+  `ctxtra binding add mine --instruction '~/agent-context/**/*.md'`. Skill patterns select folders containing a regular `SKILL.md`, so `skills/**` can select skills
   recursively without selecting their parent folders.
 - Glob metacharacters in a path are interpreted as patterns; for literal braces use character classes,
   for example `agents/[{]draft[}].md` to select `agents/{draft}.md`. Metacharacters in a resolved parent
@@ -571,12 +473,12 @@ any of them matches.
 - Glob expansion skips symlink entries and does not descend into symlinked folders. Symlinks in the
   fixed prefix retain the usual trust checks. Every local file still needs to be trusted.
 - Each pattern is limited to 10,000 directory entries and operations, with a maximum traversal depth of
-  64. A traversal error or exceeded limit skips the whole pattern, with a problem.
+  64. A traversal error or exceeded limit skips the whole pattern, with an error.
 - Pinned-source patterns expand only against the selected commit. `source update` reviews matching files from
   both the old and proposed commits, including newly matched files. Local patterns are expanded live:
   new matching files apply immediately. Use `context files`, `context show` or `context explain` to inspect the result.
-- Each file is added once per session, at its first position, and the same for each skill. Two skills with
-  the same `name`: the first is used, the other is reported.
+- Each file is added once per session, at its first position, and the same for each skill. Two different skills with
+  the same name both reach the session and produce a notice.
 - `SKILL.md` must start with YAML frontmatter that has a `description`. `name` is optional (default: the
   folder name). Other keys are ignored.
 - Claude Code, Codex, Muse, Cursor, Copilot, Antigravity, Hermes, DSH and Devin get the file contents and a list of the skills (name, description, path),
@@ -593,19 +495,20 @@ any of them matches.
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
   and their frontmatter has no effect. Setup leaves a folder there that isn't ctxtra's alone, with a warning.
 
-## Order and budget
+## Order and capacity guard
 
-Bindings apply in config order: the config's own `bindings`, then the bindings of each file in `include`,
-in order.
+Bindings apply in list order. Each file and each skill is added once, at its first position.
+Two distinct skills with the same name both reach the session and produce a notice.
 
-With `budget.max-chars`, whole files are dropped from the end until the added text fits. The budget counts
-characters (Unicode code points), not bytes, and covers the whole added text, headers included. The skill
-list is never dropped. `ctxtra context explain` shows what was dropped.
+`max-ctx-chars` is a guard against adding too much text, not a trimming setting. It counts Unicode code
+points, headers included. Zero or missing means no configured limit. Going over it is an error.
+The session still starts with whole files dropped from the end until the text fits; the skill list stays.
+The session message, log, `context explain` and `doctor` name the dropped files. Doctor exits 1.
 
 ## Capacity
 
 Each agent gets a limited amount of text in full, its capacity. Above it, whole files are dropped from the
-end, the same way as with `budget.max-chars`; with both, the lower limit applies. The skill list is never
+end, the same way as with `max-ctx-chars`; with both, the lower limit applies. The skill list is never
 dropped. The message at session start (in the agents that show one), the log, `context explain` and `doctor` name
 the dropped files.
 
@@ -676,13 +579,12 @@ It gives the session the tools of the MCP servers bound to the session folder, a
 
 ### Declarations and references
 
-The config declares its own servers in a top-level `mcp-servers` map. Each source can declare servers in one root
-`mcp-servers.yaml`, with `schema: ctxtra/v1` and the same map. Binding files cannot declare servers. `include`
-still includes binding files, not manifests. Sources without a manifest remain valid for instructions and skills.
-A broken manifest leaves those other files usable. Catalog reads never connect, start commands or fetch content.
+The config declares its own servers in `mcp-servers`. Sources declare theirs in the same map in
+`ctxtra-source.yaml`, with `schema: ctxtra/source/v1`. Sources need no manifest for direct file references.
+Catalog reads never connect, start commands or fetch content.
 
 ```yaml
-schema: ctxtra/v1
+schema: ctxtra/source/v1
 mcp-servers:
   linear:
     url: https://mcp.linear.app/mcp
@@ -690,39 +592,31 @@ mcp-servers:
 ```
 
 A server has exactly one of `url` and `command`. Remote settings are `headers`, `secret-headers`, `client-id` and
-`scopes`; local settings are `env`, `env-pass` and `secret-env`. Both accept `notes`. Secret declarations list
+`scopes`; local settings are `env`, `pass-env` and `secret-env`. Both accept `notes`. Secret declarations list
 names, not values. Commands use an absolute program path or an installed name in `PATH`, never a relative path.
 Names are 1–20 lowercase letters, digits or `_`, start with a letter, and have neither `__` nor a trailing `_`.
 Duplicate names in a declaration map invalidate both definitions.
 
-A config server's identity is `linear`; a source `work` has `work/linear`. Each identity has its own sign-in.
-Bindings select servers with `mcp-servers: [linear, work/linear]` and existing match rules. A binding can contain
-only servers, with no instructions or skills. More specific bindings add selections; they do not override or
-exclude global selections. Adding a definition or a source alone selects nothing.
+A config server's identity is `linear`; a source `work` has `work:linear`. Each has its own sign-in.
+Bindings select them with `mcp-servers: [linear, 'work:linear']`. A binding can contain only servers.
+Adding a source or a definition alone selects nothing.
 
-Every source's binding files, including trusted sources, can name only their own servers by bare name. They cannot
-borrow config servers or another source's sign-in. Config bindings and included files outside sources can use full
-references. Explicit `ctxtra://work/...` includes carry that alias. Plain paths use their mapped pinned source,
-otherwise the innermost trusted source, otherwise config scope. One physical binding file cannot be included twice
-under different aliases. These MCP namespace rules do not change instruction-file trust rules.
-
-Tools keep the unqualified prefix: `work/linear` exports `linear__<tool>`. Repeated selections of the same identity
-add it once. Different selected identities with the same prefix keep the first: config bindings, then includes in
-order. The session summary, proxy instructions, explain, doctor and status report the suppressed identity. A winner
-that fails or lacks sign-in or approval never falls back to the other account. There are no package-definition
-rename, hide or settings overrides. To use a private OAuth app or different settings, define a config server and
-adjust your own bindings.
+Tools keep the unqualified prefix: `work:linear` exports `linear__TOOL`. Repeated selections of one identity
+add it once. Two selected identities with the same name keep the first in binding order, with a notice
+in the session message, explain, doctor and status. Doctor does not fail for the clash.
+A winner that fails or lacks sign-in or approval never falls back to another account.
+Source-server aliases with `use` are not implemented yet.
 
 The catalog is loaded on demand. Sessions read the manifests their bindings reference; list, doctor and setup
 can enumerate all sources. Pinned manifests use the accepted generation and store touch/size limits, never a fetch.
-`source check` validates the manifest and references without user config, credentials or network access. A source
+`source validate` validates the manifest and references without user config, credentials or network access. A source
 used only for MCP servers still participates in source-update notices.
 
 ### Pinned-server approval
 
 Every pinned-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
 execution, even a remote endpoint needing no authentication. Accepting a source version is not this approval.
-Config and trusted-path definitions need no extra approval. Agent-native tool permission remains separate and
+Config and dir-source definitions need no extra approval. Agent-native tool permission remains separate and
 comes too late to authorize server startup.
 
 `ctxtra mcp approve REF` shows the origin and operational declaration and asks in the user's terminal, default No.
@@ -734,9 +628,8 @@ secret names, or argv, environment, inherited-variable names and secret-variable
 not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
 that definition's repeated summary notice, not its state in diagnostics or any prefix-conflict warning.
 
-Source review shows operational and targeting changes. Accepting an update is all-or-nothing. A changed endpoint or
-command needs approval again, and its old credentials cannot go to the new target. A reviewed targeting expansion
-can give an unchanged approved server to more folders without another approval. Existing proxies keep their startup
+Source review shows operational definition changes. Accepting an update is all-or-nothing. A changed endpoint or
+command needs approval again, and its old credentials cannot go to the new target. Changing the user's binding can give an unchanged approved server to more folders without another approval. Existing proxies keep their startup
 selection and definitions.
 
 `ctxtra mcp revoke REF` withdraws approval, not credentials or provider grants. New connections refuse it. Close
@@ -747,7 +640,7 @@ approval. Trusted sources read their manifests live without either pinned-source
 
 - The proxy's working directory when the agent starts it is the session folder. The proxy resolves bindings for
   it with the same rules and the same config as the hook (the config folder's `config.yaml`), so `dirs`,
-  `repos` with `subpath`, and worktrees work the same. It never asks the agent for roots.
+  `repos` with `subdirs`, and worktrees work the same. It never asks the agent for roots.
 - The servers are fixed when the proxy starts, like the agents' own MCP servers. Changing directory, adding
   folders during the session (for example `/add-dir`), ctxtra-follow and config changes add or remove none.
 - On resume, the agent starts the proxy in the folder of the resume command. Claude Code, Codex and Antigravity
@@ -774,7 +667,7 @@ approval. Trusted sources read their manifests live without either pinned-source
 ### Local servers
 
 A local server runs as the proxy's child, in the session folder, in a process group of its own. Its
-environment is only: its `env` values, its `env-pass` variables and secret values, and from the proxy's
+environment is only: its `env` values, its `pass-env` variables and secret values, and from the proxy's
 environment `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, `ALL_PROXY` (each
 also lower case), `SSL_CERT_FILE` and `SSL_CERT_DIR`. Its stderr is dropped: it can hold secrets, and agents show
 none of it.
@@ -946,9 +839,9 @@ key is gone, the credentials can't be read: the next command that creates the ke
 `credentials/unreadable`, and their servers need their values or sign-in again.
 
 Each credential record binds full identity, source origin and canonical URL or exact command line. A mismatch sends
-nothing and needs new authorization or secret values. Config records retain an empty origin, so existing sign-ins
-need no migration. Git origin uses the remote spelling, local-git its clone identity, and trusted-path its real root;
-commit is excluded. Renaming a source, replacing its origin or converting it to trusted does not migrate credentials.
+nothing and needs new authorization or secret values. Config records have an empty origin. Repo-source origins use the normalized repository address,
+local repo paths use their real path, and dir origins use the real folder. Commit is excluded.
+Renaming a source or replacing its origin requires new credentials.
 No command copies rotating refresh grants between identities.
 
 Server declarations with the same identity, origin and target share credentials. Use different names or
@@ -1017,7 +910,7 @@ Setup refreshes an existing proxy entry even when missing source content leaves 
 
 Muse's MCP entry also copies setup-time `CTXTRA_LOG` and `CTXTRA_NO_UPDATE_CHECK` when set.
 Setup expands `~` and makes the log path absolute. Setup owns these keys and the four XDG keys inside `env`,
-and keeps user-added keys. It does not copy secret `env-pass` values, proxy or certificate variables,
+and keeps user-added keys. It does not copy secret `pass-env` values, proxy or certificate variables,
 or Linux Secret Service variables. Use explicit non-secret `env` settings or encrypted `secret-env`
 declarations for local servers. Start a new session after signing in. Hooks use the log in the state folder.
 Background checks inherit the hook's XDG values.
@@ -1029,7 +922,7 @@ The command is the ctxtra binary and its arguments are `mcp proxy AGENT`. Setup 
 and keeps every other key the user adds to the entry, such as an approval setting. An entry named `ctxtra-proxy`
 that doesn't run `ctxtra mcp proxy` is the user's: setup and `--remove` leave its file alone and say so.
 
-Earlier versions named the entry `ctxtra`. Such an entry still works, and the setup notices ask to run setup.
+Earlier versions named the entry `ctxtra`. Earlier setup entries are not served; run setup again.
 Setup renames it to `ctxtra-proxy`, in its place and with the keys the user added (in Codex, with its tables
 and markers too). When both names are there, setup removes the old entry. `--remove` removes either. An entry
 named `ctxtra` that doesn't run `ctxtra mcp proxy` is the user's, and setup leaves it alone.
@@ -1045,7 +938,7 @@ it checks that the new file is valid TOML and says the same as the old one but f
 changes nothing, because Codex refuses an invalid config. Codex starts MCP servers with an allow-listed
 environment, so `env_vars` lists the four XDG folder variables, `CTXTRA_LOG`,
 the Secret Service's (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`), the proxy and certificate variables, and
-every local server's `env-pass` names. `startup_timeout_sec` is 30, and `required = true`: Codex waits about 1
+every local server's `pass-env` names. `startup_timeout_sec` is 30, and `required = true`: Codex waits about 1
 second for an optional server's tools, and for a required one up to `startup_timeout_sec`. A required server that
 can't start stops the Codex session, so a moved or deleted ctxtra binary does too, until `ctxtra setup` runs again;
 the setup notices report it.
@@ -1063,7 +956,7 @@ The setup notices and `doctor` report the entry:
 | A hook setup is missing its proxy | `claude-code: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude-code` |
 | The entry runs another binary | `claude-code: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
 | The entry is gone from its file | `claude-code: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; ...` |
-| Codex's entry doesn't pass a local server's `env-pass` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
+| Codex's entry doesn't pass a local server's `pass-env` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
 | The entry has its old name | `claude-code: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude-code` |
 | An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude-code` |
 
@@ -1084,7 +977,7 @@ doesn't:
 - **Credentials stay on their origin** and go only over HTTPS, or plain HTTP to a server on loopback: see
   [Network and logs](#network-and-logs).
 - **Local servers get little of the agent's environment:** their own variables, the fixed base set, and the
-  variables they name in `env-pass`. A token in the agent's environment reaches a server only when that
+  variables they name in `pass-env`. A token in the agent's environment reaches a server only when that
   server names it, or when it is part of a base variable, such as a proxy URL with a password. They run in the session folder, and a tool like `npx`
   can run code of the session's repository.
 - **`ctxtra mcp show` prints a local server's stderr** in the terminal, which can hold secrets. An agent that
@@ -1173,7 +1066,7 @@ non-interactive and prints pending commands plus a pointer to guided onboarding.
 
 ### Setup notices
 
-After every command that runs, but `hook`, `setup`, `onboard`, `doctor`, `source check`, `check-updates`, `help`, `version` and `completion`, ctxtra
+After every command that runs, but `hook`, `setup`, `onboard`, `doctor`, `source validate`, `check-updates`, `help`, `version` and `completion`, ctxtra
 prints a line on stderr for each setup that needs you, with the command that repairs it. `--help` and usage
 errors print none. The lines never change the exit code; `doctor`
 shows the same lines under each agent instead:
@@ -1206,45 +1099,52 @@ setup can't write it, setup fails with exit code 1, and the config changes it ma
 
 ## Validation
 
-Problems never make ctxtra add more than the config says:
+Every mistake is an error, reported in the session message where available, the log, `context explain`
+and `doctor`. Doctor exits 1. A bad entry leaves out the smallest usable part:
 
-- A config with a wrong `schema`, an invalid `budget`, `check-updates`, source or `include`, or broken YAML,
-  is ignored as a whole.
-- An invalid key or value in `summary-message` is a problem, and the default applies to that key; the other
-  keys still apply. It changes only what the summary shows. A key with no value is invalid; a missing key
-  gets the default.
-- A broken binding is skipped, in the config or in a binding file. The other bindings in the same file
-  still apply.
-- A binding file that can't be read as a whole is skipped as a whole: a wrong `schema`, a key other than
-  `schema` and `bindings`, a YAML syntax error, more than one YAML document, or YAML anchors.
-- Unknown keys, duplicate keys, null values, empty lists, YAML anchors and aliases are errors.
-- A missing file is reported. The session still starts.
-- A file that isn't trusted (see [Sources and trust](#sources-and-trust)) is skipped and reported.
+| Error | Left out |
+|---|---|
+| Wrong schema, invalid YAML, several documents, anchors, aliases or merge keys | The whole file. |
+| Duplicate key | The part containing it. |
+| Unknown config key | That key. |
+| Broken source or unusable lock | Its source content. |
+| Broken binding, unknown agent, invalid profile or empty condition | The binding. |
+| Duplicate binding name | Both bindings. |
+| Missing file, unmatched pattern, unknown source or path leaving a source | That entry. |
+| Broken positive location entry | It remains and matches nothing. |
+| Broken negative location entry | The binding. |
+| Untrusted file or unsafe symlink | The file. |
+| Manifest containing sources or bindings | The whole manifest. |
+| Unapproved repo-source MCP server | The server. |
+| Over capacity | The session gets what fits and reports the error. |
 
-`ctxtra doctor` lists every problem, also in bindings that don't match its folder, and exits with 1. The
-`context` commands report only what a session in their folder gets.
+Text values must be YAML strings; a number or boolean where text is needed is an error that says to quote it.
+YAML 1.2 words such as `on` and `no` are strings. Quote entries starting with `!`; YAML tags are errors.
+Missing local source folders are not errors. Same-named skills or servers are notices.
+A command that would write an error exits 1 and changes nothing.
 
 ## Command line
 
 `ctxtra help` lists the commands, and `ctxtra help COMMAND` (the same as `ctxtra COMMAND --help`) shows one
 with its flags and examples. The commands that change the config are grouped by what they change:
-`source`, `binding-file` and `binding`, each with `add`, `list` and `remove`.
+`source`, `binding` and `mcp`, each with `add`, `list` and `remove`.
 
 - Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor` or a `context`
   command found that a session wouldn't get everything it should (for `doctor`, a session in any folder),
-  `source check` found an error, or a check of `check-updates` failed; 2 for a usage error (an unknown command
+  `source validate` found an error, or a check of `check-updates` failed; 2 for a usage error (an unknown command
   or flag, a missing argument), with the command's usage hint on stderr.
-- Results go to stdout; problems, warnings, notices and questions go to stderr. In a report (`doctor`,
-  `context explain`, the review of `source update`, `source check`), its problems and warnings are part of the result, on
+- Results go to stdout; errors, warnings, notices and questions go to stderr. In a report (`doctor`,
+  `context explain`, the review of `source update`, `source validate`), its errors and warnings are part of the result, on
   stdout.
 - `--json` (on `doctor`, `context files`, `context explain`, the `list` commands, `source show`,
-  `source update --check` and `source check`) prints one JSON object: `schema_version`, `data`, and `diagnostics`, a list of
+  `source update --dry-run` and `source validate`) prints one JSON object: `schema_version`, `data`, and `diagnostics`, a list of
   `{severity, message}` with the severity `error`, `warning` or `notice`. New fields can be added; a field
   doesn't change its meaning within a `schema_version`.
 - ctxtra asks a question only when stdin and stdout are a terminal. `--no-input` turns every question off:
   a step that needs an answer then fails. No option answers a question for you.
 - `--dry-run` on the commands that change the config, the agents' setup or the installed skills checks the
-  change and shows it, and writes nothing.
+  change and shows it, and writes nothing. `source update --dry-run` currently also records check results
+  and downloads the reviewed commit; it accepts and dismisses nothing.
 - Paths in arguments are relative to the current folder; in the config they are relative to the config's
   folder.
 
@@ -1277,7 +1177,7 @@ your ssh decide which keys a server may use. To refuse RSA keys under 2048 bits 
 `RequiredRSASize 2048` in `~/.ssh/config` (OpenSSH 9.1 or newer). Over HTTPS, see the settings of git's TLS
 library, for example OpenSSL's security level 2.
 
-A pinned source's `commit` is a git object ID, so its hash is the repository's object format: SHA-1 (160
+A lock entry's `commit` is a git object ID, so its hash is the repository's object format: SHA-1 (160
 bits) in most repositories, SHA-256 in SHA-256 repositories. ctxtra supports both. By default, git computes
 SHA-1 with collision detection, which catches the known collision attacks.
 
@@ -1285,64 +1185,35 @@ SHA-1 with collision detection, which catches the known collision attacks.
 
 | Limit | Value |
 |---|---|
-| Any one file (config, binding file, instruction file, `SKILL.md`) | 4 MiB |
-| Everything read for one session, the config and binding files included | 16 MiB |
+| Any one file (config, instruction file, `SKILL.md`) | 4 MiB |
+| Everything read for one session, the config included | 16 MiB |
 | Text an agent gets in full | its capacity, see [Capacity](#capacity) |
 | Skill description | 1024 bytes, longer ones are cut and end with `…` |
 
 ## Reference
 
-**Config**
-
-| Key | Required | Meaning |
-|---|---|---|
-| `schema` | yes | `ctxtra/v1` |
-| `sources.<name>.trusted-path` | no | A folder of your own files. Absolute or starts with `~`. |
-| `sources.<name>.git` | no | A git repository: `https://`, `ssh://` or `user@host:path`. |
-| `sources.<name>.branch` | with `git` | The branch `source update` follows. |
-| `sources.<name>.local-git` | no | Your clone, pinned to its committed `HEAD`. Absolute or starts with `~`. |
-| `sources.<name>.commit` | no | With `git` or `local-git`: the accepted commit, a full ID in quotes. |
-| `sources.<name>.check-updates` | no | With `git` or `local-git`: `false` to stop sessions checking for new commits. Default `true`. |
-| `bindings[]` | no | Your own bindings, see **Binding** below. Paths are relative to the config's folder. |
-| `include[]` | no | Binding files. Relative to the config's folder; `~` and `ctxtra://` work. |
-| `budget.max-chars` | no | Integer ≥ 0, in characters. 0 or missing: no limit. |
-| `check-updates` | no | `false` to stop checking for new ctxtra releases. Default `true`. |
-| `summary-message.show-instructions` | no | `false` leaves the Instructions list out of the session summary. Default `true`. |
-| `summary-message.show-skills` | no | `false` leaves the Skills list out of the session summary. Default `true`. |
-| `summary-message.max-instructions` | no | Integer ≥ 0: how many files of each source the summary lists, then `+N more`. 0: each source with its number of files only. Default 30. |
-| `summary-message.max-skills` | no | The same for skills. Default 30. |
-
-**Binding file**
-
-| Key | Required | Meaning |
-|---|---|---|
-| `schema` | yes | `ctxtra/v1` |
-| `bindings[]` | yes | See **Binding** below. Paths are relative to the binding file's folder. |
-
-**Binding**
-
-| Key | Required | Meaning |
-|---|---|---|
-| `name` | yes | Letters, digits, `.`, `_`, `-`. Unique in the file. |
-| `match.global` | `match` needs one key | `true`: every session. |
-| `match.dirs[]` | `match` needs one key | Folder patterns. |
-| `match.repos[]` | `match` needs one key | A remote pattern, or `remote` with an optional `subpath`. See [Match](#match). |
-| `instructions[]` | one of `instructions`, `skills`, `mcp-servers` | Instruction files. |
-| `skills[]` | one of `instructions`, `skills`, `mcp-servers` | Skill folders. |
-| `mcp-servers[]` | one of `instructions`, `skills`, `mcp-servers` | Server references; see [MCP servers](#mcp-servers). |
-
-**Environment**
-
-| Variable | Default |
+| Config key | Meaning |
 |---|---|
-| `XDG_CONFIG_HOME` | `~/.config` |
-| `XDG_DATA_HOME` | `~/.local/share` |
-| `XDG_STATE_HOME` | `~/.local/state` |
-| `XDG_CACHE_HOME` | `~/.cache` |
-| `CTXTRA_LOG` | `~/.local/state/ctxtra/log.jsonl` |
+| `schema` | Required: `ctxtra/config/v1`. |
+| `sources.NAME.repo`, `sources.NAME.branch` | A repository and the named branch to review. |
+| `sources.NAME.dir` | A live folder; mutually exclusive with repo. |
+| `sources.NAME.check-updates` | Repo-source checks; default true. |
+| `mcp-servers` | The config's own server definitions. |
+| `bindings` | Ordered bindings with unique names. |
+| `max-ctx-chars` | Integer at least 0; 0 means no configured limit. |
+| `check-releases` | Release checks; default true. |
+| `session-message.max-instructions`, `session-message.max-skills` | Per-source list limits; default 30, 0 hides the list. |
+| `collections`, `repo-sets` | Parsed; use is not implemented yet. |
 
-Muse Code records the four XDG values in hook and proxy entries at setup time.
+| Binding key | Meaning |
+|---|---|
+| `name` | Required, unique in the config. |
+| `location.dirs`, `location.repos` | Folder or repository conditions. |
+| `profiles`, `agents` | Additional conditions, AND with location. |
+| `instructions`, `skills`, `mcp-servers` | Content to add; at least one content list must add something. |
+| `collections`, `location.repo-sets` | Use is not implemented yet. |
 
-The session folder is the `cwd` the agent sends to the hook. If it is empty: the first `workspace_roots`
-entry (Cursor), else the first `workspacePaths` entry (Antigravity, which runs hooks in the hook file's
-folder), else the hook's working folder. DSH's home folder is `$DSH_HOME`, or `~/.dsh`.
+The session folder is the hook input's `cwd`, then Cursor's first `workspace_roots` entry,
+then Antigravity's first `workspacePaths` entry, then the hook's working folder.
+DSH's home is `$DSH_HOME` or `~/.dsh`. Muse records all four XDG values during setup.
+`CTXTRA_LOG` overrides the log path.

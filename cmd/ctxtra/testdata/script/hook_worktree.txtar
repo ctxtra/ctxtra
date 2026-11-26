@@ -87,35 +87,49 @@ exec git -C elsewhere/svc-feature status --porcelain
 ! stdout .
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include:
-  - work.yaml
-  - me.yaml
--- .config/ctxtra/work.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: acme
-    match:
+    location:
       repos:
-        - remote: github.com/acme/**
+        - github.com/acme/**
     instructions: [~/ctx/work.md]
     skills: [~/skills/deploy]
   - name: svc
-    match:
+    location:
       dirs: [~/dev/svc]
     instructions: [~/ctx/svc.md]
   - name: not-here
-    match:
+    location:
       repos:
-        - remote: github.com/acme/svc
-          subpath: services/**
+        - repo: github.com/acme/svc
+          subdirs: [services/**]
+    instructions: [~/ctx/other.md]
+  - name: me
+    instructions: [~/ctx/me.md]
+-- .config/ctxtra/work.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: acme
+    location:
+      repos:
+        - github.com/acme/**
+    instructions: [~/ctx/work.md]
+    skills: [~/skills/deploy]
+  - name: svc
+    location:
+      dirs: [~/dev/svc]
+    instructions: [~/ctx/svc.md]
+  - name: not-here
+    location:
+      repos:
+        - repo: github.com/acme/svc
+          subdirs: [services/**]
     instructions: [~/ctx/other.md]
 -- .config/ctxtra/me.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/ctx/me.md]
 -- ctx/work.md --
 CTXMARK-WORK

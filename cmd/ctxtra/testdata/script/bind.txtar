@@ -8,7 +8,7 @@ gitrepo dev/team git@github.com:acme/team.git
 # Relative paths are relative to the current folder, and written from ~.
 cd notes
 exec ctxtra binding add work --dir '~/dev/work/**' --repo 'github.com/acme/**' --instruction work.md --skill ../skills/deploy
-stdout '^added binding work to ~/.config/ctxtra/config.yaml: for ~/dev/work/\*\*, github.com/acme/\*\*$'
+stdout '^added binding work to ~/.config/ctxtra/config.yaml: sessions in folders ~/dev/work/\*\* or in repositories github.com/acme/\*\*$'
 stdout '^  instructions: ~/notes/work.md$'
 stdout '^  skills: ~/skills/deploy$'
 stdout '^new sessions get it'
@@ -19,56 +19,54 @@ stdout '/notes/work.md$'
 stdout '/skills/deploy/SKILL.md$'
 
 # Flags may come first.
-exec ctxtra binding add --global --instruction notes/me.md me2
-stdout '^added binding me2 to ~/.config/ctxtra/config.yaml: for every session$'
+exec ctxtra binding add --instruction notes/me.md me2
+stdout '^added binding me2 to ~/.config/ctxtra/config.yaml: every session$'
 exec ctxtra context files elsewhere
 stdout '/notes/me.md$'
 cp want.yaml .config/ctxtra/config.yaml
 
 # Nothing is written for a binding that wouldn't work.
-! exec ctxtra binding add me --global --instruction notes/me.md
+! exec ctxtra binding add me --instruction notes/me.md
 stderr 'a binding named me already exists'
-! exec ctxtra binding add x --global --instruction notes/nope.md
+! exec ctxtra binding add x --instruction notes/nope.md
 stderr 'nothing changed'
-stderr '^  missing: ~/notes/nope.md$'
-! exec ctxtra binding add x --global --skill notes
-stderr '^  missing: ~/notes/SKILL.md$'
+stderr 'line 18: binding x: ~/notes/nope.md is not a file; the entry is left out$'
+! exec ctxtra binding add x --skill notes
+stderr '~/notes is not a skill folder with a SKILL.md'
 ! exec ctxtra binding add x --dir '/a/[' --instruction notes/me.md
-stderr 'dirs entry "/a/\[" is not a valid pattern'
-! stderr 'line \d'
-! exec ctxtra binding add x --global --instruction ctxtra://nope/a.md
-stderr 'unknown source "nope"'
-! exec ctxtra binding add x --global --instruction dev/team/team.md
-stderr 'not a trusted source; skipped. If only you push to the repository: ctxtra source add trusted-path ~/dev/team'
+stderr '/a/\[ is not a valid pattern'
+stderr 'line \d+: binding x: /a/\['
+! exec ctxtra binding add x --instruction nope:a.md
+stderr 'the config has no source nope'
+! exec ctxtra binding add x --instruction dev/team/team.md
+stderr 'not a trusted source; skipped. To read it live, add the folder as a dir source and trust it: ctxtra source add --dir ~/dev/team'
 cmp .config/ctxtra/config.yaml want.yaml
 
 # --dry-run checks and changes nothing, also where nothing can be written,
 # as in an agent's sandbox.
 chmod 0555 .config/ctxtra
 chmod 0555 .local/state/ctxtra
-exec ctxtra binding add x --global --instruction notes/me.md --dry-run
-stdout '^would add binding x to ~/.config/ctxtra/config.yaml: for every session$'
+exec ctxtra binding add x --instruction notes/me.md --dry-run
+stdout '^would add binding x to ~/.config/ctxtra/config.yaml: every session$'
 stdout '^nothing changed \(--dry-run\)$'
-! exec ctxtra binding add x --global --instruction notes/nope.md --dry-run
-stderr '^  missing: ~/notes/nope.md$'
-! exec ctxtra binding add x --global --instruction notes/me.md
+! exec ctxtra binding add x --instruction notes/nope.md --dry-run
+stderr 'line 18: binding x: ~/notes/nope.md is not a file; the entry is left out$'
+! exec ctxtra binding add x --instruction notes/me.md
 stderr 'permission denied'
 chmod 0755 .config/ctxtra
 chmod 0755 .local/state/ctxtra
 cmp .config/ctxtra/config.yaml want.yaml
 
-# Once the repository is a source, its files can be bound.
-exec ctxtra source add trusted-path dev/team
-exec ctxtra binding add team --global --instruction ctxtra://team/team.md --instruction dev/team/team.md
-stdout '^  instructions: ctxtra://team/team.md, ~/dev/team/team.md$'
-grep '^      - ctxtra://team/team.md$' .config/ctxtra/config.yaml
+# Remote live folders require explicit trust.
+exec ctxtra source add --dir dev/team
+exec ctxtra source trust team
+exec ctxtra binding add team --instruction team:team.md --instruction dev/team/team.md
+stdout '^  instructions: team:team.md, ~/dev/team/team.md$'
+grep '^      - team:team.md$' .config/ctxtra/config.yaml
 grep '^      - ~/dev/team/team.md$' .config/ctxtra/config.yaml
-
-# binding list shows every binding with its file; binding remove removes one
-# of the config's own, and never one of a binding file.
 exec ctxtra binding list
-stdout '^me \(~/.config/ctxtra/config.yaml\): for every session$'
-stdout '^team \(~/.config/ctxtra/config.yaml\): for every session$'
+stdout '^me: every session$'
+stdout '^team: every session$'
 stdout '^  instruction  ~/dev/team/team.md$'
 exec ctxtra binding list --json
 stdout '"name": "team"'
@@ -82,29 +80,21 @@ grep 'name: work' .config/ctxtra/config.yaml
 ! exec ctxtra binding remove team
 stderr 'no binding named team'
 
-# A problem that exists already still fails a binding that brings it again:
-# a reference to a commit not in the store is skipped.
 cp pinned.yaml .config/ctxtra/config.yaml
+cp pinned.lock .config/ctxtra/ctxtra.lock
 cp pinned.yaml pinned-want.yaml
-! exec ctxtra binding add y --global --instruction ctxtra://pin/a.md
-stderr 'is not in ctxtra''s store'
+! exec ctxtra binding add y --instruction pin:a.md
+stderr 'source pin: the accepted commit 1111111 is not downloaded on this machine; run `ctxtra source download`'
 cmp .config/ctxtra/config.yaml pinned-want.yaml
 
-# A file over budget.max-chars by itself never reaches a session.
 cp budget.yaml .config/ctxtra/config.yaml
-! exec ctxtra binding add y --global --instruction notes/work.md
-stderr '^  ~/notes/work.md alone is over budget.max-chars \(5\)$'
+! exec ctxtra binding add y --instruction notes/work.md
+stderr '~/notes/work.md would be dropped \(over max-ctx-chars \(5\)\)'
 cp original.yaml .config/ctxtra/config.yaml
-
-# binding remove also removes a broken binding, which sessions skip.
 cp broken.yaml .config/ctxtra/config.yaml
 exec ctxtra binding remove broken
 stdout '^removed binding broken'
 ! grep broken .config/ctxtra/config.yaml
-# binding-file list fails on a binding file that can't be read.
-! exec ctxtra binding-file list
-stderr '^problem: .*missing.yaml'
-# A skill whose binding can't be added isn't installed, also in a dry run.
 ! exec ctxtra skill install ctxtra --dry-run
 stderr 'a binding named ctxtra already exists'
 ! exec ctxtra skill install ctxtra
@@ -113,73 +103,59 @@ stderr 'a binding named ctxtra already exists'
 cp original.yaml .config/ctxtra/config.yaml
 
 # Usage errors.
-! exec ctxtra binding add x --instruction notes/me.md
-stderr 'say which sessions get it: --global, --dir or --repo'
-! exec ctxtra binding add x --global --dir /a --instruction notes/me.md
-stderr '--global already matches every session'
-! exec ctxtra binding add x --global
-stderr 'add at least one --instruction, --skill or --mcp'
-! exec ctxtra binding add 'a b' --global --instruction notes/me.md
-stderr 'may only contain letters'
-! exec ctxtra binding add --global --instruction notes/me.md
+! exec ctxtra binding add x
+stderr 'add at least one --instruction, --skill or --mcp-server'
+! exec ctxtra binding add 'a b' --instruction notes/me.md
+stderr 'names are 1 to 64 letters, digits, .'
+! exec ctxtra binding add --instruction notes/me.md
 stderr 'expected NAME'
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 
 bindings:           # mine
   - name: me
-    match: {global: true}
     instructions: [../../notes/me.md]
 
-budget:
-  max-chars: 40000  # enough
+max-ctx-chars: 40000  # enough
 -- want.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 
 bindings:           # mine
   - name: me
-    match: {global: true}
     instructions: [../../notes/me.md]
   - name: work
-    match:
+    location:
       dirs:
-        - ~/dev/work/**
+        - '~/dev/work/**'
       repos:
-        - github.com/acme/**
+        - 'github.com/acme/**'
     instructions:
       - ~/notes/work.md
     skills:
       - ~/skills/deploy
 
-budget:
-  max-chars: 40000  # enough
+max-ctx-chars: 40000  # enough
 -- pinned.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 sources:
   pin:
-    local-git: ~/dev/team
-    commit: '1111111111111111111111111111111111111111'
+    repo: ~/dev/team
+    branch: main
 bindings:
   - name: x
-    match:
-      global: true
     instructions:
-      - ctxtra://pin/a.md
+      - pin:a.md
 -- broken.yaml --
-schema: ctxtra/v1
-include: [~/missing.yaml]
+schema: ctxtra/config/v1
 bindings:
   - name: broken
-    match: {global: true}
     instructions: []
   - name: ctxtra
-    match: {global: true}
     instructions: [notes/me.md]
 -- budget.yaml --
-schema: ctxtra/v1
-budget:
-  max-chars: 5
+schema: ctxtra/config/v1
+max-ctx-chars: 5
 -- notes/me.md --
 CTXMARK-ME
 -- notes/work.md --
@@ -192,3 +168,10 @@ description: Deploy the service.
 CTXMARK-TEAM
 -- dev/work/svc/.keep --
 -- elsewhere/.keep --
+-- pinned.lock --
+schema: ctxtra/lock/v1
+sources:
+  pin:
+    repo: ~/dev/team
+    branch: main
+    commit: '1111111111111111111111111111111111111111'

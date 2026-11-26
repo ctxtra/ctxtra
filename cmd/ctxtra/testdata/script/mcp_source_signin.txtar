@@ -2,43 +2,45 @@
 env BROWSER=fakebrowser
 fakeauth
 exec ctxtra mcp add linear $FAKE_MCP --no-login
-cp .config/ctxtra/config.yaml pkg/mcp-servers.yaml
+exec sed 's|ctxtra/config/v1|ctxtra/source/v1|' .config/ctxtra/config.yaml
+cp stdout pkg/ctxtra-source.yaml
 exec git -C pkg init -b main
 exec git -C pkg add .
 exec git -C pkg commit -m initial
-exec ctxtra source add local-git pkg --name work --include bindings.yaml
+exec ctxtra source add --repo pkg --name work
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:linear
 mkdir dev/app
 stdin yes.txt
-exec ctxtra-tty mcp login work/linear
-stdout '^signed in to work/linear with https://127.0.0.1:[0-9]+$'
-stderr 'Opening your browser to sign in to work/linear'
-exists .local/state/ctxtra/mcp/credentials/work%2Flinear.v1.age
+exec ctxtra-tty mcp login work:linear
+stdout '^signed in to work:linear with https://127.0.0.1:[0-9]+$'
+stderr 'Opening your browser to sign in to work:linear'
+exists .local/state/ctxtra/mcp/credentials/work%3Alinear.v1.age
 ! exists .local/state/ctxtra/mcp/credentials/linear.v1.age
 exec ctxtra mcp list
 stdout '^linear  remote, not signed in$'
-stdout '^work/linear  remote, signed in with https://127.0.0.1:[0-9]+, approved$'
+stdout '^work:linear  remote, signed in with https://127.0.0.1:[0-9]+, approved$'
 mcp dev/app
 stdout '^tool linear__list_issues_[0-9a-f]{6}'
 exec ctxtra mcp status dev/app
-stdout '^  work/linear  ready after '
+stdout '^  work:linear  ready after '
 ! stdout '^  linear  ready after '
 
-exec ctxtra mcp logout work/linear
+exec ctxtra mcp logout work:linear
 mcp dev/app
 ! stdout '^tool linear__'
 exec ctxtra mcp status dev/app
-stdout 'work/linear'
+stdout 'work:linear'
 stdout 'needs sign-in'
 exec ctxtra setup --agent claude-code
 runhook claude-code SessionStart dev/app
-stdout 'work/linear needs sign-in: run ctxtra mcp login work/linear'
+stdout 'work:linear needs sign-in: run ctxtra mcp login work:linear'
 ! stdout 'run ctxtra mcp login linear'
 
 -- yes.txt --
 y
 -- pkg/bindings.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: work
-    match: {dirs: ['~/dev/**']}
+    location: {dirs: ['~/dev/**']}
     mcp-servers: [linear]

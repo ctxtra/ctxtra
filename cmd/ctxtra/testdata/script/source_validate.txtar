@@ -1,0 +1,195 @@
+# Validate only the top-level source manifest, without config, trust or network.
+gitrepo team-ctx/nested
+gitrepo team-ctx git@github.com:acme/team-ctx.git
+mkdir .config/ctxtra
+cp broken.yaml .config/ctxtra/config.yaml
+cp team-ctx/ctxtra-source.yaml valid.yaml
+
+exec ctxtra source validate team-ctx
+stdout '^validated ~/team-ctx/ctxtra-source.yaml: 2 collections, 0 MCP servers, 0 repo sets$'
+stdout '^0 errors, 0 warnings$'
+! stdout 'example.yaml'
+cd team-ctx
+exec ctxtra source validate .
+stdout '^validated ~/team-ctx/ctxtra-source.yaml: 2 collections, 0 MCP servers, 0 repo sets$'
+cd $HOME
+
+# Shape and entry errors name the manifest line.
+cp broken-manifest.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^error: line 4: collection typo: unknown key "instrutions"'
+stdout '^error: line 6: collection other-source: .*a manifest references only files in its own source'
+stdout '^error: line 8: collection home: .*relative'
+stdout '^error: line 10: collection outside: .*leaves its source'
+stdout '^4 errors, 0 warnings$'
+cp config-only.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout 'a source provides content, and the user'
+stdout '^1 error, 0 warnings$'
+cp bindings.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout 'a source provides content, and the user'
+cp bad-yaml.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^error: .*YAML'
+cp foreign.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout 'a manifest references only files in its own source'
+cp valid.yaml team-ctx/ctxtra-source.yaml
+
+# Validation reads no setup state and writes nothing.
+mkdir .cursor .local/state/ctxtra
+cp setup.json .local/state/ctxtra/setup.json
+exec ctxtra source validate team-ctx
+! stderr .
+cmp .local/state/ctxtra/setup.json setup.json
+! exists .local/state/ctxtra/setup.lock
+exec ctxtra source validate team-ctx --json
+stdout '"collections": 2'
+stdout '"mcp_servers": 0'
+stdout '"repo_sets": 0'
+stdout '"errors": 0'
+stdout '"severity": "notice"'
+
+mkdir empty
+! exec ctxtra source validate empty
+stderr '^ctxtra source validate: ~/empty has no ctxtra-source.yaml$'
+! exec ctxtra source validate skill.md
+stderr 'is not a folder'
+! exec ctxtra source validate nope
+stderr '^ctxtra source validate: ~/nope does not exist$'
+! exec ctxtra source validate
+stderr 'expected DIR'
+! exec ctxtra source validate team-ctx ../x.yaml
+stderr 'Usage: ctxtra source validate DIR'
+
+skip 'source validate does not check the files of collections yet'
+
+mv team-ctx/instructions/security.md team-ctx/instructions/secure.md
+! exec ctxtra source validate team-ctx
+stdout '^error: .*work.*instructions/security.md.*not a file'
+stdout '^1 error, 0 warnings$'
+mv team-ctx/instructions/secure.md team-ctx/instructions/security.md
+cp skill-nodesc.md team-ctx/skills/deploy/SKILL.md
+! exec ctxtra source validate team-ctx
+stdout '^error: .*tools.*skills/deploy/SKILL.md.*frontmatter has no description'
+rm team-ctx/skills/deploy/SKILL.md
+! exec ctxtra source validate team-ctx
+stdout '^error: .*tools.*skills/deploy/SKILL.md.*not a file'
+cp skill.md team-ctx/skills/deploy/SKILL.md
+cp globs.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^error: .*drafts/\*.md.*matches no file'
+stdout '^error: .*instructions/nope.md.*excludes nothing'
+stdout '^2 errors, 0 warnings$'
+cp left-out.yaml team-ctx/ctxtra-source.yaml
+symlink team-ctx/instructions/link.md -> security.md
+cp nested.md team-ctx/nested/a.md
+! exec ctxtra source validate team-ctx
+stdout '^error: .*instructions/link.md.*symlink'
+stdout '^error: .*nested/a.md.*nested repository or submodule'
+stdout '^2 errors, 0 warnings$'
+cp all.yaml team-ctx/ctxtra-source.yaml
+! exec ctxtra source validate team-ctx
+stdout '^error: .*\.git\*/\*\*.*matches no file'
+stdout '^error: .*nested/a.md,missing.md.*matches no file'
+stdout '^2 errors, 0 warnings$'
+cp git-path.yaml team-ctx/ctxtra-source.yaml
+mkdir outside
+cp nested.md outside/x.md
+symlink team-ctx/linked -> ../outside
+! exec ctxtra source validate team-ctx
+stdout '^error: .*\.git/config.*not a path'
+stdout '^error: .*linked/\*.md.*symlink'
+rm outside/x.md
+! exec ctxtra source validate team-ctx
+stdout 'symlink'
+
+-- broken.yaml --
+schema: ctxtra/config/v1
+bindings: [
+-- team-ctx/README.md --
+Agent context for acme.
+-- team-ctx/examples/example.yaml --
+# Not a binding file: no ctxtra schema.
+key: value
+-- team-ctx/instructions/security.md --
+Never log tokens.
+-- team-ctx/instructions/style.md --
+Short functions.
+-- team-ctx/skills/deploy/SKILL.md --
+---
+name: deploy
+description: Deploys a service.
+---
+Run the pipeline.
+-- skill.md --
+---
+name: deploy
+description: Deploys a service.
+---
+Run the pipeline.
+-- skill-nodesc.md --
+---
+name: deploy
+---
+Run the pipeline.
+-- broken-manifest.yaml --
+schema: ctxtra/source/v1
+collections:
+  typo:
+    instrutions: [instructions/style.md]
+  other-source:
+    instructions: [other:a.md]
+  home:
+    instructions: [~/me.md]
+  outside:
+    instructions: [../outside.md]
+-- config-only.yaml --
+schema: ctxtra/source/v1
+sources:
+  x: {dir: ~/x}
+-- bindings.yaml --
+schema: ctxtra/source/v1
+bindings: []
+-- bad-yaml.yaml --
+schema: ctxtra/source/v1
+collections: [
+-- globs.yaml --
+schema: ctxtra/source/v1
+collections:
+  globs:
+    instructions: ['drafts/*.md', instructions/security.md, '!instructions/nope.md']
+-- foreign.yaml --
+schema: ctxtra/source/v1
+collections:
+  foreign:
+    instructions: [team-ctx:instructions/style.md]
+-- left-out.yaml --
+schema: ctxtra/source/v1
+collections:
+  left-out:
+    instructions: [instructions/link.md, nested/a.md, instructions/style.md]
+-- nested.md --
+In a submodule.
+-- git-path.yaml --
+schema: ctxtra/source/v1
+collections:
+  git-path:
+    instructions: [.git/config]
+  linked:
+    instructions: [linked/*.md]
+-- all.yaml --
+schema: ctxtra/source/v1
+collections:
+  all:
+    instructions: ['**/*.md', '.git*/**', '{nested/a.md,missing.md}']
+-- setup.json --
+{"installed": {}, "detected": []}
+-- team-ctx/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  work:
+    instructions: [instructions/security.md, instructions/style.md]
+  tools:
+    skills: [skills/deploy]

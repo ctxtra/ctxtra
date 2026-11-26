@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/skill"
 	"github.com/ctxtra/ctxtra/internal/term"
@@ -23,7 +24,7 @@ type topic struct {
 }
 
 var topics = []topic{
-	{"config", "docs/spec.md", "", "the config format and its rules: match, sources, trust, updates, limits"},
+	{"config", "docs/spec.md", "", "the config format and its rules: conditions, sources, trust, updates, limits"},
 	{"scenarios", "docs/scenarios.md", "", "use cases step by step, and what ctxtra protects you from"},
 	{"agents", "docs/guide.md", "## Limits", "what differs between agents: size limits, resumed sessions, subagents"},
 }
@@ -164,6 +165,20 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	b := skillBound(name)
 	s := newSources(stdio)
 	n := newBinding{Name: name, Skills: []string{dir}}.node()
+	if b == "" {
+		data, err := readConfig(s.file)
+		if err == nil {
+			var ed *config.Editor
+			ed, err = config.NewEditor(data)
+			if err == nil {
+				_, err = ed.Add(config.Bindings, name, n, config.Place{})
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
+			return 1
+		}
+	}
 	if dryRun {
 		fmt.Fprintf(stdio.Out, "would write the %s skill to %s\n", name, dir)
 		if b == "" {

@@ -130,22 +130,21 @@ func (e *env) prepare() {
 	for _, m := range []string{"REPO", "SUBDIR", "SUBPATH", "OTHERREPO", "GLOBAL"} {
 		f.Marked("ctx/"+strings.ToLower(m)+".md", m)
 	}
-	f.Config(`schema: ctxtra/v1
+	f.Config(`schema: ctxtra/config/v1
 bindings:
   - name: repo
-    match: {repos: [{remote: "github.com/acme/**"}]}
+    location: {repos: ["github.com/acme/**"]}
     instructions: [~/ctx/repo.md]
   - name: subdir
-    match: {dirs: [~/dev/svc/sub]}
+    location: {dirs: [~/dev/svc/sub]}
     instructions: [~/ctx/subdir.md]
   - name: subpath
-    match: {repos: [{remote: "github.com/acme/svc", subpath: "sub/**"}]}
+    location: {repos: [{repo: "github.com/acme/svc", subdirs: ["sub/**"]}]}
     instructions: [~/ctx/subpath.md]
   - name: other
-    match: {repos: [{remote: "github.com/other/**"}]}
+    location: {repos: ["github.com/other/**"]}
     instructions: [~/ctx/otherrepo.md]
   - name: global
-    match: {global: true}
     instructions: [~/ctx/global.md]
 `)
 	// The hooks run home/bin/ctxtra, a wrapper that records the hook's
@@ -212,9 +211,9 @@ func (e *env) register() {
 	case "claude-code":
 		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "-s", "user", "probe", "--"}, a...)...)
 	case "codex":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 	case "pi":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 		// Direct exposure: the tools are declared to the model, so their names can be seen.
 		p := e.f.Path(".pi/agent/mcp.json")
 		var cfg map[string]any
@@ -248,7 +247,7 @@ func (e *env) perRun() {
 	case "opencode":
 		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 	case "antigravity":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 		// Headless agy denies MCP calls without an allow rule.
 		rule := "mcp(probe/*)"
 		if e.perm {

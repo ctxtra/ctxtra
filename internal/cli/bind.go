@@ -187,6 +187,13 @@ func checkBinding(file string, data []byte, name string) error {
 	for _, e := range res.Errors {
 		problems = append(problems, e.Err.Error())
 	}
+	for _, h := range res.Dropped {
+		limit := h.Over
+		if limit == "max-ctx-chars" {
+			limit = fmt.Sprintf("%s (%d)", limit, res.MaxChars)
+		}
+		problems = append(problems, fmt.Sprintf("%s would be dropped (over %s)", paths.Tilde(h.Path), limit))
+	}
 	for _, t := range res.Trace {
 		for _, u := range t.Unavailable {
 			problems = append(problems, "source "+u+": "+env.Catalog.Source(u).Why)

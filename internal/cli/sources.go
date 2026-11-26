@@ -700,6 +700,11 @@ func (s *sources) removeSource(name string, dryRun bool) error {
 		fmt.Fprintln(s.Out, "nothing changed (--dry-run)")
 		return nil
 	}
+	for _, notice := range mcpOrphans(loadEnv()) {
+		if strings.HasPrefix(notice, "MCP credentials for "+name+":") {
+			fmt.Fprintln(s.Out, strings.Replace(notice, "are not declared in this config.", "remain.", 1))
+		}
+	}
 	s.cleanStore()
 	return nil
 }

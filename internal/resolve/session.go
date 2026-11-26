@@ -544,6 +544,11 @@ func (r *session) items(b *config.Binding, t *Trace, list []config.Entry, kind c
 			}
 		}
 	}
+	for _, e := range list {
+		if e.Not && e.Err == nil && !slices.ContainsFunc(items, func(it catalog.Item) bool { return r.excludes(e, it) }) {
+			r.fail(t, b, e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
+		}
+	}
 	return slices.DeleteFunc(items, func(it catalog.Item) bool {
 		for _, e := range list {
 			if e.Not && e.Err == nil && r.excludes(e, it) {

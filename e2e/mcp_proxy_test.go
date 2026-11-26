@@ -33,7 +33,7 @@ func mcpSession(t *testing.T, a Agent, config func(s *Session) string) *Session 
 	s := newSession(t, a)
 	cfg := s.Path("ctx-config")
 	s.Extra = append(s.Extra, "XDG_CONFIG_HOME="+cfg)
-	s.Write("ctx-config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
+	s.Write("ctx-config/ctxtra/config.yaml", "schema: ctxtra/config/v1\ncheck-releases: false\n")
 	s.Setup()
 	s.Write("ctx-config/ctxtra/config.yaml", "check-updates: false\n"+config(s))
 	s.Adjust = func(cmd *exec.Cmd) { approveMCP(s, a.Name(), cmd) }
@@ -178,17 +178,17 @@ func TestMCPProxy(t *testing.T) {
 		s := mcpSession(t, a, func(s *Session) string {
 			s.Marked("ctx/a.md", "MCP_A")
 			s.Marked("ctx/b.md", "MCP_B")
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   alpha: {command: [` + probe + `, mcp, -log, ` + s.Path("alpha.jsonl") + `]}
   beta: {command: [` + probe + `, mcp, -log, ` + s.Path("beta.jsonl") + `]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     instructions: [~/ctx/a.md]
     mcp-servers: [alpha]
   - name: b
-    match: {dirs: [~/dev/b]}
+    location: {dirs: [~/dev/b]}
     instructions: [~/ctx/b.md]
     mcp-servers: [beta]
 `
@@ -283,13 +283,13 @@ func TestMCPFailingServer(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
 		probe := probeBinary(t)
 		s := mcpSession(t, a, func(s *Session) string {
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   alpha: {command: [` + probe + `, mcp, -log, ` + s.Path("alpha.jsonl") + `]}
   broken: {command: [/nonexistent/mcp-server]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     mcp-servers: [broken, alpha]
 `
 		})

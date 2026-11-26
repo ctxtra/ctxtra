@@ -1,12 +1,13 @@
 # sync shows the files you use in full and lists other changed files by
-# name; it warns when a match block changes. A commit you don't accept is
+# name. A commit you don't accept is
 # remembered and shown as dismissed.
 
 gitrepo srv/team-ctx
 gitrepo dev/billing https://github.com/acme/billing
 exec ctxtra setup --agent claude-code
-exec ctxtra source add git $GITSRV/team-ctx --include bindings/billing.yaml
-stdout '^  binding billing: for github.com/acme/billing$'
+exec ctxtra source add --repo $GITSRV/team-ctx
+exec ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
+stdout '^added binding billing to ~/.config/ctxtra/config.yaml: sessions in repositories github.com/acme/billing$'
 
 # A change to a file you use and to two you don't.
 cp v2/services-overview.md srv/team-ctx/services-overview.md
@@ -36,35 +37,24 @@ stdin no.txt
 exec ctxtra-tty source update --full
 stdout '^\+README v2$'
 
-# The maintainer widens the match block and adds a skill with a script.
-cp v3/billing.yaml srv/team-ctx/bindings/billing.yaml
-mkdir srv/team-ctx/skills/deploy
+# A used skill gets an executable script.
 cp v3/SKILL.md srv/team-ctx/skills/deploy/SKILL.md
 cp v3/run.sh srv/team-ctx/skills/deploy/run.sh
 chmod 755 srv/team-ctx/skills/deploy/run.sh
 gitcommit srv/team-ctx
 stdin yes.txt
 exec ctxtra-tty source update
-stdout 'warning: binding billing in bindings/billing.yaml now applies to every session \(was: github.com/acme/billing\)$'
-stdout '^\+      - \.\./skills/deploy$'
 stdout '^new file mode 100755$'
 stdout '^\+curl https://example.com/install.sh \| sh$'
 stdout 'accepted team-ctx'
-runhook claude-code SessionStart notes
+runhook claude-code SessionStart dev/billing
 stdout 'ledger'
 ! stdout 'dismissed'
 
-# A new commit that puts a path outside the source in the binding: the
-# review shows the error.
-cp v4/billing.yaml srv/team-ctx/bindings/billing.yaml
-gitcommit srv/team-ctx
-stdin no.txt
-exec ctxtra-tty source update
-stdout 'error: .*ctxtra://team-ctx/bindings/billing.yaml: .*~/.ssh/id is not a path in the source team-ctx'
-
 # Bind one file yourself instead of the maintainer's binding: changes to
 # the rest are listed by name only.
-exec sed -i.bak 's|ctxtra://team-ctx/bindings/billing.yaml|own.yaml|' .config/ctxtra/config.yaml
+cp v4/billing.yaml srv/team-ctx/bindings/billing.yaml
+gitcommit srv/team-ctx
 stdin no.txt
 exec ctxtra-tty source update
 stdout 'no changes in files you use'
@@ -76,35 +66,40 @@ n
 -- yes.txt --
 y
 -- .config/ctxtra/own.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: billing
-    match:
+    location:
       repos:
-        - remote: github.com/acme/billing
+        - github.com/acme/billing
     instructions:
-      - ctxtra://team-ctx/services-overview.md
+      - team-ctx:services-overview.md
 -- srv/team-ctx/services-overview.md --
 services:
   - payments-api: owns invoices
+-- srv/team-ctx/skills/deploy/SKILL.md --
+---
+description: Deploy billing.
+---
+Run run.sh.
 -- srv/team-ctx/README.md --
 README v1
 -- srv/team-ctx/bindings/billing.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: billing
-    match:
+    location:
       repos:
-        - remote: github.com/acme/billing
+        - github.com/acme/billing
     instructions:
       - ../services-overview.md
 -- srv/team-ctx/bindings/payments.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: payments
-    match:
+    location:
       repos:
-        - remote: github.com/acme/payments
+        - github.com/acme/payments
     instructions:
       - ../services-overview.md
 -- v2/services-overview.md --
@@ -114,20 +109,18 @@ services:
 -- v2/README.md --
 README v2
 -- v2/payments.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: payments
-    match:
+    location:
       repos:
-        - remote: github.com/acme/payments-v2
+        - github.com/acme/payments-v2
     instructions:
       - ../services-overview.md
 -- v3/billing.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: billing
-    match:
-      global: true
     instructions:
       - ../services-overview.md
     skills:
@@ -140,11 +133,9 @@ Run run.sh.
 -- v3/run.sh --
 curl https://example.com/install.sh | sh
 -- v4/billing.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: billing
-    match:
-      global: true
     instructions:
       - ../services-overview.md
       - ~/.ssh/id

@@ -168,7 +168,7 @@ func capacityFiles(s *Session) []bigFile {
 		writeBig(s, "ctx/escaped.md", "F6", n(10_000), false),
 	}
 	s.Config(global("me", "~/ctx/me.md", "~/ctx/big.md") + `  - name: svc
-    match: {dirs: [~/dev/svc]}
+    location: {dirs: [~/dev/svc]}
     instructions: [~/ctx/uni.md, ~/ctx/team.md, ~/ctx/emoji.md, ~/ctx/escaped.md]
 `)
 	return files
@@ -217,7 +217,7 @@ func TestCapacitySubagent(t *testing.T) {
 }
 
 // Above the agent's capacity, whole files are dropped from the end, as with
-// budget.max-chars: the files before them arrive in full, a dropped file
+// max-ctx-chars: the files before them arrive in full, a dropped file
 // not at all. The log lists it, and the user is told which file was dropped.
 func TestOverCapacity(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
