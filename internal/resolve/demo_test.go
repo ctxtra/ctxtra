@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,23 +179,39 @@ func TestDemoConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The demo's files are longer than its max-ctx-chars allows: with
+	// room for them, the demo shows what each binding adds.
+	roomy := strings.Replace(string(demoFile), "max-ctx-chars: 40000", "max-ctx-chars: 400000", 1)
+	in := Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles}
+	allFiles := []string{"me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md", "alerts.md", "capacity.md",
+		"errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md", "go-notes.md", "style.md", "testing.md"}
+
 	t.Run("the demo as written", func(t *testing.T) {
-		res := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Resolve(Input{Dir: d.session, Agent: "claude-code", Profiles: demoProfiles})
+		res := Load(d.config(t, "config.yaml", roomy), agentNames).Resolve(in)
 		eq(t, "applied", applied(res), "me", "obs", "billing", "security", "review", "go-work", "tracker")
-		// The demo's max-ctx-chars is lower than these files: go-work's
-		// last files don't fit.
+		noErrors(t, res)
+		eq(t, "files", bases(res.Files), allFiles...)
+		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
+		eq(t, "servers", served(res), "linear")
+		if s := Load(d.config(t, "config.yaml", roomy), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
+			t.Errorf("iam-dev: %s", s.Why)
+		}
+	})
+
+	t.Run("max-ctx-chars leaves out the last files", func(t *testing.T) {
+		full := Load(d.config(t, "config.yaml", roomy), agentNames).Resolve(in)
+		// The limit is the rendered text without go-work's last two files.
+		short := *full
+		short.Files = full.Files[:len(full.Files)-2]
+		limit := Chars(short.Render())
+		res := Load(d.config(t, "config.yaml", strings.Replace(roomy, "max-ctx-chars: 400000", fmt.Sprintf("max-ctx-chars: %d", limit), 1)), agentNames).Resolve(in)
 		var errs []string
 		for _, e := range res.Errors {
 			errs = append(errs, e.Err.Msg)
 		}
 		eq(t, "errors", errs, "the text is over max-ctx-chars; 2 files of bindings go-work are left out")
-		eq(t, "files", bases(res.Files), "me.md", "me-work.md", "tools.md", "logs.md", "metrics.md", "traces.md", "alerts.md", "capacity.md",
-			"errors.md", "latency.md", "paging.md", "billing.md", "deps.md", "review.md", "secrets.md", "go-notes.md")
-		eq(t, "skills", skillNames(res), "commit", "go-test", "notes", "invoice", "refund", "go", "sql")
-		eq(t, "servers", served(res), "linear")
-		if s := Load(d.config(t, "config.yaml", string(demoFile)), agentNames).Catalog.Source("iam-dev"); s.Why != "~/dev/iam-ctx is not on this machine" {
-			t.Errorf("iam-dev: %s", s.Why)
-		}
+		eq(t, "files", bases(res.Files), allFiles[:len(allFiles)-2]...)
+		eq(t, "dropped", bases(res.Dropped), "style.md", "testing.md")
 	})
 
 	t.Run("the iam profile", func(t *testing.T) {
