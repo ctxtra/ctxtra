@@ -563,7 +563,9 @@ bindings:
   key, for example), or its source can't be used. In a positive entry it matches nothing. In a `!` entry it
   leaves out the binding, so the binding never reaches the repositories it excludes, also on a new machine
   before `source download`. A set of a source that is not on this machine does the same, without an error.
-- `context explain` names the set and the set entry that matched or left out the session.
+- `context explain` names the set and the set entry that matched or left out the session. The session
+  message names each set that can't be read, with its binding and what that does to it; past three, it
+  counts the rest.
 
 ### Profiles and agents
 

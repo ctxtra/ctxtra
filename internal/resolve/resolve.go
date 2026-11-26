@@ -68,6 +68,15 @@ type Trace struct {
 	Errors []*catalog.Error
 }
 
+// UnreadableSet is a repo-sets entry of a binding whose set can't be read.
+type UnreadableSet struct {
+	Binding string
+	// Entry is the entry as written, with its !.
+	Entry string
+	// Why is why the set can't be read.
+	Why string
+}
+
 // SessionMessage is how many instructions and skills the session message
 // lists; 0 leaves a list out.
 type SessionMessage struct {
@@ -104,6 +113,10 @@ type Result struct {
 	// SameSkills are skills that have a name another skill of the session
 	// has. All of them are delivered, as the agent would get them by hand.
 	SameSkills []SameSkill
+	// UnreadableSets are the repo-sets entries whose sets can't be read,
+	// for the session message, which names them. Their errors are in
+	// Errors.
+	UnreadableSets []UnreadableSet
 	// CaseRule is how the session folder's volume compares names, when a
 	// binding compares folders.
 	CaseRule caserule.Rule

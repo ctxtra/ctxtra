@@ -516,15 +516,20 @@ func (r *session) repoSets(b *config.Binding, t *Trace) (sets []repoSet, left st
 				t.Unavailable = append(t.Unavailable, u.Source.Name)
 			}
 		}
+		unreadable := func() {
+			r.res.UnreadableSets = append(r.res.UnreadableSets, UnreadableSet{Binding: b.Name, Entry: e.Text, Why: err.Error()})
+		}
 		switch {
 		case !e.Not && u != nil:
 		case !e.Not:
 			r.fail(t, b, e.Pos, yamlx.BrokenLocation, "repo-sets %s can't be read: %v; the entry matches nothing", e.Text, err)
+			unreadable()
 		case left != "":
 		case u != nil && u.Source.State == catalog.NotHere:
 			left = fmt.Sprintf("repo-sets %s can't be read: %v", e.Text, err)
 		default:
 			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be read: %v", e.Text, err)
+			unreadable()
 			left = fmt.Sprintf("repo-sets %s can't be read", e.Text)
 		}
 	}
