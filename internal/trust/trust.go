@@ -1,7 +1,7 @@
 // Package trust decides whether ctxtra may read a file from disk.
 //
 // A file is trusted if it is outside git, in a repository with no remote, or
-// under a trusted-path source. A file in a repository that has a remote and is
+// under a trusted dir source. A file in a repository that has a remote and is
 // not a trusted source is skipped: its content may come from someone else. A
 // file is trusted only if every repository around it is trusted, and every
 // symlink on the way to it too.
@@ -38,7 +38,7 @@ const (
 	maxGitBytes = 4 << 20
 )
 
-// Root is a trusted-path source: a folder whose files are trusted.
+// Root is a trusted dir source: a folder whose files are trusted.
 type Root struct {
 	Name string
 	Path string // absolute, ~ expanded
@@ -112,7 +112,8 @@ func (e *Error) Error() string {
 			what, paths.Tilde(e.Repo), e.Err)
 	}
 	return fmt.Sprintf("%s in %s, which has the remote %s and is not a trusted source; skipped. "+
-		"If only you push to the repository: ctxtra source add trusted-path %s; else pin it: ctxtra source add git %s",
+		"To read it live, add the folder as a dir source and trust it: ctxtra source add --dir %s, then ctxtra source trust NAME; "+
+		"to read reviewed commits: ctxtra source add --repo %s",
 		what, paths.Tilde(e.Repo), e.Remote, paths.Tilde(e.Repo), paths.Tilde(e.Repo))
 }
 
@@ -202,6 +203,25 @@ func (p *Policy) deniedRoot(dir string) Root {
 	return Root{Name: dir}
 }
 
+// Remotes are the remotes of the repository that dir is in, normalized and
+// sorted, with the repository's top; none and "" outside git. It reads the
+// git config files without running git.
+func Remotes(dir string) (top string, remotes []string, err error) {
+	p := New(nil)
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			urls, _, err := p.remoteURLs(d)
+			slices.Sort(urls)
+			return d, slices.Compact(urls), err
+		} else if !notFound(err) {
+			return d, nil, err
+		}
+		if filepath.Dir(d) == d {
+			return "", nil, nil
+		}
+	}
+}
+
 func notFound(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
@@ -255,19 +275,29 @@ func resolveLinks(path string) (links []string, final string, err error) {
 // "gitdir: <path>" (worktrees, submodules). A worktree's git folder has a
 // commondir file that points to the shared one, which holds the config.
 func (p *Policy) remotes(dir string) (url string, has bool, err error) {
+	urls, has, err := p.remoteURLs(dir)
+	if len(urls) > 0 {
+		url = urls[0]
+	}
+	return url, has, err
+}
+
+// remoteURLs are the remotes of the repository whose top is dir,
+// normalized, in file order; has is true when it has any.
+func (p *Policy) remoteURLs(dir string) (urls []string, has bool, err error) {
 	gitDir := filepath.Join(dir, ".git")
 	fi, err := os.Stat(gitDir)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 	if !fi.IsDir() {
 		b, err := p.read(gitDir)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
 		target, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
 		if !ok {
-			return "", false, errors.New(".git is a file without a gitdir line")
+			return nil, false, errors.New(".git is a file without a gitdir line")
 		}
 		gitDir = paths.Resolve(dir, target)
 	}
@@ -276,7 +306,7 @@ func (p *Policy) remotes(dir string) (url string, has bool, err error) {
 	case err == nil:
 		common = paths.Resolve(gitDir, strings.TrimSpace(string(b)))
 	case !notFound(err):
-		return "", false, err
+		return nil, false, err
 	}
 	files := []string{filepath.Join(common, "config"), filepath.Join(gitDir, "config.worktree")}
 	for i, f := range files {
@@ -285,17 +315,15 @@ func (p *Policy) remotes(dir string) (url string, has bool, err error) {
 			continue // config.worktree is optional
 		}
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
-		u, h, err := parseRemotes(b)
+		u, h, err := parseRemoteURLs(b)
 		if err != nil {
-			return "", false, fmt.Errorf("%s: %w", paths.Tilde(f), err)
+			return nil, false, fmt.Errorf("%s: %w", paths.Tilde(f), err)
 		}
-		if h && !has {
-			url, has = u, true
-		}
+		urls, has = append(urls, u...), has || h
 	}
-	return url, has, nil
+	return urls, has, nil
 }
 
 // read reads a git metadata file within the Policy's budget.
@@ -319,12 +347,24 @@ var (
 // doesn't look: a line it doesn't understand, a line continuation, and
 // include sections (they read other files) are errors.
 func parseRemotes(b []byte) (url string, has bool, err error) {
+	urls, has, err := parseRemoteURLs(b)
+	if len(urls) > 0 {
+		url = urls[0]
+	}
+	return url, has, err
+}
+
+// parseRemoteURLs is parseRemotes with every remote URL, normalized, in
+// file order; a remote without a url is "(unknown)".
+func parseRemoteURLs(b []byte) (urls []string, has bool, err error) {
 	b = bytes.TrimPrefix(b, []byte("\ufeff"))
 	section := ""
+	// urlInSection: the last remote section has its url already.
+	urlInSection := true
 	for n, line := range strings.Split(string(b), "\n") {
 		line = strings.Trim(line, " \t\r")
-		bad := func(why string) (string, bool, error) {
-			return "", false, fmt.Errorf("line %d: %s", n+1, why)
+		bad := func(why string) ([]string, bool, error) {
+			return nil, false, fmt.Errorf("line %d: %s", n+1, why)
 		}
 		if strings.HasSuffix(line, "\\") {
 			return bad("line continuations are not supported")
@@ -341,7 +381,14 @@ func parseRemotes(b []byte) (url string, has bool, err error) {
 			if section == "include" || section == "includeif" {
 				return bad("include sections are not supported")
 			}
-			has = has || section == "remote"
+			if section == "remote" {
+				if has && !urlInSection {
+					urls = append(urls, "(unknown)")
+				}
+				has, urlInSection = true, false
+			} else if has && !urlInSection {
+				urls, urlInSection = append(urls, "(unknown)"), true
+			}
 			line = strings.TrimLeft(line[len(m[0]):], " \t") // a key can follow on the same line
 			if line == "" || line[0] == '#' || line[0] == ';' {
 				continue
@@ -351,14 +398,14 @@ func parseRemotes(b []byte) (url string, has bool, err error) {
 		if m == nil || section == "" || !validValue(m[2]) {
 			return bad("unreadable line")
 		}
-		if section == "remote" && url == "" && strings.EqualFold(m[1], "url") {
-			url = gitrepo.NormalizeRemote(value(m[2]))
+		if section == "remote" && !urlInSection && strings.EqualFold(m[1], "url") {
+			urls, urlInSection = append(urls, gitrepo.NormalizeRemote(value(m[2]))), true
 		}
 	}
-	if has && url == "" {
-		url = "(unknown)"
+	if has && !urlInSection {
+		urls = append(urls, "(unknown)")
 	}
-	return url, has, nil
+	return urls, has, nil
 }
 
 // validValue reports whether v is a value git reads: quoted parts closed, and

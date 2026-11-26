@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
+	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/trust"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -31,6 +33,11 @@ type Catalog struct {
 	trust      *trust.Policy
 	// renamed is the config's name for a source's server, by SOURCE:SERVER.
 	renamed map[string]string
+	// trusted are the folders trusted with ctxtra source trust, read when
+	// a dir source's repository has remotes.
+	trusted     []state.Trusted
+	trustedErr  error
+	trustedRead bool
 }
 
 // State is whether a source's content can be used on this machine.
@@ -100,7 +107,7 @@ func (u *Unavailable) Error() string { return "source " + u.Source.Name + ": " +
 // else.
 func New(c *config.Config, l *lock.Lock, configFile string) *Catalog {
 	cat := &Catalog{
-		conf: c,
+		conf:    c,
 		file:    configFile,
 		base:    filepath.Dir(paths.Real(configFile)),
 		sources: map[string]*Source{},
@@ -166,6 +173,10 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 			return fail(Broken, yamlx.BrokenSource, "dir %s %s", s.Dir, why)
 		}
 		src.Top = paths.Real(dir)
+		if why := c.untrusted(src); why != "" {
+			src.Top = ""
+			return fail(Inactive, yamlx.Inactive, "%s", why)
+		}
 		return src
 	}
 	if config.IsLocalRepo(s.Repo) {
@@ -200,6 +211,36 @@ func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 	}
 	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(config.CleanSubdir(s.Subdir)))
 	return src
+}
+
+// untrusted says why dir source s can't be read live, "" when it can: its
+// folder's repository has no remote, or the remotes that ctxtra source
+// trust recorded.
+func (c *Catalog) untrusted(s *Source) string {
+	repo, remotes, err := trust.Remotes(s.Top)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("the remotes of %s can't be read (%v); it is not read until they can be", paths.Tilde(repo), err)
+	case len(remotes) == 0:
+		return ""
+	}
+	if !c.trustedRead {
+		c.trustedRead = true
+		c.trusted, c.trustedErr = state.LoadTrusted()
+	}
+	if c.trustedErr != nil {
+		return c.trustedErr.Error()
+	}
+	was, ok := state.TrustedRemotes(c.trusted, s.Top)
+	switch {
+	case !ok:
+		return fmt.Sprintf("%s is in a repository with the remotes %s, which others can push to; to read it live, run `ctxtra source trust %s`",
+			s.Dir, strings.Join(remotes, ", "), s.Name)
+	case !slices.Equal(was, remotes):
+		return fmt.Sprintf("the remotes of %s changed since you trusted it (now %s); it is not read until you run `ctxtra source trust %s` again",
+			s.Dir, strings.Join(remotes, ", "), s.Name)
+	}
+	return ""
 }
 
 // changed names what a config source changed since its lock entry.

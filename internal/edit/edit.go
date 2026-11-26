@@ -90,6 +90,13 @@ func (tx *Tx) UpdateLockEntry(e, was *lock.Entry) error {
 // then the config, each read back with the strict YAML layer before it
 // replaces the old file. When fn or a check fails, nothing is written.
 func (f Files) Run(fn func(tx *Tx) error) error {
+	return f.RunCommit(fn, func(write func() error) error { return write() })
+}
+
+// RunCommit is Run that hands the write to commit, still under the lock:
+// commit calls write when the other things it saves can go with the
+// config, and nothing is written when it doesn't.
+func (f Files) RunCommit(fn func(tx *Tx) error, commit func(write func() error) error) error {
 	unlock, err := fsutil.Lock(f.Mutex)
 	if err != nil {
 		return err
@@ -102,7 +109,24 @@ func (f Files) Run(fn func(tx *Tx) error) error {
 	if err := fn(tx); err != nil {
 		return err
 	}
-	return f.write(tx)
+	return commit(func() error { return f.write(tx) })
+}
+
+// Locked runs fn under the lock that every write takes: what fn reads from
+// the config doesn't change while it runs.
+func (f Files) Locked(fn func() error) error {
+	unlock, err := fsutil.Lock(f.Mutex)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
+// Created reports whether the config file is missing: a write creates it.
+func (f Files) Created() bool {
+	_, err := os.Stat(f.Config)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 func (f Files) read() (*Tx, error) {
