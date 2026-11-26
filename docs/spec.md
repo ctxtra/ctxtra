@@ -368,10 +368,11 @@ agent config backups may contain tokens. If the source or its lock entry changed
 
 ### How ctxtra runs git
 
-- It runs your `git`, so ssh keys, the ssh agent and credential helpers work. Only `source add`,
-  `source update` and `source download` fetch, and git may prompt there. Sessions never fetch. The
-  [update checks](#update-checks) run `git ls-remote`, which reads only the commit ID of a branch or tag,
-  and git may not prompt.
+- It runs your `git`, so ssh keys, the ssh agent and credential helpers work. `source add`,
+  `source update` and `source download` fetch, and git may prompt there. Sessions never fetch and never
+  wait for the network. The [update checks](#update-checks), which run in their own process, run
+  `git ls-remote`, which reads only the commit ID of a branch or tag. For a branch source with `subdir`, a
+  check that finds a new commit also fetches the branch into the cache. git may not prompt in a check.
 - Only the https and ssh transports, and the file transport only to fetch from a clone you named (a local repo source). No hooks, no submodules, no automatic maintenance. Nothing is checked
   out, so `.gitattributes` filters (git-lfs, smudge) never run. Diffs use no external diff and no textconv.
 - Environment variables that point git at another repository or config are cleared.
