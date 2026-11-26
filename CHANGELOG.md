@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
+- Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
+  including collection `--replace`. New and changed entries still validate their content.
+
+- `collection` and `repo-set` have `add`, `remove` and `list --json` commands. Add accepts entry flags,
+  `--file FILE|-` and `--replace`; add and remove accept `--dry-run`.
+- `config set KEY VALUE` and `config unset KEY` change program settings and restore their defaults.
+- List commands include config errors in their diagnostics and exit 1 when they report errors.
+- `mcp add` accepts repeatable `--header NAME=VALUE` and `--scope SCOPE` flags for remote servers.
+  `--use SOURCE:SERVER` gives a source's server a new name without contacting it or changing its credentials
+  or approval. Adding the same definition or alias again changes nothing.
+
 - `binding add` writes every key of a binding: `--repo-set`, `--profile`, `--agent` and `--collection` next to
   `--dir`, `--repo`, `--instruction`, `--skill` and `--mcp-server`, and `--subdir` for the one `--repo` given.
   `--source` takes a source name or a repo source's address (`URL//FOLDER` for a source's folder) and makes the

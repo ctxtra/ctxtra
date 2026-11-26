@@ -70,6 +70,30 @@ session-message:
 Only `schema` is required. `ctxtra/config/v1`, `ctxtra/lock/v1` and `ctxtra/source/v1` are different
 file kinds. The earlier `ctxtra/v1` format is not read or converted.
 
+`ctxtra collection add NAME` writes a collection with `--instruction`, `--skill`, `--mcp-server`,
+`--collection` and `--source`, as `binding add` does. `ctxtra repo-set add NAME` writes a set with
+`--repo` and `--subdir`. `--subdir` needs exactly one `--repo`; for several repositories with subdirs,
+use `--file`. Both commands need at least one entry and accept `--file FILE` or `--file -` for one
+entry in YAML instead of entry flags. `--replace` changes an entry in place or adds it when missing.
+The same entry already there changes nothing; another entry with that name is an error. Each has
+`remove NAME` and `list`; add and remove accept `--dry-run`.
+
+`ctxtra config set KEY VALUE` changes `check-releases` (true or false), `max-ctx-chars`,
+`session-message.max-skills` or `session-message.max-instructions` (whole numbers of 0 or more).
+`ctxtra config unset KEY` removes the setting, so its default applies. Other keys and values of the
+wrong type are errors and change nothing. A missing setting already uses its default.
+Counts are read as decimal, including values with leading zeros. Setting a count compares those
+decimal values when deciding whether the setting is already there.
+
+`collection add` and `mcp add --use` succeed for an identical entry without checking current file or
+source availability. This includes collection `--replace`. A config or lock that cannot be read
+still stops the command.
+
+Every `list` accepts `--json`. Commands exit 0 on success, 1 on a mistake or refused change, and 2
+on bad flags or arguments. Config writes take the same lock, re-read the files, and change only their
+own entries. The writer preserves untouched text and comments. It refuses layouts it cannot edit as
+text, such as a flow-style root or section, and tells you to use block style or edit by hand.
+
 Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
 Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
 
@@ -921,6 +945,13 @@ A server has exactly one of `url` and `command`. Remote settings are `headers`, 
 names, not values. Commands use an absolute program path or an installed name in `PATH`, never a relative path.
 Names are 1–20 lowercase letters, digits or `_`, start with a letter, and have neither `__` nor a trailing `_`.
 Duplicate names in a declaration map invalidate both definitions.
+
+`ctxtra mcp add NAME URL --header NAME=VALUE --scope SCOPE` writes remote headers and OAuth scopes.
+Both flags repeat and preserve each value as text. They do not apply to local command servers.
+`ctxtra mcp add NAME --use SOURCE:SERVER` gives a source's server a new name. It writes only `use`;
+it cannot be combined with a URL, command or definition flags. It contacts no server and changes no
+credentials or approvals. `--dry-run` checks without writing. Adding the same definition or alias
+again exits 0 and changes nothing.
 
 A config server's identity is `linear`; a source `work` has `work:linear`. Each has its own sign-in.
 Bindings select them with `mcp-servers: [linear, 'work:linear']`. A binding can contain only servers.

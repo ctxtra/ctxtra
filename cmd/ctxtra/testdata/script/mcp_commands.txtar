@@ -12,7 +12,7 @@ stdout '\-\-mcp-server NAME'
 ! exec ctxtra binding add w --dir '~/dev/**' --mcp-server pg
 stderr 'the config has no MCP server pg'
 exec ctxtra mcp add --help
-stdout 'ctxtra mcp add NAME \(URL \| -- COMMAND \[ARG\]...\)'
+stdout 'ctxtra mcp add NAME \(URL \| -- COMMAND \[ARG\]... \| --use SOURCE:SERVER\)'
 stdout '--pass-env NAME'
 
 # Dry run: shows the change, writes and starts nothing.

@@ -78,6 +78,7 @@ type skillInfo struct {
 
 // skillList is skill list.
 func skillList(stdio IO, asJSON bool) int {
+	problems := errorTexts(loadEnv().Errors)
 	out := []skillInfo{}
 	for _, name := range ctxtra.SkillNames() {
 		i := skillInfo{Name: name, Description: description(name)}
@@ -87,7 +88,10 @@ func skillList(stdio IO, asJSON bool) int {
 		out = append(out, i)
 	}
 	if asJSON {
-		writeJSON(stdio.Out, out, nil)
+		writeJSON(stdio.Out, out, diagnostics("error", problems))
+		if len(problems) > 0 {
+			return 1
+		}
 		return 0
 	}
 	for _, i := range out {
@@ -99,6 +103,12 @@ func skillList(stdio IO, asJSON bool) int {
 			state = "installed, but no binding adds it to sessions"
 		}
 		fmt.Fprintf(stdio.Out, "%s: %s\n  %s\n", i.Name, state, i.Description)
+	}
+	for _, p := range problems {
+		fmt.Fprintf(stdio.Err, "error: %s\n", p)
+	}
+	if len(problems) > 0 {
+		return 1
 	}
 	return 0
 }

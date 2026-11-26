@@ -122,7 +122,7 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 			t.Cleanup(unlock)
 			// mcp list reports the read failure, not a config without servers.
 			code, out, _ := run("mcp", "list", "--json")
-			if code != 0 || !strings.Contains(out, "ctxtra's store is being cleaned") {
+			if code != 1 || !strings.Contains(out, "ctxtra's store is being cleaned") {
 				t.Errorf("mcp list: exit %d\n%s", code, out)
 			}
 		case "config":
