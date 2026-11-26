@@ -446,9 +446,14 @@ func isRepo(dir string) bool {
 func (s *Source) ManifestErrors() []*Error { return s.manifestErrs }
 
 // Manifest is the manifest of active source s, read once; nil when the
-// source has none. The errors are the manifest's.
+// source has none or when it can't be read now. The errors are the
+// manifest's, and why it can't be read: nil with no errors means it has
+// none.
 func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
-	m, errs, _ := c.ManifestWithin(s, nil)
+	m, errs, err := c.ManifestWithin(s, nil)
+	if err != nil {
+		errs = append(errs, &Error{File: s.Name + ":" + manifest.FileName, Err: &yamlx.Error{Mistake: yamlx.Unreadable, Msg: err.Error()}})
+	}
 	return m, errs
 }
 
