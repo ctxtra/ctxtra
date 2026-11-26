@@ -9,8 +9,6 @@ import (
 	"slices"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
-	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -52,17 +50,19 @@ func validateSource(stdio IO, dir string, asJSON bool) int {
 	case !st.Mode().IsRegular():
 		return fail(fmt.Errorf("%s is not a regular file: sessions don't read a symlink in a repo source", manifest.FileName))
 	}
-	data, err := fsutil.ReadBounded(file, config.MaxFileBytes)
-	if err != nil {
-		return fail(err)
-	}
-	m := manifest.Parse(data)
-	var errs, warns []string
-	for _, e := range m.Errors {
-		errs = append(errs, e.Error())
-	}
+	// One read, with the limits of sessions.
 	top := paths.Real(dir)
-	for _, e := range resolve.CheckCollections(catalog.Checkout(filepath.Base(top), top), filepath.Base(top)) {
+	name := filepath.Base(top)
+	cat := catalog.Checkout(name, top)
+	m, merrs := cat.Manifest(cat.Source(name))
+	if m == nil {
+		m = &manifest.Manifest{}
+	}
+	var errs, warns []string
+	for _, e := range merrs {
+		errs = append(errs, e.Err.Error())
+	}
+	for _, e := range resolve.CheckCollections(cat, name) {
 		errs = append(errs, e.Err.Error())
 	}
 	for _, s := range m.MCPServers {

@@ -249,7 +249,8 @@ ctxtra source validate .
 ctxtra source validate . --json
 ```
 
-Validation reads `DIR/ctxtra-source.yaml` and the files its collections name, and nothing outside DIR. It
+Validation reads `DIR/ctxtra-source.yaml`, with the size limit that sessions use, and the files its
+collections name, and nothing outside DIR. It
 checks YAML, names, keys, entry shapes and MCP definitions. It reads each collection the way a session reads
 it from an accepted commit, and reports what a session would: a path that matches nothing, a missing nested
 collection, a cycle, a `!` entry that excludes nothing, and a skill whose `SKILL.md` has no valid header.
