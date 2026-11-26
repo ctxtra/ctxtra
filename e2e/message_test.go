@@ -22,7 +22,7 @@ func TestUserMessage(t *testing.T) {
 		r := s.Run(repo, driver.Options{})
 		r.First(mock.Main).Has("PERSONAL")
 		want := "✓ ctxtra added 1 instruction; 1 error (run ctxtra doctor)\nInstructions:\n  local\n  - ~/ctx/me.md\n\n" +
-			"⚠ ~/.config/ctxtra/config.yaml: line 6: binding me: ~/ctx/gone.md is not a file; the entry is left out"
+			"⚠ ~/.config/ctxtra/config.yaml: line 7: binding me: ~/ctx/gone.md is not a file; the entry is left out"
 		if got := a.UserMessages(s.Home, r.Stdout); !slices.Equal(got, []string{want}) {
 			t.Errorf("user messages %q, want [%q]", got, want)
 		}
