@@ -343,26 +343,25 @@ func (c *Catalog) Route(name string) string {
 
 // route says why the symlinks on the way to dir source s keep it from
 // being read, "" when they don't. Each link passes the trust check at its
-// own location: outside git, in a repository without remotes, in the
-// source's own repository, or in a folder that others trusts. A link
-// elsewhere can be changed by whoever pushes to its repository, and the
-// trust of the folder it leads to doesn't cover it. top is where dir leads.
+// own location: outside git, in a repository without remotes, or in a
+// folder that others trusts. A link elsewhere can be changed by whoever
+// pushes to its repository, and the trust of the folder it leads to
+// doesn't cover it, also in the same repository. top is where dir leads.
 func route(s *config.Source, dir, top string, others *trust.Policy) string {
 	links, err := trust.Links(dir)
 	if err != nil {
 		return fmt.Sprintf("dir %s: %v; it is not read", s.Dir, err)
 	}
-	own, _, _ := trust.Remotes(top)
 	for _, l := range links {
 		repo, remotes, err := trust.Remotes(filepath.Dir(l))
 		switch {
-		case repo == "" || repo == own || others.CheckAt(l) == nil:
+		case repo == "" || others.CheckAt(l) == nil:
 			continue
 		case err != nil:
 			return fmt.Sprintf("%s leads through a symlink at %s, in the git repository %s, which ctxtra can't check (%v); it is not read",
 				s.Dir, paths.Tilde(l), paths.Tilde(repo), err)
 		case len(remotes) > 0:
-			return fmt.Sprintf("%s leads through a symlink at %s, in %s, which has the remotes %s and is not this source; it is not read. To read the folder the link leads to, use dir: %s",
+			return fmt.Sprintf("%s leads through a symlink at %s, in %s, which has the remotes %s and no trusted dir source there; it is not read. To read the folder the link leads to, use dir: %s",
 				s.Dir, paths.Tilde(l), paths.Tilde(repo), strings.Join(remotes, ", "), paths.Tilde(top))
 		}
 	}
