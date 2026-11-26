@@ -73,17 +73,40 @@ file kinds. The earlier `ctxtra/v1` format is not read or converted.
 Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
 Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
 
-`ctxtra binding add NAME --instruction FILE --skill DIR --mcp-server SERVER` adds a binding last.
-Each content flag is optional, but at least one is required. `--dir` and `--repo` are repeatable conditions;
-without either, the binding applies everywhere. Disk paths passed to the command are relative to the current
+`ctxtra binding add NAME` writes a binding from flags, one per key, each repeatable:
+`--dir`, `--repo` and `--repo-set` for `location`, `--profile`, `--agent`, and the content flags `--collection`,
+`--instruction`, `--skill` and `--mcp-server`. At least one content flag is required. A condition without flags
+is left out, so a binding without `--dir`, `--repo` and `--repo-set` applies everywhere. A `!` entry is a value:
+`--profile '!oncall'`. `--subdir PATTERN` writes the `subdirs` of the one `--repo` given; with several `--repo`, or
+none, the command exits 1. Disk paths given to `--dir`, `--instruction` and `--skill` are relative to the current
 folder and written as absolute paths, using `~` under home. Source references stay as written.
-The command refuses a binding whose content would be missing, untrusted or over capacity.
-`--dry-run` checks it and writes nothing. `ctxtra binding list` shows the entries as written;
-`ctxtra binding remove NAME` removes one. Adding the same binding again succeeds without writing.
-A different binding with that name is an error. Edit existing conditions in YAML.
+
+`--source SOURCE` makes the values of `--collection`, `--repo-set`, `--mcp-server`, `--instruction` and `--skill`
+names or paths in that source, written with the config's name for it, after any `!`: `--source cat --skill
+'!skills/old'` writes `'!cat:skills/old'`. SOURCE is a source name, or a repository address when it contains `/`
+or `:`. Addresses are compared as `host/path`, so `git@github.com:acme/ctx.git` and `https://github.com/acme/ctx`
+are the same. `URL//FOLDER` picks the source with that `subdir`. No source, several, or a value that already
+names a source exits 1 and changes nothing; with no source, the error gives the `ctxtra source add` command.
+
+`--file FILE`, or `--file -` for stdin, gives the whole binding in YAML as in the config, without `name`, instead
+of the entry flags. It is checked as the config is: a YAML tag, an anchor or an unknown key is refused. Its
+relative paths are relative to the config's folder, as in the config.
+
+A new binding goes last, or where `--before NAME` or `--after NAME` says. A binding name that exists exits 1,
+unless the binding is the same after reading the YAML: then the command exits 0 and writes nothing. `--replace`
+changes the binding in its place, and adds it when there is none. `--before` and `--after` can't move a
+binding that `--replace` changes.
+
+The command refuses a binding with an error, or whose content would be missing, untrusted or over capacity.
+It then prints the binding as written, where it applies (every session, or which locations, agents and
+profiles), and the files, skills and MCP servers a session there gets. Files and skills of a repo source that
+no other binding used get content warnings, as `source add` shows them. `--dry-run` checks and shows the
+binding and writes nothing. `ctxtra binding list` shows the entries as written; `ctxtra binding remove NAME`
+removes one.
 
 Writers keep text they do not change, including comments and order. A layout they cannot edit safely,
 such as a flow-style root, is refused with an explanation. Write that part in block style or edit it by hand.
+A config whose lines end in a lone carriage return is refused too; save it with `\n` or `\r\n` line breaks.
 Config and lock writes share an operating-system lock in the state folder. Each writer re-reads both files,
 changes its own entries and replaces each file atomically. A symlinked config stays a symlink.
 A lock with invalid YAML or another schema stops every write, also one that changes only the config, until

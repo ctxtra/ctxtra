@@ -1,0 +1,115 @@
+# binding add --source makes the values of --collection, --repo-set,
+# --mcp-server, --instruction and --skill names or paths in one source,
+# written with the config's name for it. A team's README then works
+# whatever the user named the source.
+gitrepo srv/iam-ctx
+gitrepo srv/agent-context
+gitrepo srv/catalog
+exec ctxtra source add --repo $GITSRV/iam-ctx --name acme-iam
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/iam
+stdout '^added source agent-context-iam'
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/obs
+stdout '^added source agent-context-obs'
+exec ctxtra source add --repo $GITSRV/catalog --name cat
+
+# A team's README: the URL in another form still finds the source.
+exec ctxtra binding add iam --source $GITSRV/iam-ctx.git --repo-set services --collection essentials
+stdout '^      repo-sets:$'
+stdout '^        - acme-iam:services$'
+stdout '^      - acme-iam:essentials$'
+stdout '^  file        acme-iam:docs/a.md$'
+
+# Two teams' folders in one repository: //FOLDER picks the source.
+exec ctxtra binding add obs --source $GITSRV/agent-context//teams/obs --collection essentials
+stdout '^      - agent-context-obs:essentials$'
+stdout '^  file        agent-context-obs:obs.md$'
+
+# One repository, two sources.
+! exec ctxtra binding add x --source $GITSRV/agent-context --collection essentials
+stderr 'the sources agent-context-iam, agent-context-obs all have .*/agent-context; give --source one of their names'
+
+# A catalog without a manifest, and an exclusion with --source.
+exec ctxtra binding add review --source cat --skill 'skills/*' --skill '!skills/old'
+stdout '^  skill       review \(cat:skills/review/SKILL.md\)$'
+! stdout 'skills/old/SKILL.md'
+
+# The source isn't added.
+! exec ctxtra binding add x --source https://example.com/acme/nope.git --collection essentials
+stderr 'no source has https://example.com/acme/nope.git; add it first: ctxtra source add --repo https://example.com/acme/nope.git$'
+! exec ctxtra binding add x --source https://example.com/acme/nope.git//teams/a --collection essentials
+stderr 'add it first: ctxtra source add --repo https://example.com/acme/nope.git --subdir teams/a$'
+! exec ctxtra binding add x --source nope --collection essentials
+stderr 'the config has no source nope'
+
+# A value that already names a source.
+! exec ctxtra binding add x --source cat --skill 'cat:skills/review'
+stderr 'cat:skills/review names a source already; with --source, give only the name or path in the source'
+! exec ctxtra binding add x --source cat --collection '!acme-iam:essentials'
+stderr '!acme-iam:essentials names a source already'
+
+# --source doesn't change --dir, --repo, --profile and --agent.
+exec ctxtra binding add local --source cat --dir '~/dev/**' --profile cat --agent codex --instruction notes.md
+stdout '^      - cat:notes.md$'
+
+# The config has each binding as given.
+exec sh -c 'sed -n "/^bindings:/,\$p" .config/ctxtra/config.yaml'
+cmp stdout want-bindings.yaml
+
+-- srv/iam-ctx/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+repo-sets:
+  services: [github.com/acme/iam-*]
+-- srv/iam-ctx/docs/a.md --
+IAM
+-- srv/agent-context/teams/iam/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [iam.md]
+-- srv/agent-context/teams/iam/iam.md --
+IAM TEAM
+-- srv/agent-context/teams/obs/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [obs.md]
+-- srv/agent-context/teams/obs/obs.md --
+OBS TEAM
+-- srv/catalog/skills/review/SKILL.md --
+---
+description: Review code.
+---
+-- srv/catalog/skills/old/SKILL.md --
+---
+description: Old review.
+---
+-- srv/catalog/notes.md --
+NOTES
+-- want-bindings.yaml --
+bindings:
+  - name: iam
+    location:
+      repo-sets:
+        - acme-iam:services
+    collections:
+      - acme-iam:essentials
+  - name: obs
+    collections:
+      - agent-context-obs:essentials
+  - name: review
+    skills:
+      - 'cat:skills/*'
+      - '!cat:skills/old'
+  - name: local
+    location:
+      dirs:
+        - '~/dev/**'
+    profiles:
+      - cat
+    agents:
+      - codex
+    instructions:
+      - cat:notes.md

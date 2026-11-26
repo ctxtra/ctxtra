@@ -16,9 +16,10 @@ stdout '^  services-overview.md$'
 stdout '^  skills/deploy/SKILL.md$'
 grep '^    commit: [0-9a-f]{40}$' .config/ctxtra/ctxtra.lock
 exec ctxtra binding add billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
-stdout '^added binding billing to ~/.config/ctxtra/config.yaml: every session$'
-stdout '^  instructions: team-ctx:services-overview.md$'
-stdout '^  skills: team-ctx:skills/deploy$'
+stdout '^added binding billing to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in every session$'
+stdout '^  file +team-ctx:services-overview.md$'
+stdout '^  skill +deploy \(team-ctx:skills/deploy/SKILL.md\)$'
 runhook claude-code SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
 stdout 'Contents of .*/.local/share/ctxtra/store/[0-9a-f]{16}/[0-9a-f]{40}/services-overview.md'

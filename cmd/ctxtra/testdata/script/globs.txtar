@@ -14,7 +14,8 @@ stdout 'LOCAL_B'
 
 # Entries that start with ! leave files and skills out, wherever they are.
 exec ctxtra binding add trimmed --instruction '!trim/drafts/**' --instruction 'trim/**/*.md' --skill 'skills/*' --skill '!skills/exp-*'
-stdout 'instructions: ''?!~/trim/drafts/\*\*''?, ''?~/trim/\*\*/\*.md'
+stdout '^      - ''!~/trim/drafts/\*\*''$'
+stdout '^      - ''~/trim/\*\*/\*.md''$'
 exec ctxtra context files .
 stdout 'trim/kept.md'
 ! stdout 'drafts'

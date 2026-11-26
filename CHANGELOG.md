@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `binding add` writes every key of a binding: `--repo-set`, `--profile`, `--agent` and `--collection` next to
+  `--dir`, `--repo`, `--instruction`, `--skill` and `--mcp-server`, and `--subdir` for the one `--repo` given.
+  `--source` takes a source name or a repository address (`URL//FOLDER` for a source's folder) and makes the
+  content and repo set values refer to that source, so a team's README works whatever you named it.
+  `--file FILE|-` takes any binding in YAML, `--replace` changes one in its place or adds it, and `--before` and
+  `--after` place a new one. The command shows the binding as written, where it applies, what a session there
+  gets, and content warnings for files of a repo source that it binds for the first time.
+- Commands that write the config refuse a config with lone carriage-return line breaks, and a name that YAML
+  would write as an explicit key, instead of writing what they can't edit again.
 - Profiles: `CTXTRA_PROFILES=iam,oncall` sets the active profiles for one launch, else the selection stored
   in `profiles.json` in the state folder applies. A session keeps the profiles it started with for its
   subagents and compaction in Claude Code and Codex; `/clear` takes them anew. The session message, the log,

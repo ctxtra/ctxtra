@@ -120,7 +120,7 @@ stderr '^  ctxtra mcp approve work:build$'
 stdin yes.txt
 exec ctxtra-tty mcp approve work:build
 exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
-stdout 'MCP servers: work:build'
+stdout '^      - work:build$'
 exec ctxtra context explain dev/app
 stdout 'MCP servers build and work:build are both named build; the session gets build, the first in binding order'
 runhook claude-code SessionStart dev/app

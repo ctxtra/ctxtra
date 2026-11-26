@@ -205,9 +205,24 @@ The command for the work binding is:
 ctxtra binding add work --repo 'github.com/acme/**' --instruction ~/agent-context/work.md --skill ~/agent-context/skills/deploy
 ```
 
-It keeps existing comments and writes only when the binding's content is usable. `--dry-run` checks it
-without writing. A duplicate with the same content succeeds without changing anything; a different binding
-with that name is an error. `ctxtra binding list` lists bindings and `ctxtra binding remove NAME` removes one.
+Each key has a flag: `--dir`, `--repo`, `--repo-set`, `--profile`, `--agent`, `--collection`, `--instruction`,
+`--skill` and `--mcp-server`, each repeatable. Quote values that start with `!` and patterns, or the shell reads
+them: `--profile '!oncall'`. For one part of a monorepo, add `--subdir 'services/billing/**'` to a single
+`--repo`. For any other shape, give the binding in YAML, without its name:
+
+```bash
+ctxtra binding add obs --file obs.yaml        # or --file - to read stdin
+ctxtra binding add obs --replace --file obs.yaml
+```
+
+`--replace` changes the binding in its place, or adds it if it isn't there, so a script can run the line
+again. A new binding goes last; `--before NAME` or `--after NAME` puts it elsewhere, since bindings apply in
+order.
+
+The command keeps existing comments and writes only when the binding works. It shows the binding as written,
+where it applies, and the files, skills and servers a session there gets. `--dry-run` shows the same without
+writing. The same binding again changes nothing; a different binding with that name is an error.
+`ctxtra binding list` lists bindings and `ctxtra binding remove NAME` removes one.
 
 ### Your live folder
 
@@ -242,6 +257,18 @@ ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx
 ctxtra source update --dry-run team-ctx
 ctxtra source update team-ctx
 ```
+
+A team's README can give the same two lines to everyone, whatever each person names the source:
+
+```bash
+ctxtra source add --repo git@github.com:acme/iam-ctx.git
+ctxtra binding add iam-work --source git@github.com:acme/iam-ctx.git --repo-set services --collection essentials
+```
+
+`--source` takes a source name or its repository's address, in any form (`https://github.com/acme/iam-ctx`
+works too), and makes `--collection`, `--repo-set`, `--mcp-server`, `--instruction` and `--skill` refer to that
+source. For one folder of a shared repository, write `URL//teams/obs`. `binding add` shows content warnings
+for the source's files that it binds for the first time.
 
 Read the repository before adding it: its first commit is accepted without review.
 Later commits reach sessions only after you review and accept them in your terminal.
@@ -373,6 +400,8 @@ bindings:
     profiles: [iam]
     instructions: [~/agent-context/iam.md]
 ```
+
+The same from the command line: `ctxtra binding add iam-work --profile iam --instruction ~/agent-context/iam.md`.
 
 Choose the profiles for one launch with `CTXTRA_PROFILES`:
 

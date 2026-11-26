@@ -14,7 +14,8 @@ stdout 'to read it live, run ctxtra source trust dotfiles'
 exec ctxtra source trust dotfiles
 exec ctxtra binding add work --repo 'github.com/acme/**' --instruction dotfiles:work.md
 stdout '^added binding work'
-stdout '^  instructions: dotfiles:work.md$'
+stdout '^      - dotfiles:work.md$'
+stdout '^  file +dotfiles:work.md$'
 exec ctxtra context files notes
 ! stdout work.md
 
