@@ -2,7 +2,7 @@
 [mcp_servers.ctxtra-proxy]
 command = "@@HOME@@/bin/ctxtra"
 args = ["mcp", "proxy", "codex", "--setup-version=1"]
-env_vars = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CTXTRA_LOG", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]
+env_vars = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CTXTRA_LOG", "CTXTRA_PROFILES", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]
 startup_timeout_sec = 30
 required = true
 # <<< ctxtra MCP proxy

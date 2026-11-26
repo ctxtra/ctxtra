@@ -58,7 +58,7 @@ func (env *Env) Resolve(in Input) *Result {
 		rd:    env.reader(),
 		files: map[string]bool{}, skills: map[string]bool{}, servers: map[string]bool{},
 		manifests: map[string]bool{}}
-	r.res = &Result{Dir: dir, Summary: summary(env.Config.SessionMessage), Profiles: in.Profiles}
+	r.res = &Result{Dir: dir, Agent: in.Agent, Summary: summary(env.Config.SessionMessage), Profiles: in.Profiles}
 	r.res.Errors = slices.Concat(r.res.Errors, env.Errors, in.Profiles.Errors, env.unusedProfiles(in.Profiles.Names))
 	for _, b := range env.Config.Bindings {
 		t := Trace{Origin: b.Name}

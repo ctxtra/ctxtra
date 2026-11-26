@@ -69,6 +69,10 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestUserMessage` | Claude and Muse get the summary message for the user from the hook |
 | `TestMissingBinary` | Claude and Muse: with the binary that the hooks run gone, the session starts, and the hook command gives the message for the user that the binary is missing |
 | `TestProfileStored` | The profile selection stored on the machine decides which bindings with `profiles` reach the model |
+| `TestProfileSwitchingWhileASessionRuns` | After the main session's first request, `profile set` switches the stored selection; a later subagent keeps the parent's profile, except Antigravity, which supplies no parent ID and uses the new selection |
+| `TestProfileClearStartsOver` | OpenCode's interactive `/clear` creates a new session ID, and the next model request uses the new stored profile; waits for its command menu before submitting and saves the screen, requests and hook log on failure |
+| `TestProfileVariableReachesTheMCPProxy` | With `CTXTRA_PROFILES` set, including empty, the hook and proxy choose the same profiles; an inactive profile's server never starts |
+| `TestProfileMuseHooksWithoutTheEnvironment` | Muse clears `CTXTRA_PROFILES` for hooks and the proxy, so both use the stored profile |
 | `TestProfileVariable` | A session started with `CTXTRA_PROFILES` gets that profile instead of the stored selection, its subagent too, and Claude's session message names it. Not Muse, which runs hooks without the shell's environment |
 | `TestOutsideGit` | Outside git, repository conditions do not match; bindings without location or with matching dirs still apply |
 | `TestResume` | Copilot and Muse: a resumed session has the current version of the files, once |
@@ -98,8 +102,9 @@ The test still handles folder trust and runs the import against the real interac
 
 Not covered here, and checked by hand before a release:
 
-- What the interactive TUI shows (the session-start message on screen), `/clear`, `/compact`, and resume in
-  Claude, Codex, Pi and OpenCode. These need a pseudo-terminal runner. Also ctxtra's slash commands in
+- What the interactive TUI shows (the session-start message on screen), `/clear` in Claude, Codex and Pi,
+  `/compact`, and resume in Claude, Codex, Pi and OpenCode. OpenCode's `/clear` has an interactive test.
+  Also ctxtra's slash commands in
   Claude Code's desktop app and VS Code extension.
 - What a real model makes of the import that `ctxtra import --start` starts: the merged file,
   its questions, and the cleanup of the old files.

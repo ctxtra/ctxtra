@@ -59,6 +59,9 @@ type Request struct {
 type Server struct {
 	srv    *httptest.Server
 	script []Step
+	// BeforeReply observes a request before its scripted reply. Set it
+	// before starting an agent; callbacks may run concurrently.
+	BeforeReply func(Request)
 
 	mu    sync.Mutex
 	reqs  []Request
@@ -160,8 +163,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if c != nil {
 		reply = c.name
 	}
+	request := Request{API: api, Path: path, Role: role, Text: BodyText(body), Body: body, Reply: reply}
+	if s.BeforeReply != nil {
+		s.BeforeReply(request)
+	}
 	s.mu.Lock()
-	s.reqs = append(s.reqs, Request{API: api, Path: path, Role: role, Text: BodyText(body), Body: body, Reply: reply})
+	s.reqs = append(s.reqs, request)
 	s.mu.Unlock()
 
 	model, _ := body["model"].(string)

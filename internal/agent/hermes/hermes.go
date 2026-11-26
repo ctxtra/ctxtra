@@ -38,7 +38,7 @@ const pluginName = "ctxtra"
 
 // pluginVersion is sent by the plugin as ctxtra_plugin in the hook input,
 // and is its protocol line.
-const pluginVersion = 3
+const pluginVersion = 4
 
 func (Agent) Protocol() int { return pluginVersion }
 
@@ -129,7 +129,7 @@ func (a Agent) Status(bin string, known bool) agent.Status {
 // Check adds plugin.yaml, and whether the plugin is enabled: a plugin that
 // isn't is set up, but Hermes doesn't load it.
 func (a Agent) Check(bin string, known bool) []string {
-	notices, ours := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin"}, bin, known)
+	notices, ours := extfile.CheckSetup(extfile.Ext{Path: a.ConfigPath(), Agent: a.Name(), Noun: "plugin", SessionProtocol: 4}, bin, known)
 	if !ours {
 		return notices
 	}
@@ -312,10 +312,11 @@ def _cwd():
     return str(resolve_agent_cwd())
 
 
-def _run(event):
+def _run(event, session_id="", parent_session_id=""):
     try:
         data = json.dumps(
-            {"cwd": _cwd(), "ctxtra_plugin": ` + strconv.Itoa(pluginVersion) + `, "ctxtra_slots": SLOTS}, ensure_ascii=False
+            {"cwd": _cwd(), "ctxtra_plugin": ` + strconv.Itoa(pluginVersion) + `, "ctxtra_slots": SLOTS,
+             "session_id": session_id, "ctxtra_parent_session": parent_session_id}, ensure_ascii=False
         ).encode("utf-8")
         proc = subprocess.Popen(
             [BIN, "hook", "hermes-agent", event, "--setup-version=1"],
@@ -387,7 +388,7 @@ def _callback(k):
         if not is_first_turn:
             return None
         if k == 0:
-            _parts[session_id] = _run("subagent" if parent_session_id else "pre_llm_call")
+            _parts[session_id] = _run("subagent" if parent_session_id else "pre_llm_call", session_id, parent_session_id)
         parts = _parts.pop(session_id, []) if k == SLOTS - 1 else _parts.get(session_id, [])
         return {"context": parts[k]} if k < len(parts) and parts[k] else None
 

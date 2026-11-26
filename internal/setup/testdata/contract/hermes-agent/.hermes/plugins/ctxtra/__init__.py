@@ -1,6 +1,6 @@
 # @ctxtra-managed
 # binary: $HOME/bin/ctxtra
-# protocol: 3
+# protocol: 4
 # --setup-version=1
 # Written by ctxtra setup. Adds the instruction files and skills that
 # ctxtra binds to the session's folder. Safe to delete; `ctxtra setup --remove` removes it.
@@ -31,10 +31,11 @@ def _cwd():
     return str(resolve_agent_cwd())
 
 
-def _run(event):
+def _run(event, session_id="", parent_session_id=""):
     try:
         data = json.dumps(
-            {"cwd": _cwd(), "ctxtra_plugin": 3, "ctxtra_slots": SLOTS}, ensure_ascii=False
+            {"cwd": _cwd(), "ctxtra_plugin": 4, "ctxtra_slots": SLOTS,
+             "session_id": session_id, "ctxtra_parent_session": parent_session_id}, ensure_ascii=False
         ).encode("utf-8")
         proc = subprocess.Popen(
             [BIN, "hook", "hermes-agent", event, "--setup-version=1"],
@@ -106,7 +107,7 @@ def _callback(k):
         if not is_first_turn:
             return None
         if k == 0:
-            _parts[session_id] = _run("subagent" if parent_session_id else "pre_llm_call")
+            _parts[session_id] = _run("subagent" if parent_session_id else "pre_llm_call", session_id, parent_session_id)
         parts = _parts.pop(session_id, []) if k == SLOTS - 1 else _parts.get(session_id, [])
         return {"context": parts[k]} if k < len(parts) and parts[k] else None
 

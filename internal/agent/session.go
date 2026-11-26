@@ -34,3 +34,21 @@ func HookSession(event string, raw []byte) profile.Event {
 	}
 	return e
 }
+
+// PluginSession reads the native session identities forwarded by ctxtra's
+// OpenCode, Hermes and DSH plugins.
+func PluginSession(event string, raw []byte) profile.Event {
+	var in struct {
+		Session string `json:"session_id"`
+		Parent  string `json:"ctxtra_parent_session"`
+	}
+	_ = json.Unmarshal(raw, &in)
+	e := profile.Event{Kind: profile.Continue, Session: in.Session}
+	switch event {
+	case "startup", "clear", "pre_llm_call":
+		e.Kind = profile.Start
+	case "subagent":
+		e.Kind, e.Parent = profile.Subagent, in.Parent
+	}
+	return e
+}

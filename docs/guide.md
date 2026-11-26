@@ -414,12 +414,26 @@ ctxtra context explain --profile iam  # preview, without switching
 ```
 
 Without the variable, a session uses the selection stored on this machine, in
-`~/.local/state/ctxtra/profiles.json`. Commands that change it are not available yet. The session message
+`~/.local/state/ctxtra/profiles.json`. Choose it with these commands; they don't change the config:
+
+```bash
+ctxtra profile set iam oncall        # replace the selection
+ctxtra profile list                  # names, active selection and bindings
+ctxtra profile clear                 # no stored profile
+```
+
+`set` accepts only names the bindings use, including names after `!`. Invalid or unknown names leave the
+selection unchanged. `set` and `clear` refuse to overwrite a selection file they can't read. The session message
 names the active profiles and where they came from. A name that no binding uses is reported as a likely typo.
 
 A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.
-Claude Code and Codex subagents and compaction get the profiles of the session's start; other agents take
-the current profiles at every hook event for now. The profiles can also differ from what you expect here:
+Claude Code, Codex, Copilot, Muse, OpenCode, Hermes and DSH can keep the parent's profiles for subagents.
+Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. `doctor` reports an older
+plugin that can't forward session IDs, with the setup command to fix it. Muse needs its native parent
+ID; without it, a subagent uses the current selection. Antigravity gives no parent ID, so its subagents
+use the current selection. Cursor, Pi and Devin also use it at every hook event.
+OpenCode's `/clear` makes a new session ID and takes the current profiles.
+The profiles can also differ from what you expect here:
 
 - An agent started from another terminal (for example by Orca, Rex or Herdr) uses the stored selection
   unless started with `CTXTRA_PROFILES`.
@@ -427,6 +441,13 @@ the current profiles at every hook event for now. The profiles can also differ f
   and after `/clear` it keeps the old servers until the session restarts.
 - Muse, and IDE agents started from the Dock, don't pass your shell's variables to hooks: they see only the
   stored selection.
+- Some agents keep the hook's text in their history and don't run the hook again on resume or compaction.
+  Copilot can lose that text at compaction. Hermes's default in-place compaction keeps the session;
+  its rotation mode has not been verified.
+
+Codex passes `CTXTRA_PROFILES` to its MCP proxy, also when empty. After upgrading, run
+`ctxtra setup --agent codex` again to update an older allow-list; `doctor` reports a missing variable.
+Muse's proxy uses the stored selection, like its hooks.
 
 Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 
@@ -464,8 +485,11 @@ don't reach the session. ctxtra has an optional skill for this:
 ctxtra skill install ctxtra-follow
 ```
 
-Before the agent works in a folder outside the session folder, the skill tells it to run
-`ctxtra context show DIR --exclude-session SESSION_DIR --part 1`, once for each folder: the top of another repository, or a
+The session's text gives the exact command with its agent and profiles, for example
+`ctxtra context show DIR --agent claude-code --profile iam --exclude-session SESSION_DIR --part 1`.
+With no active profile, it starts with `CTXTRA_PROFILES=` so a later selection doesn't apply.
+Before the agent works in a folder outside the session folder, the skill tells it to run that command,
+once for each folder: the top of another repository, or a
 project folder in a repository with several. That prints only the files and skills the folder adds, not
 what the session has already (a file the session has from another folder is listed by name, so the agent
 knows it applies here too), and the agent follows them for its work there. Each file's header names the

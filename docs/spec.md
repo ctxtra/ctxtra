@@ -621,15 +621,31 @@ A new session's active profiles come from, in this order:
    names and empty entries are ignored, and a name given twice counts once. An invalid name is an error and is
    left out; the other names apply.
 2. The stored selection, `profiles.json` in the state folder: on this machine, outside the config. A file that
-   can't be read is an error, and no profile comes from it. Commands that change it are not available yet.
+   can't be read is an error, and no profile comes from it.
 3. Otherwise, no profile is active.
 
 An active profile that no binding uses, a `!` entry included, is an error: likely a typo. The other profiles
 still apply.
 
+`ctxtra profile set NAME...` replaces the stored selection. It refuses invalid names and names no binding
+uses, lists the names the config uses, and changes nothing on failure. A `!` entry counts as a use.
+`ctxtra profile clear` empties the selection. Both refuse to overwrite a selection file they can't read,
+and name it. Neither changes the config. `ctxtra profile list` lists every name the bindings use, whether
+it is active now, the active selection's origin and the bindings that use each name. It takes `--json`.
+
 `context files`, `context show`, `context explain`, `doctor`, `mcp status` and the MCP proxy use the profiles a
 new session would get. The `context` commands take `--profile NAME`, repeatable, to show a session with only
 those profiles active; nothing is stored.
+
+Codex's MCP environment allow-list includes `CTXTRA_PROFILES`, including an empty value, so the proxy
+selects the same profiles as the hook. Run `ctxtra setup --agent codex` again for an entry that lacks it;
+`doctor` reports the missing variable. Muse clears both processes' shell environment, so both use the
+stored selection. Setup does not record a profile variable in Muse's config.
+
+When `ctxtra-follow` is bound, the session's text gives its exact `ctxtra context show FOLDER` command,
+with `--agent ID`, one `--profile NAME` per active profile, the session folder in `--exclude-session`, and
+`--part 1`. A session with no profile gets a `CTXTRA_PROFILES=` prefix, so a later selection doesn't apply.
+Keep those options when following work into another folder or reading another part.
 
 ### A session keeps its profiles
 
@@ -645,10 +661,25 @@ the session ID, readable by the user only. It holds only the profile names and t
 | No session ID, or no record | The current ones; recorded when there is a session ID. |
 
 When a record can't be read or written, the event gets the current profiles, the session starts, and the
-log has the error. Session IDs are the agent's own; ctxtra never guesses them. Claude Code and Codex keep
-profiles for subagents and compaction: their subagent start carries the parent's session ID. Other agents
-take the current profiles at every hook event for now. With hook slots, the slot that resolves the session
-start chooses the profiles, and the other slots share its text.
+log has the error. Session IDs are the agent's own; ctxtra never guesses them.
+
+- Claude Code, Codex and Copilot give the parent's session ID at subagent start. Copilot uses `sessionId`,
+  not its child `agentId`. Resume and compaction keep the record when a hook runs.
+- Muse gives the child's `session_id` and the native parent in `MUSE_SESSION_ID`. Without a distinct parent
+  ID, its subagent uses the current selection. A child's later events keep its own record.
+- OpenCode, Hermes and DSH plugins forward `session_id` and `ctxtra_parent_session`. Run setup again for
+  those agents to get this behavior. Older plugins without these fields use the current selection.
+  `doctor` reports OpenCode protocols below 2, Hermes below 4 and DSH below 2 with the setup command;
+  it exits 1 until the plugin is updated. Newer protocols are accepted.
+  OpenCode's context callbacks use an existing session record, also after a plugin restart or cache eviction;
+  a new child inherits its parent's record. Its `/clear` creates a new session ID and selects profiles anew.
+- Antigravity records each `conversationId`, but gives no parent: each subagent takes the current selection.
+- Cursor, Pi and Devin use the current selection at every hook event.
+
+With hook slots, the slot that resolves the session start chooses the profiles, and the other slots share
+its text. Where an agent keeps the hook's text in its history and runs no resume or compaction hook, there
+is no new lookup. Copilot can lose the hook's text at compaction without calling the hook again. Hermes's
+default in-place compaction keeps the session ID; rotation mode has not been verified.
 
 A record no hook event used for 30 days is deleted. Sessions start that cleanup in the background at most once
 a day (`ctxtra hook --clean-sessions`); a hook never waits for it.

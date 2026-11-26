@@ -51,7 +51,7 @@ Config: $XDG_CONFIG_HOME/ctxtra/config.yaml or ~/.config/ctxtra/config.yaml (for
 	)
 	root.AddCommand(
 		a.onboardCmd(), a.setupCmd(), a.importCmd(),
-		a.sourceCmd(), a.bindingCmd(), a.skillCmd(), a.mcpCmd(),
+		a.sourceCmd(), a.bindingCmd(), a.skillCmd(), a.mcpCmd(), a.profileCmd(),
 		a.contextCmd(), a.doctorCmd(), a.checkUpdatesCmd(),
 		a.versionCmd(), hookCmd(),
 	)

@@ -159,8 +159,8 @@ const run = async (wd) => {
 	const on = {};
 	plugin.apply({ on: (name, fn) => { on[name] = fn; }, get: (name) => name === "workingDirectory" ? wd : undefined });
 	const added = [];
-	for (const [source, header] of [["startup", { cwd: "/a" }], ["startup", { cwd: "/a", parentSession: "s1" }], ["resume", { cwd: "/a" }], ["compact", { cwd: "/b" }]]) {
-		const agent = { session: { header } };
+	for (const [source, header] of [["startup", { id: "p", cwd: "/a" }], ["startup", { id: "c", cwd: "/a", parentSession: "p" }], ["resume", { id: "p", cwd: "/a" }], ["compact", { id: "c", cwd: "/b", parentSession: "p" }]]) {
+		const agent = { session: { id: wd ? header.id : undefined, header } };
 		await on["agent/created"]({ agent, source });
 		const steps = [];
 		for (const decision of [{ kind: "enter", messages: [] }, { kind: "reject" }, { kind: "enter", messages: ["prompt", "AGENTS.md"] }, { kind: "enter", messages: ["tool"] }]) {
@@ -208,9 +208,12 @@ console.log(JSON.stringify({ name: plugin.name, withService, failing, without })
 	}
 	// Nothing for resume; the subagent's run is logged as one.
 	calls, _ := os.ReadFile(bin + ".calls")
-	want := "hook dsh startup {\"cwd\":\"/wd\",\"ctxtra_plugin\":1}\nhook dsh subagent {\"cwd\":\"/wd\",\"ctxtra_plugin\":1}\nhook dsh compact {\"cwd\":\"/wd\",\"ctxtra_plugin\":1}\n" +
-		"hook dsh startup {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook dsh subagent {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook dsh compact {\"cwd\":\"/b\",\"ctxtra_plugin\":1}\n" +
-		"hook dsh startup {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook dsh subagent {\"cwd\":\"/a\",\"ctxtra_plugin\":1}\nhook dsh compact {\"cwd\":\"/b\",\"ctxtra_plugin\":1}\n"
+	want := ""
+	for _, dirs := range [][2]string{{"/wd", "/wd"}, {"/a", "/b"}, {"/a", "/b"}} {
+		want += "hook dsh startup {\"cwd\":\"" + dirs[0] + "\",\"ctxtra_plugin\":2,\"session_id\":\"p\"}\n" +
+			"hook dsh subagent {\"cwd\":\"" + dirs[0] + "\",\"ctxtra_plugin\":2,\"session_id\":\"c\",\"ctxtra_parent_session\":\"p\"}\n" +
+			"hook dsh compact {\"cwd\":\"" + dirs[1] + "\",\"ctxtra_plugin\":2,\"session_id\":\"c\",\"ctxtra_parent_session\":\"p\"}\n"
+	}
 	if string(calls) != want {
 		t.Errorf("calls:\n%s", calls)
 	}

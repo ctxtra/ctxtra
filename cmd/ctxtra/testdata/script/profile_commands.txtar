@@ -1,0 +1,87 @@
+# Set replaces the stored selection; duplicates count once and case counts.
+exec ctxtra profile set iam iam Observability
+stdout '^stored profiles: iam, Observability \(from stored selection\)$'
+cmp .local/state/ctxtra/profiles.json selected.json
+cmp .config/ctxtra/config.yaml original.yaml
+
+# List names every profile, including names used only after !, and its bindings.
+exec ctxtra profile list
+stdout '^profiles: iam, Observability \(from stored selection\)$'
+stdout '^Observability \(active\): obs$'
+stdout '^iam \(active\): iam, more$'
+stdout '^oncall \(inactive\): excluded$'
+exec ctxtra profile list --json
+stdout '"active": \[\s+"iam",\s+"Observability"'
+stdout '"name": "oncall",\s+"active": false,\s+"bindings": \[\s+"excluded"'
+
+# Unknown and invalid names refuse the entire change.
+! exec ctxtra profile set iam obsrvability
+stderr 'no binding uses "obsrvability"; profiles the config uses: Observability, iam, oncall; selection unchanged'
+cmp .local/state/ctxtra/profiles.json selected.json
+! exec ctxtra profile set 'on call'
+stderr '"on call" is not a valid profile name'
+cmp .local/state/ctxtra/profiles.json selected.json
+! exec ctxtra profile set observability
+stderr 'no binding uses "observability"'
+
+# An exclusion counts as a use. Set replaces rather than adds.
+exec ctxtra profile set oncall
+exec ctxtra profile list
+stdout '^profiles: oncall \(from stored selection\)$'
+stdout '^iam \(inactive\): '
+
+# Clear empties the selection without changing the config.
+exec ctxtra profile clear
+stdout '^stored profiles: none \(from stored selection\)$'
+cmp .local/state/ctxtra/profiles.json cleared.json
+cmp .config/ctxtra/config.yaml original.yaml
+exec ctxtra profile clear
+
+# A broken selection is named and never overwritten by either command.
+cp broken.json .local/state/ctxtra/profiles.json
+! exec ctxtra profile set iam
+stderr '~/.local/state/ctxtra/profiles.json is not a valid profile selection'
+cmp .local/state/ctxtra/profiles.json broken.json
+! exec ctxtra profile clear
+stderr '~/.local/state/ctxtra/profiles.json is not a valid profile selection'
+cmp .local/state/ctxtra/profiles.json broken.json
+! exec ctxtra profile list --json
+stdout '"severity": "error"'
+stdout 'profiles.json is not a valid profile selection'
+
+# The variable overrides the stored selection, including an empty variable.
+env CTXTRA_PROFILES=iam
+exec ctxtra profile list
+stdout '^profiles: iam \(from CTXTRA_PROFILES\)$'
+stdout '^iam \(active\): '
+stdout '^oncall \(inactive\): '
+env CTXTRA_PROFILES=
+exec ctxtra profile list
+stdout '^profiles: none \(from CTXTRA_PROFILES\)$'
+stdout '^iam \(inactive\): '
+
+# Bad flags and missing or extra arguments are usage errors.
+exec sh -c 'ctxtra profile set; test "$?" = 2'
+exec sh -c 'ctxtra profile clear extra; test "$?" = 2'
+exec sh -c 'ctxtra profile list --unknown; test "$?" = 2'
+
+-- selected.json --
+{"profiles":["iam","Observability"]}
+-- cleared.json --
+{"profiles":[]}
+-- broken.json --
+{"profiles":"iam"}
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - {name: iam, profiles: [iam], instructions: [~/rules.md]}
+  - {name: obs, profiles: [Observability], instructions: [~/rules.md]}
+  - {name: more, profiles: [iam], instructions: [~/rules.md]}
+  - {name: excluded, profiles: ['!oncall'], instructions: [~/rules.md]}
+-- original.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - {name: iam, profiles: [iam], instructions: [~/rules.md]}
+  - {name: obs, profiles: [Observability], instructions: [~/rules.md]}
+  - {name: more, profiles: [iam], instructions: [~/rules.md]}
+  - {name: excluded, profiles: ['!oncall'], instructions: [~/rules.md]}
