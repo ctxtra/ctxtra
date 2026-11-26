@@ -77,3 +77,41 @@ func TestReaderTotalLimit(t *testing.T) {
 		t.Errorf("b: %v", err)
 	}
 }
+
+// A counted file still reads with its content, and is charged once, in
+// either order; a symlink to it is the same file.
+func TestReaderCount(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "a"), "CONTENT")
+	write(t, filepath.Join(dir, "b"), "BBB")
+	if err := os.Symlink(filepath.Join(dir, "a"), filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	r := NewReader(10, 10)
+	if err := r.Count(a, 7); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.Read(filepath.Join(dir, "link")); string(got) != "CONTENT" || err != nil {
+		t.Errorf("read after count: %q %v", got, err)
+	}
+	if got, err := r.Read(b); string(got) != "BBB" || err != nil {
+		t.Errorf("a was charged twice: %q %v", got, err)
+	}
+	r = NewReader(10, 10)
+	if got, err := r.Read(a); string(got) != "CONTENT" || err != nil {
+		t.Fatalf("read: %q %v", got, err)
+	}
+	if err := r.Count(a, 7); err != nil {
+		t.Errorf("count after read: %v", err)
+	}
+	if got, err := r.Read(a); string(got) != "CONTENT" || err != nil {
+		t.Errorf("read after count: %q %v", got, err)
+	}
+	if _, err := r.Read(b); err != nil {
+		t.Errorf("b: %v", err)
+	}
+	if err := r.Count(filepath.Join(dir, "c"), 1); !errors.Is(err, ErrTotalLimit) {
+		t.Errorf("over the total: %v", err)
+	}
+}

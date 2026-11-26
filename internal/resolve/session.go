@@ -661,11 +661,8 @@ func (r *session) countManifests(e config.Entry) error {
 		if s == nil || s.State != catalog.Active {
 			continue
 		}
-		r.env.Catalog.Manifest(s)
-		if file, n := s.ManifestFile(); n > 0 {
-			if err := r.rd.Count(file, n); err != nil {
-				return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
-			}
+		if _, _, err := r.env.Catalog.ManifestWithin(s, r.rd); err != nil {
+			return fmt.Errorf("%s:%s can't be read: %w", name, manifest.FileName, err)
 		}
 	}
 	return nil

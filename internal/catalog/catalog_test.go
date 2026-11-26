@@ -12,6 +12,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
@@ -222,5 +223,45 @@ mcp-servers:
 	}
 	if raw := c.conf.MCPServers[0].Command[0]; raw != "~/bin/mcp" {
 		t.Errorf("the config's model changed: %s", raw)
+	}
+}
+
+// Manifests read within a session's limit read no more than it has left:
+// one that doesn't fit is neither read nor kept, and one read before
+// counts again in the next session.
+func TestManifestWithinLimit(t *testing.T) {
+	const n, size = 36, 512 << 10
+	var conf strings.Builder
+	conf.WriteString("sources:\n")
+	for i := range n {
+		fmt.Fprintf(&conf, "  s%02d: {dir: ~/s%02d}\n", i, i)
+	}
+	c, _ := catalog(t, conf.String(), "", func(h string) {
+		for i := range n {
+			testenv.Write(t, filepath.Join(h, fmt.Sprintf("s%02d", i), "ctxtra-source.yaml"),
+				"schema: ctxtra/source/v1\n# "+strings.Repeat("p", size)+"\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+		}
+	})
+	const total = 16 << 20
+	rd := fsutil.NewReader(config.MaxFileBytes, total)
+	read, refused := 0, 0
+	for _, s := range c.Sources() {
+		m, _, err := c.ManifestWithin(s, rd)
+		switch {
+		case err != nil && errors.Is(err, fsutil.ErrTotalLimit) && !s.manifestRead:
+			refused++
+		case err == nil && m != nil:
+			read += s.manifestSize
+		default:
+			t.Fatalf("%s: %v %v", s.Name, m, err)
+		}
+	}
+	if read > total || refused == 0 {
+		t.Errorf("read %d bytes of manifests, %d refused", read, refused)
+	}
+	rd = fsutil.NewReader(config.MaxFileBytes, size)
+	first := c.Sources()[0]
+	if _, _, err := c.ManifestWithin(first, rd); !errors.Is(err, fsutil.ErrTotalLimit) {
+		t.Errorf("a manifest read before counts again: %v", err)
 	}
 }

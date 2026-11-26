@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -153,6 +154,15 @@ func escapeMeta(s string) string {
 func (c *Catalog) Read(it Item, rd *fsutil.Reader) ([]byte, error) { return c.read(it, rd) }
 
 func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
+	limit := maxManifestBytes
+	if rd != nil {
+		limit = math.MaxInt // rd's own limit
+	}
+	return c.readMax(it, rd, limit)
+}
+
+// readMax is read with at most limit bytes for this file.
+func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error) {
 	p := it.Path
 	if !it.stored {
 		if err := c.trust.Check(p); err != nil {
@@ -160,9 +170,9 @@ func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
 		}
 	}
 	if rd == nil {
-		return fsutil.ReadBounded(p, maxManifestBytes)
+		return fsutil.ReadBounded(p, limit)
 	}
-	return rd.Read(p)
+	return rd.ReadMax(p, limit)
 }
 
 // Untrusted is the error of a file that others can change, outside a

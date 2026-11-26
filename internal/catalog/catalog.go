@@ -6,6 +6,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -357,22 +359,43 @@ func isRepo(dir string) bool {
 // read it.
 func (s *Source) ManifestErrors() []*Error { return s.manifestErrs }
 
-// ManifestFile is the path of the manifest of s and its size, once
-// Manifest has read it.
-func (s *Source) ManifestFile() (string, int) {
-	return filepath.Join(s.Top, manifest.FileName), s.manifestSize
-}
-
 // Manifest is the manifest of active source s, read once; nil when the
 // source has none. The errors are the manifest's.
 func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
-	if s.manifestRead || s.State != Active {
-		return s.manifest, s.manifestErrs
+	m, errs, _ := c.ManifestWithin(s, nil)
+	return m, errs
+}
+
+// ManifestWithin is Manifest read with rd's limits, when it is not read
+// yet; a manifest read before counts its size in rd. err is set when the
+// manifest doesn't fit in what rd has left: it is then not read, and not
+// kept as read.
+func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manifest, []*Error, error) {
+	if s.State != Active {
+		return nil, nil, nil
 	}
-	s.manifestRead = true
-	it := Item{Path: filepath.Join(s.Top, manifest.FileName), Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
+	path := filepath.Join(s.Top, manifest.FileName)
+	if s.manifestRead {
+		if rd != nil && s.manifestSize > 0 {
+			if err := rd.Count(path, s.manifestSize); err != nil {
+				return nil, nil, err
+			}
+		}
+		return s.manifest, s.manifestErrs, nil
+	}
+	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live()}
 	file := s.Name + ":" + manifest.FileName
-	data, err := c.read(it, nil)
+	data, err := c.readMax(it, rd, maxManifestBytes)
+	if errors.Is(err, fsutil.ErrTotalLimit) {
+		return nil, nil, err
+	}
+	m, errs := c.keepManifest(s, file, data, err)
+	return m, errs, nil
+}
+
+// keepManifest keeps what reading the manifest of s gave.
+func (c *Catalog) keepManifest(s *Source, file string, data []byte, err error) (*manifest.Manifest, []*Error) {
+	s.manifestRead = true
 	s.manifestSize = len(data)
 	switch {
 	case os.IsNotExist(err):

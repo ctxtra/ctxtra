@@ -535,3 +535,32 @@ func TestTotalLimitCoversConfig(t *testing.T) {
 		})
 	}
 }
+
+// A file that the session counted without reading it as content, the
+// config or a manifest, still delivers its text when a binding names it.
+func TestCountedFilesKeepTheirContent(t *testing.T) {
+	h := newHome(t)
+	h.write("tools/ctxtra-source.yaml", "schema: ctxtra/source/v1\n# MANIFEST_MARKER\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+	for name, conf := range map[string]string{
+		"the config": "# CONFIG_MARKER\nbindings:\n  - {name: b, instructions: [~/.config/ctxtra/config.yaml]}\n",
+		"a manifest, servers first": "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: s, mcp-servers: ['tools:build']}\n" +
+			"  - {name: b, instructions: ['tools:ctxtra-source.yaml']}\n",
+		"a manifest, instruction first": "sources: {tools: {dir: ~/tools}}\nbindings:\n  - {name: b, instructions: ['tools:ctxtra-source.yaml']}\n" +
+			"  - {name: s, mcp-servers: ['tools:build']}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := start(h.load(conf), h.dir, "")
+			noErrors(t, res)
+			want := "MANIFEST_MARKER"
+			if name == "the config" {
+				want = "CONFIG_MARKER"
+			}
+			if len(res.Files) != 1 || !strings.Contains(res.Files[0].Content, want) {
+				t.Errorf("files %+v", res.Files)
+			}
+			if name != "the config" && len(res.MCPServers) != 1 {
+				t.Errorf("servers %+v", res.MCPServers)
+			}
+		})
+	}
+}
