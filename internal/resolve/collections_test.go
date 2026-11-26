@@ -188,6 +188,17 @@ func TestCollections(t *testing.T) {
 		}
 	})
 
+	t.Run("a scoped exclusion and another ! entry", func(t *testing.T) {
+		h := newHome(t)
+		h.write("iam/a.md", "A")
+		h.write("iam/b.md", "B")
+		h.iamManifest("collections:\n  base: {instructions: [a.md]}\n  child: {collections: [base], instructions: [b.md, '!gone.md']}\n" +
+			"  root: {collections: [child, '!base']}\n")
+		res := start(h.load(iamSource+"bindings:\n  - {name: test, collections: ['iam-team:root']}\n"), h.dir, "")
+		eq(t, "files", refsOf(res.Files), "iam-team:b.md")
+		oneError(t, res, "collection child", "!gone.md excludes nothing")
+	})
+
 	t.Run("errors in a collection are reported once", func(t *testing.T) {
 		h := newHome(t)
 		h.write("iam/a.md", "A")

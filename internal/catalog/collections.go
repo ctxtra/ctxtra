@@ -541,6 +541,10 @@ func (c *Catalog) flat(k *coll, not []config.Entry) *Expansion {
 	if k.memos == nil {
 		k.memos = map[string]*Expansion{}
 	}
+	if key != "" {
+		// k's own diagnostics first: an expansion copies them.
+		c.flat(k, nil)
+	}
 	if c.expansions >= maxExpansions {
 		if c.tooMany == nil {
 			c.tooMany = &Error{File: k.file, Err: &yamlx.Error{Pos: k.def.Pos, Mistake: yamlx.BrokenGroup,
