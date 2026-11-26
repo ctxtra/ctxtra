@@ -1,4 +1,4 @@
-// Package mcpprobe is an experiment for the MCP proxy (CTX-31): it runs real
+// Package mcpprobe is an experiment for the MCP proxy: it runs real
 // agents against the mock model with ctxtra set up and a stdio MCP test
 // server (./probe) registered, and records what the hook and the MCP server
 // each see: the folder, the process chain, the MCP client capabilities and

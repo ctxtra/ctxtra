@@ -68,7 +68,7 @@ session-message:
 ```
 
 Only `schema` is required. `ctxtra/config/v1`, `ctxtra/lock/v1` and `ctxtra/source/v1` are different
-file kinds. The earlier `ctxtra/config/v1` format is not read or converted.
+file kinds. The earlier `ctxtra/v1` format is not read or converted.
 
 Names of sources and bindings are 1–64 letters, digits, `.`, `_` or `-`, starting with a letter.
 Case counts. Server names have the stricter rule in [MCP servers](#mcp-servers).
@@ -751,8 +751,8 @@ mcp login NAME`. A 403 `insufficient_scope` records the scopes it asks for, for 
 the same way.
 
 `ctxtra mcp login NAME` signs in again; for a server without OAuth, or with `--secrets`, it asks for the secret
-values again. Use a source server's full reference, for example `login work/linear`. Login does not override a
-package's client ID. `logout REF` deletes local tokens and secret values, including the client secret, but keeps
+values again. Use a source server's full reference, for example `login work:linear`. Login does not override a
+source server's client ID. `logout REF` deletes local tokens and secret values, including the client secret, but keeps
 client registration, callback-port settings and their stored binding, even when the selected config no longer declares
 that identity or declares a different target. The provider isn't told. Reauthorization does not reset an agent
 conversation or an already-open provider session; start new sessions after account changes. Local processes retain
@@ -763,7 +763,7 @@ old environment secrets until they exit. A shorter configured scope list does no
 The session summary counts the selected MCP servers in its first
 line, for example `✓ ctxtra added 10 instructions, 2 skills and 1 MCP server`.
 An `MCP servers:` list follows the instructions and skills. It isn't grouped: a server from a source has an
-identity of the form `SOURCE/NAME`, a server of the config just its name. It shows up to 30 identities in binding
+identity of the form `SOURCE:NAME`, a server of the config just its name. It shows up to 30 identities in binding
 order, then `+N more` and `Full MCP list: ctxtra context explain`.
 The count includes servers awaiting sign-in or approval, and excludes suppressed identities.
 With no selected servers, the summary stays unchanged. The hook reads only local state.
@@ -867,9 +867,10 @@ An interrupted authorization can be retried with login, not add. A definition sa
 command success alone is not proof of a completed sign-in. Human-readable server descriptions, notes and sign-in
 metadata escape terminal control characters. JSON catalog output preserves the metadata values.
 
-Removing a config server deletes its credentials and reports dangling bindings. Package definitions are read-only
-to mcp remove. Removing a source removes its includes, reports remaining references and cleanup commands, but keeps
-credentials for explicit cleanup. `mcp remove SOURCE/NAME` can delete leftover credentials once that
+Removing a config server deletes its credentials and reports dangling bindings. A source's server definitions are
+read-only to mcp remove. Removing a source keeps the binding entries that use it: each is reported, and stays an error
+until the user removes it. The command lists cleanup commands and keeps the source's credentials for explicit cleanup.
+`mcp remove SOURCE:NAME` can delete leftover credentials once that
 identity is undeclared in the config. Existing sessions can still use those credentials until restarted.
 It is not provider-side grant revocation. Logout without a stored credential record only advances cancellation
 history and clears local sign-in state. It does not create a placeholder binding.
