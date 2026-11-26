@@ -23,10 +23,12 @@ type Approval struct {
 	Allowed     bool   `json:"allowed"`
 }
 
-// Fingerprint covers operational settings, identity and origin, not notes
-// or the source commit. JSON orders map keys deterministically.
+// Fingerprint covers operational settings, identity and origin, not notes,
+// the source commit or the name the config serves a source's server under:
+// a new name for SOURCE:SERVER keeps its approval. JSON orders map keys
+// deterministically.
 func Fingerprint(srv upstream.Server) string {
-	srv.Notes = ""
+	srv.Notes, srv.Name = "", ""
 	data, _ := json.Marshal(struct {
 		Version int
 		Server  upstream.Server

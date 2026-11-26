@@ -63,6 +63,9 @@
 - `source update` shows the entries a commit adds to or removes from the repo sets in use, the sets it
   removes and their errors, with the bindings that use or exclude them, and warns about `HOST/**` entries.
 - `source update --json` lists the review's new errors in `diagnostics`, with the bindings they affect.
+- The config's `mcp-servers` can give a source's server a new name, `jira_iam: {use: 'iam-team:jira'}`, wherever
+  the server comes from, also when a source's collection adds it. A new name keeps the server's approval and
+  sign-in. `mcp status` gives the approve command for a server that needs approval.
 
 ## v0.6.0
 

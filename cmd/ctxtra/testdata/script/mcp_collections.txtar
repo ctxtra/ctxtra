@@ -1,0 +1,102 @@
+# Servers that a source's collection adds: a repo source's need approval of
+# their whole definition, again after a change, and keep it under the
+# config's new name; a live folder's need none.
+mkdir dev/app
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+exec ctxtra setup --agent claude-code
+
+# A new server in a collection: an accepted commit adds deploy to
+# essentials. It isn't started, and the session message and mcp status say
+# how to approve it.
+cp v2.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+runhook claude-code SessionStart dev/app
+stdout 'iam-team:deploy needs approval: run ctxtra mcp approve iam-team:deploy'
+exec ctxtra mcp status dev/app
+stdout 'binding: iam; tool prefix: deploy; approval needed: run ctxtra mcp approve iam-team:deploy'
+mcp dev/app
+! stdout 'deploy__'
+
+stdin yes.txt
+exec ctxtra-tty mcp approve iam-team:deploy
+stdout 'approved iam-team:deploy'
+mcp dev/app
+stdout '^tool deploy__echo'
+
+# A changed command: the server isn't started until the user approves it
+# again, and mcp approve shows the new command.
+cp v3.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'iam-team:deploy changed its operational definition'
+mcp dev/app
+! stdout 'deploy__'
+stdin no.txt
+! exec ctxtra-tty mcp approve iam-team:deploy
+stderr '"mcptest",\s+"-tools",\s+"all"'
+stdin yes.txt
+exec ctxtra-tty mcp approve iam-team:deploy
+mcp dev/app
+stdout '^tool deploy__all'
+
+# The config's new name for the server: the session gets its tools under
+# that name, and the approval stays with iam-team:deploy.
+exec sh -c 'printf "mcp-servers:\n  deploy_iam: {use: \"iam-team:deploy\"}\n" >> .config/ctxtra/config.yaml'
+mcp dev/app
+stdout '^tool deploy_iam__all'
+! stdout '^tool deploy__'
+exec ctxtra mcp status dev/app
+stdout 'binding: iam; tool prefix: deploy_iam; approved'
+
+# A server in my own folder: a live folder's server needs no approval.
+exec ctxtra source add --dir dotfiles
+exec ctxtra binding add notes --mcp-server dotfiles:notes
+mcp dev/app
+stdout '^tool notes__echo'
+exec ctxtra mcp status dev/app
+stdout 'binding: notes; tool prefix: notes; approval not required'
+
+-- yes.txt --
+y
+-- no.txt --
+n
+-- bindings.yaml --
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+-- srv/iam-team/docs/a.md --
+IAM notes.
+-- v2.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    mcp-servers: [deploy]
+mcp-servers:
+  deploy:
+    command: [mcptest]
+-- v3.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    mcp-servers: [deploy]
+mcp-servers:
+  deploy:
+    command: [mcptest, -tools, all]
+-- dotfiles/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  notes:
+    command: [mcptest]

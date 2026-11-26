@@ -85,7 +85,11 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	}
 	fmt.Fprintf(out, "MCP servers of %s:\n", paths.Tilde(dir))
 	for _, s := range servers {
-		fmt.Fprintf(out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approvalState(s.Server))
+		approval := approvalState(s.Server)
+		if approval == "approval needed" {
+			approval += ": run ctxtra mcp approve " + s.ID
+		}
+		fmt.Fprintf(out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approval)
 	}
 	if !ok {
 		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP proxy yet")

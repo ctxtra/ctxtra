@@ -200,6 +200,21 @@ func TestSameNames(t *testing.T) {
 		}
 	})
 
+	t.Run("two teams' jira", func(t *testing.T) {
+		h := newHome(t)
+		h.write("iam/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "iam")+"collections:\n  essentials: {mcp-servers: [jira]}\n")
+		h.write("obs/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "obs"))
+		env := h.load("sources: {iam-team: {dir: ~/iam}, obs-team: {dir: ~/obs}}\n" +
+			"mcp-servers: {jira_iam: {use: 'iam-team:jira'}, jira_obs: {use: 'obs-team:jira'}}\n" +
+			"bindings:\n  - {name: a, collections: ['iam-team:essentials']}\n  - {name: b, mcp-servers: ['obs-team:jira']}\n")
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "served", served(res), "jira_iam", "jira_obs")
+		if res.MCPServers[0].ID != "iam-team:jira" || res.MCPServers[1].ID != "obs-team:jira" || len(res.MCPConflicts) != 0 {
+			t.Errorf("servers %+v, conflicts %+v", res.MCPServers, res.MCPConflicts)
+		}
+	})
+
 	t.Run("two names for one server", func(t *testing.T) {
 		h := newHome(t)
 		h.write("iam/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "iam"))

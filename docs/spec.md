@@ -805,7 +805,14 @@ Tools keep the unqualified prefix: `work:linear` exports `linear__TOOL`. Repeate
 add it once. Two selected identities with the same name keep the first in binding order, with a notice
 in the session message, explain, doctor and status. Doctor does not fail for the clash.
 A winner that fails or lacks sign-in or approval never falls back to another account.
-Source-server aliases with `use` are not implemented yet.
+
+The config's `mcp-servers` can give a source's server a new name: `jira_iam: {use: 'iam-team:jira'}`, with no
+other key. The server is then served as `jira_iam`, with tools `jira_iam__TOOL`, wherever it comes from: a
+binding's `iam-team:jira` or `jira_iam`, a config collection, or a source's collection that adds `jira`. Both
+names select one server, served once. Its identity stays `iam-team:jira`: sign-in, approval and `mcp approve`
+use that, and a new name keeps the approval. Two entries that `use` one server are both errors, each naming
+the other; the server keeps its own name. A `use` of a server the source doesn't declare is an error of the
+bindings that select it.
 
 The catalog is loaded on demand. Sessions read the manifests their bindings reference; list, doctor and setup
 can enumerate all sources. Pinned manifests use the accepted generation and store touch/size limits, never a fetch.
@@ -824,8 +831,8 @@ It connects to nothing and creates no credential key. Login offers the same sepa
 unapproved server. Show refuses until approved. Unattended input and `--no-input` cannot grant approval.
 
 Approval covers full identity, source origin and the operational definition: URL, headers, client ID, scopes and
-secret names, or argv, environment, inherited-variable names and secret-variable names. Notes and commit alone do
-not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
+secret names, or argv, environment, inherited-variable names and secret-variable names. Notes, the commit and the
+config's new name for the server do not invalidate it. Approval lives separately from sign-in state in a versioned record. An explicit decline suppresses
 that definition's repeated summary notice, not its state in diagnostics or any prefix-conflict warning.
 
 Source review shows operational definition changes. Accepting an update is all-or-nothing. A changed endpoint or

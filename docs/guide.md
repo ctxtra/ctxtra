@@ -495,8 +495,17 @@ configuration.
 
 Use `mcp list`, `context explain` and `mcp status` to check selection, sign-in and approval. Tools still use the
 short prefix `linear__`. If two identities with that prefix match one folder, the first binding wins and ctxtra
-reports the other. It never falls back to the other account if the winner fails or lacks approval. Narrow a global
-binding or use distinctly named config servers if you need both accounts in one session.
+reports the other. It never falls back to the other account if the winner fails or lacks approval. To get both,
+give one a new name in your config's `mcp-servers`:
+
+```yaml
+mcp-servers:
+  jira_iam: {use: 'iam-team:jira'}   # its tools are jira_iam__TOOL
+```
+
+The new name applies wherever the server comes from: your bindings, your collections, and a source's collection
+that adds it. `jira_iam` and `iam-team:jira` are then one server, served once. Its sign-in and approval stay with
+`iam-team:jira`, so a new name needs no new approval. Two names for one server are an error.
 
 Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
 changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already
