@@ -210,8 +210,7 @@ func unreadable(stdio IO, files []importFile) bool {
 // hasInstructions reports whether a binding of the config adds instruction
 // files.
 func hasInstructions() bool {
-	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	return slices.ContainsFunc(cfg.Bindings, func(b config.Binding) bool { return len(b.Instructions) > 0 })
+	return slices.ContainsFunc(loadEnv().Config.Bindings, func(b *config.Binding) bool { return len(b.Instructions) > 0 })
 }
 
 // backupFiles copies the files to a new folder in paths.BackupDir, each in

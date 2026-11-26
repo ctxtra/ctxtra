@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra"
-	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/skill"
 	"github.com/ctxtra/ctxtra/internal/term"
@@ -166,22 +164,11 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	}
 	dir := paths.Tilde(paths.SkillDir(name))
 	b := skillBound(name)
-	// The binding is checked before anything is written: a skill whose
-	// binding can't be added isn't installed.
-	newBinding := config.NewBinding{Name: name, Global: true, Skills: []string{dir}}
-	if b == nil {
-		old, err := readConfig(paths.ConfigPath())
-		if err == nil {
-			_, err = config.AddBinding(old, newBinding)
-		}
-		if err != nil {
-			fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
-			return 1
-		}
-	}
+	s := newSources(stdio)
+	n := newBinding{Name: name, Skills: []string{dir}}.node()
 	if dryRun {
 		fmt.Fprintf(stdio.Out, "would write the %s skill to %s\n", name, dir)
-		if b == nil {
+		if b == "" {
 			fmt.Fprintf(stdio.Out, "would add the binding %s, which adds it to every session\n", name)
 		}
 		fmt.Fprintln(stdio.Out, "nothing changed (--dry-run)")
@@ -197,21 +184,16 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	} else {
 		fmt.Fprintf(stdio.Out, "The %s skill in %s is up to date.\n", name, dir)
 	}
-	if b != nil {
-		fmt.Fprintf(stdio.Out, "Binding %s adds the skill to sessions.\n", b.ID())
+	if b != "" {
+		fmt.Fprintf(stdio.Out, "Binding %s adds the skill to sessions.\n", b)
 		return 0
 	}
-	s := newSources(stdio)
-	created, err := s.change(func(old []byte) ([]byte, error) {
-		return config.AddBinding(old, newBinding)
-	}, nil)
-	if err != nil {
+	created := s.files.Created()
+	if _, err := s.addBinding(name, n, false); err != nil {
 		fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
 		return 1
 	}
-	if created {
-		term.Fprintf(stdio.Out, term.Green, "Created %s\n", paths.Tilde(s.file))
-	} else {
+	if !created {
 		term.Fprintf(stdio.Out, term.Green, "Added to %s\n", paths.Tilde(s.file))
 	}
 	ready := "The skill is ready for new agent sessions in any folder."
@@ -222,15 +204,17 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	return 0
 }
 
-// skillBound is the first binding of the config that adds the installed
-// skill name, or nil.
-func skillBound(name string) *config.Binding {
-	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
+// skillBound is the name of the first binding of the config that adds
+// the installed skill name, or "".
+func skillBound(name string) string {
+	env := loadEnv()
 	dir := paths.Real(paths.SkillDir(name))
-	for i, b := range cfg.Bindings {
-		if slices.ContainsFunc(b.Skills, func(s string) bool { return paths.Real(s) == dir }) {
-			return &cfg.Bindings[i]
+	for _, b := range env.Config.Bindings {
+		for _, e := range b.Skills {
+			if !e.Not && !e.InSource && paths.Real(paths.Expand(e.Value)) == dir {
+				return b.Name
+			}
 		}
 	}
-	return nil
+	return ""
 }
