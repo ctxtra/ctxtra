@@ -122,16 +122,10 @@ func (env *Env) reader() *fsutil.Reader {
 	return rd
 }
 
-// readLock reads the lock at path. A config without repo sources needs no
-// lock, and a missing lock is empty: every repo source is then inactive.
+// readLock reads the lock at path. A missing lock is empty: every repo
+// source is then inactive. A lock that exists is read also when the config
+// has no repo source: invalid YAML in it is an error all the same.
 func (env *Env) readLock(path string) *lock.Lock {
-	repos := false
-	for _, s := range env.Config.Sources {
-		repos = repos || s.Repo != ""
-	}
-	if !repos {
-		return &lock.Lock{}
-	}
 	data, err := fsutil.ReadBounded(path, config.MaxFileBytes)
 	switch {
 	case os.IsNotExist(err):

@@ -271,10 +271,7 @@ func conditions(i bindingInfo) string {
 
 // bindingList is binding list: the config's bindings, in order.
 func bindingList(stdio IO, asJSON bool) int {
-	env, err := readEnv()
-	if err != nil {
-		return failEnv(stdio, "binding list", asJSON, err)
-	}
+	env := loadEnv()
 	out := []bindingInfo{}
 	for _, b := range env.Config.Bindings {
 		out = append(out, bindingOf(b))

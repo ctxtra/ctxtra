@@ -515,10 +515,7 @@ func (a *app) mcpListCmd() *cobra.Command {
 		Example: "  ctxtra mcp list\n  ctxtra mcp list --json",
 		Args:    noArgs,
 		RunE: a.run(func(*cobra.Command, []string) error {
-			env, err := readEnv()
-			if err != nil {
-				return exitCode(failEnv(a.IO, "mcp list", asJSON, err))
-			}
+			env := loadEnv()
 			servers, merrs := env.Catalog.AllServers()
 			out := mcpInfos(servers)
 			var problems []string
@@ -565,10 +562,7 @@ debug it: an agent that runs this command sees that output too.`,
 		Example: `  ctxtra mcp show pg`,
 		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			env, err := readEnv()
-			if err != nil {
-				return exitCode(failEnv(a.IO, "mcp show", false, err))
-			}
+			env := loadEnv()
 			found, ok := env.Catalog.Server(args[0])
 			if !ok {
 				fmt.Fprintf(a.Err, "ctxtra mcp show: no MCP server %q in %s or the manifests of its sources\n", args[0], paths.Tilde(paths.ConfigPath()))

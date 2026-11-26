@@ -57,14 +57,8 @@ func configFiles() edit.Files { return edit.Default(config.Options{Agents: regis
 // loadEnv reads the config and its lock the way sessions do.
 func loadEnv() *resolve.Env { return resolve.Load(paths.ConfigPath(), registry.Names()) }
 
-// readEnv is loadEnv for a command: a config or lock that can't be used
-// as a whole fails it, with resolve.FatalError, before it does anything.
-func readEnv() (*resolve.Env, error) {
-	env := loadEnv()
-	return env, env.Fatal()
-}
-
-// failEnv reports err, the error of readEnv or of a command, and returns
+// failEnv reports err, a resolve.FatalError or another error of a
+// command, and returns
 // the exit code: in JSON a fatal file is a document of its diagnostics.
 func failEnv(stdio IO, cmd string, asJSON bool, err error) int {
 	var fe *resolve.FatalError
