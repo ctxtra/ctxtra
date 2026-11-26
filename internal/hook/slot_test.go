@@ -29,9 +29,8 @@ func bigSession(t *testing.T, chars int) (home, dir string) {
 	}
 	testenv.Write(t, filepath.Join(h, "big.md"), b.String())
 	testenv.Write(t, filepath.Join(h, "z.md"), "LAST FILE")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/big.md, ~/z.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/big.md, ~/z.md]}\n"
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n"+bindingsYAML)
 	orig := endLock
 	endLock = func(unlock func()) { unlock() }
 	t.Cleanup(func() { endLock = orig })

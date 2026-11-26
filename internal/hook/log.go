@@ -68,7 +68,9 @@ func LastRuns(dir, repo string) []Entry {
 			if e.Kind != "" {
 				return
 			}
-			if (repo != "" && e.Repo == repo) || (repo == "" && e.Dir == dir) {
+			// A session finds its repository only when a binding needs
+			// it, so a run in the same folder counts too.
+			if (repo != "" && e.Repo == repo) || e.Dir == dir {
 				last[e.Harness+" "+e.Event] = e
 			}
 		})
