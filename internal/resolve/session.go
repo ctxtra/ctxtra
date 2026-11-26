@@ -501,7 +501,7 @@ func (r *session) add(b *config.Binding, t *Trace) {
 	for _, it := range r.items(b, t, b.Instructions, catalog.Files) {
 		if content, real, ok := r.read(b, t, it, r.files); ok {
 			r.res.Files = append(r.res.Files, r.hit(b, it, real, content))
-			t.Files = append(t.Files, it.Path)
+			t.Files = append(t.Files, real)
 		}
 	}
 	for _, it := range r.items(b, t, b.Skills, catalog.Skills) {

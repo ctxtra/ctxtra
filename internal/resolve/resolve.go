@@ -51,8 +51,10 @@ type Trace struct {
 	Origin  string
 	Matched bool
 	Reason  string
-	Files   []string
-	Skills  []string // SKILL.md paths
+	// Files and Skills are the real paths of the files and SKILL.md files
+	// the binding added, as in the session's hits.
+	Files  []string
+	Skills []string
 	// MCPServers are the IDs of the binding's servers.
 	MCPServers []string
 	// Conditions are the binding's conditions, each with whether it held.
