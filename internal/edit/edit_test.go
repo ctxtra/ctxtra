@@ -361,20 +361,27 @@ func TestWritingTheConfig(t *testing.T) {
 }
 
 func TestLockThatCantBeWritten(t *testing.T) {
-	t.Run("a broken lock file", func(t *testing.T) {
-		f := files(t, twoSources, "schema: ctxtra/lock/v1\nsources: [\n")
-		err := f.Accept(entry("iam-team", "git@github.com:acme/iam-ctx.git", commitB), nil)
-		if err == nil || !strings.Contains(err.Error(), "the lock file can't be read") {
-			t.Errorf("err %v", err)
-		}
-		if read(t, lock.Path(f.Config)) != "schema: ctxtra/lock/v1\nsources: [\n" {
-			t.Error("the lock changed")
-		}
-		// A command that doesn't write the lock still works.
-		if _, err := f.Add(config.Bindings, "me", node(t, "{skills: [x]}"), config.Place{}); err != nil {
-			t.Error(err)
-		}
-	})
+	// A lock with invalid YAML or another schema refuses every write, also
+	// one that changes only the config.
+	for name, broken := range map[string]string{
+		"invalid YAML":   "schema: ctxtra/lock/v1\nsources: [\n",
+		"another schema": "schema: ctxtra/other\nsources: {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := files(t, twoSources, broken)
+			err := f.Accept(entry("iam-team", "git@github.com:acme/iam-ctx.git", commitB), nil)
+			if err == nil || !strings.Contains(err.Error(), "ctxtra.lock: line ") || !strings.Contains(err.Error(), "nothing changed") {
+				t.Errorf("err %v", err)
+			}
+			_, err = f.Add(config.Bindings, "me", node(t, "{skills: [x]}"), config.Place{})
+			if err == nil || !strings.Contains(err.Error(), "fix it or remove it") {
+				t.Errorf("config-only edit: %v", err)
+			}
+			if read(t, lock.Path(f.Config)) != broken || read(t, f.Config) != twoSources {
+				t.Error("a file changed")
+			}
+		})
+	}
 	t.Run("another source's broken entry", func(t *testing.T) {
 		broken := strings.Replace(twoEntries, "commit: "+commitA+"\n  obs-team", "commit: abc\n  obs-team", 1)
 		f := files(t, twoSources, broken)

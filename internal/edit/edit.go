@@ -16,6 +16,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // maxFileBytes is the largest config or lock file ctxtra reads.
@@ -186,6 +187,13 @@ func (f Files) read() (*Tx, error) {
 	case data != nil:
 		tx.lock, tx.lockFile = lock.Parse(data), true
 	}
+	// A lock that can't be read as a whole may hold accepted commits that
+	// a write would lose: every write waits until it is fixed.
+	for _, e := range tx.lock.Errors {
+		if e.Out() == yamlx.OutFile {
+			return nil, fmt.Errorf("%s: %v; fix it or remove it; nothing changed", paths.Tilde(lock.Path(f.Config)), e)
+		}
+	}
 	return tx, nil
 }
 
@@ -234,12 +242,6 @@ func (f Files) lockData(tx *Tx, c *config.Config) ([]byte, error) {
 	})
 	if len(tx.set) == 0 && !removed {
 		return nil, nil
-	}
-	if !tx.lock.Readable() {
-		if len(tx.set) == 0 {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("the lock file can't be read (%v); fix it or remove it", tx.lock.Errors[0])
 	}
 	for _, e := range tx.set {
 		if !isRepo(c.Source(e.Name)) {
