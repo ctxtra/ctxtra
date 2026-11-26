@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -27,34 +28,58 @@ func (u *used) has(p string) bool {
 }
 
 // usedFrom is what the bindings of env take from source name in cat, under
-// any conditions: its manifest, and every file and skill folder that their
-// entries name in it.
+// any conditions: its manifest, and every file and skill folder that the
+// session would get from it, with the bindings' ! entries applied, as the
+// resolver adds a binding alone.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 	u := &used{files: map[string]bool{manifest.FileName: true}}
+	alone := *env
+	alone.Catalog = cat
 	for _, b := range env.Config.Bindings {
-		for _, k := range []struct {
-			list []config.Entry
-			kind catalog.Kind
-		}{{b.Instructions, catalog.Files}, {b.Skills, catalog.Skills}} {
-			for _, e := range k.list {
-				if e.Not || e.Err != nil || !e.InSource || e.Source != name {
-					continue
+		if b.Broken() {
+			continue
+		}
+		res := alone.Alone(b, resolve.Input{Dir: paths.Home()})
+		for _, h := range slices.Concat(res.Files, res.Dropped) {
+			if h.Source == name {
+				u.files[h.SourcePath] = true
+			}
+		}
+		for _, h := range res.Skills {
+			if h.Source == name {
+				u.dirs = append(u.dirs, path.Dir(h.SourcePath))
+			}
+		}
+		u.errors = append(u.errors, entryErrors(b, cat, name, res)...)
+	}
+	return u
+}
+
+// entryErrors are the errors of b's entries that read source name: what
+// a positive entry can't find, and a ! entry that excludes nothing.
+func entryErrors(b *config.Binding, cat *catalog.Catalog, name string, res *resolve.Result) []string {
+	var out []string
+	for _, k := range []struct {
+		list []config.Entry
+		kind catalog.Kind
+	}{{b.Instructions, catalog.Files}, {b.Skills, catalog.Skills}} {
+		for _, e := range k.list {
+			if e.Err != nil || !e.InSource || e.Source != name {
+				continue
+			}
+			if e.Not {
+				if len(res.Trace) == 1 && !slices.ContainsFunc(res.Trace[0].Excluded, func(x resolve.Exclusion) bool { return x.Entry == e.Text }) {
+					out = append(out, fmt.Sprintf("binding %s: %s excludes nothing", b.Name, e.Text))
 				}
-				items, errs := cat.Paths(e, k.kind)
-				for _, it := range items {
-					if k.kind == catalog.Files {
-						u.files[it.Rel] = true
-					} else {
-						u.dirs = append(u.dirs, it.Rel)
-					}
-				}
-				for _, err := range errs {
-					u.errors = append(u.errors, fmt.Sprintf("binding %s: %s: %v", b.Name, e.Text, err))
-				}
+				continue
+			}
+			_, errs := cat.Paths(e, k.kind)
+			for _, err := range errs {
+				out = append(out, fmt.Sprintf("binding %s: %s: %v", b.Name, e.Text, err))
 			}
 		}
 	}
-	return u
+	return out
 }
 
 // review shows what changes in source cs from its accepted commit old, or
