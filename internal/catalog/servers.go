@@ -87,7 +87,10 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) 
 	case s.State != Active:
 		return nil, []error{&Unavailable{s}}
 	}
-	m, _ := c.Manifest(s)
+	m, _, err := c.ManifestWithin(s, nil)
+	if err != nil {
+		return nil, []error{fmt.Errorf("%s: %w", text, err)}
+	}
 	if m == nil {
 		return nil, []error{fmt.Errorf("%s: source %s has no %s, which declares a source's MCP servers", text, name, manifest.FileName)}
 	}

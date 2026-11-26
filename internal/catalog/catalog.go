@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
@@ -40,6 +41,46 @@ type Catalog struct {
 	trusted     []state.Trusted
 	trustedErr  error
 	trustedRead bool
+	// store is the use of commits in ctxtra's store, shared by copies of
+	// the catalog.
+	store *storeUse
+}
+
+// storeUse is what a catalog marked as used in ctxtra's store. All marks
+// share one wait for a cleanup of the store; after one failed, every
+// commit not marked yet is refused at once.
+type storeUse struct {
+	marked   map[string]error
+	waitLeft time.Duration
+	busy     error
+}
+
+// touch is source.Touch; a variable for tests.
+var touch = source.Touch
+
+// use marks the accepted commit of s as used, before anything is read from
+// it: cleanup keeps what sessions use. It fails while cleanup owns the
+// store past the wait; the commit must then not be read.
+func (c *Catalog) use(s *Source) error {
+	if s.Live() || s.Top == "" {
+		return nil
+	}
+	gen := s.Top
+	if err, ok := c.store.marked[gen]; ok {
+		return err
+	}
+	err := c.store.busy
+	if err == nil {
+		start := time.Now()
+		err = touch(gen, max(c.store.waitLeft, 0))
+		c.store.waitLeft -= time.Since(start)
+		c.store.busy = err
+	}
+	if err != nil {
+		err = fmt.Errorf("source %s: ctxtra's store is being cleaned (%v); try again", s.Name, err)
+	}
+	c.store.marked[gen] = err
+	return err
 }
 
 // State is whether a source's content can be used on this machine.
@@ -119,6 +160,7 @@ func New(c *config.Config, l *lock.Lock, configFile string) *Catalog {
 		base:    filepath.Dir(paths.Real(configFile)),
 		sources: map[string]*Source{},
 		renamed: map[string]string{},
+		store:   &storeUse{marked: map[string]error{}, waitLeft: source.TouchWait},
 	}
 	for _, s := range c.Sources {
 		src := cat.source(s, l)
@@ -418,6 +460,9 @@ func (c *Catalog) Manifest(s *Source) (*manifest.Manifest, []*Error) {
 func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manifest, []*Error, error) {
 	if s.State != Active {
 		return nil, nil, nil
+	}
+	if err := c.use(s); err != nil {
+		return nil, nil, err
 	}
 	path := filepath.Join(s.Top, manifest.FileName)
 	if s.manifestRead {

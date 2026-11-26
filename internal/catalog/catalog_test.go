@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 
@@ -263,5 +264,56 @@ func TestManifestWithinLimit(t *testing.T) {
 	first := c.Sources()[0]
 	if _, _, err := c.ManifestWithin(first, rd); !errors.Is(err, fsutil.ErrTotalLimit) {
 		t.Errorf("a manifest read before counts again: %v", err)
+	}
+}
+
+// Waits that end well count against the budget too: each mark of the store
+// gets what the earlier ones left, and after one fails, the rest are
+// refused without waiting.
+func TestStoreWaitBudget(t *testing.T) {
+	var waits []time.Duration
+	old := touch
+	t.Cleanup(func() { touch = old })
+	touch = func(dir string, wait time.Duration) error {
+		waits = append(waits, wait)
+		if wait < 450*time.Millisecond {
+			time.Sleep(wait)
+			return fsutil.ErrLockTimeout
+		}
+		time.Sleep(450 * time.Millisecond)
+		return nil
+	}
+	var conf, lockFile strings.Builder
+	conf.WriteString("sources:\n")
+	lockFile.WriteString("sources:\n")
+	names := []string{"a", "b", "c", "d"}
+	for _, n := range names {
+		fmt.Fprintf(&conf, "  %s: {repo: 'https://h/%s.git', branch: main}\n", n, n)
+		fmt.Fprintf(&lockFile, "  %s: {repo: 'https://h/%s.git', branch: main, commit: '%s'}\n", n, n, strings.Repeat(n, 40))
+	}
+	c, _ := catalog(t, conf.String(), lockFile.String(), func(string) {
+		for _, n := range names {
+			testenv.Write(t, filepath.Join(source.GenDir("https://h/"+n+".git", strings.Repeat(n, 40)), "x.md"), "x")
+		}
+	})
+	start := time.Now()
+	var failed []string
+	for _, n := range names {
+		if _, err := expand(c, n+":x.md", Files); err != nil {
+			failed = append(failed, n)
+		}
+	}
+	if d := time.Since(start); d > 1300*time.Millisecond {
+		t.Errorf("took %v, waits %v", d, waits)
+	}
+	if len(waits) != 3 || waits[0] != source.TouchWait || waits[1] >= waits[0] || waits[2] >= waits[1] {
+		t.Errorf("waits %v", waits)
+	}
+	if !slices.Equal(failed, []string{"c", "d"}) {
+		t.Errorf("failed %v", failed)
+	}
+	// A commit marked once isn't marked again.
+	if _, err := expand(c, "a:x.md", Files); err != nil || len(waits) != 3 {
+		t.Errorf("again: %v, waits %v", err, waits)
 	}
 }

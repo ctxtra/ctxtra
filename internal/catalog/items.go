@@ -106,6 +106,9 @@ func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 	case pattern == ".." || strings.HasPrefix(pattern, "../"):
 		return nil, []error{fmt.Errorf("%s: the path leaves its source", e.Text)}
 	}
+	if err := c.use(s); err != nil {
+		return nil, []error{fmt.Errorf("%s: %w", e.Text, err)}
+	}
 	found, errs := c.glob(s.Top, pattern, kind, s.Live())
 	items := make([]Item, len(found))
 	for i, rel := range found {
