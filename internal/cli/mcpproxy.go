@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -60,7 +59,7 @@ func runProxy(args []string, stdio IO, version string) int {
 	o.Servers = func(dir string) ([]upstream.Server, []string) {
 		res := loadEnv().Resolve(resolve.Input{Dir: dir, Agent: agent})
 		for _, c := range res.MCPConflicts {
-			notices = append(notices, fmt.Sprintf("MCP servers %s and %s are both named %s; the session gets %s, the first in binding order", c.Winner, c.Loser, c.Prefix, c.Winner))
+			notices = append(notices, c.Notice())
 		}
 		out := make([]upstream.Server, len(res.MCPServers))
 		for i, s := range res.MCPServers {

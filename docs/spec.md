@@ -621,8 +621,11 @@ profile condition does not hold and an exclusion-only profile condition holds.
 - Claude Code also gets the skills as slash commands, from the plugin that setup writes to
   `~/.claude/skills/ctxtra/` (`$CLAUDE_CONFIG_DIR/skills/ctxtra/`), which Claude loads as `ctxtra@skills-dir`.
   Its mod runs `ctxtra hook claude-code PluginStart` at session start, with `ctxtra_plugin` in the input, and
-  registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). A command name
-  that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
+  registers a command for each skill in the answer's `skills` (`name`, `description`, `path`). Of two skills
+  with one name, the first keeps it and the next is `SOURCE-NAME`, with its source's name in front (its
+  binding's outside sources), as Claude Code names the commands of added folders: `/release` and
+  `/obs-team-release`. Claude Code's mods take only letters, digits, `_` and `-` in a name, so `-` joins the
+  parts where Claude Code itself writes `:`. A command name that the session has already (a built-in, the user's own skill or command, another plugin's) is skipped. Running
   `/NAME ARGS` gives the model the `SKILL.md` text after its frontmatter as hidden context, with `$ARGUMENTS`
   replaced by `ARGS` (or `ARGS` added at the end), and starts a turn. A session without a surface (`claude -p`,
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
@@ -803,7 +806,8 @@ Adding a source or a definition alone selects nothing.
 
 Tools keep the unqualified prefix: `work:linear` exports `linear__TOOL`. Repeated selections of one identity
 add it once. Two selected identities with the same name keep the first in binding order, with a notice
-in the session message, explain, doctor and status. Doctor does not fail for the clash.
+in the session message, explain, doctor and status. The notice names both and suggests a new name for the
+source's server, such as `jira_iam_team: {use: 'iam-team:jira'}`. Doctor does not fail for the clash.
 A winner that fails or lacks sign-in or approval never falls back to another account.
 
 The config's `mcp-servers` can give a source's server a new name: `jira_iam: {use: 'iam-team:jira'}`, with no

@@ -430,6 +430,8 @@ as it reads any file.
 - They are commands, not Claude's own skills. Claude's `Skill` tool can't load them, and Claude doesn't apply
   frontmatter such as `allowed-tools`, `context: fork` or `disable-model-invocation`. Claude still reads a
   skill's `SKILL.md` on its own when a task needs it, as in the other agents.
+- Two bound skills with one name both reach the session. The first keeps `/release`, the next gets its source's
+  name in front: `/obs-team-release`.
 - A command that is already there wins: a built-in, your own skill or command, another plugin's. The bound
   skill with that name then has no command. Names other than letters, digits, `_` and `-` have none either.
 - A session has the commands of the skills bound when it started. A skill bound later gets its command in

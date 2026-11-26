@@ -73,7 +73,7 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	}
 	servers := res.MCPServers
 	for _, c := range res.MCPConflicts {
-		fmt.Fprintf(out, "  %s and %s are both named %s; the session gets %s, the first in binding order (binding %s)\n", c.Winner, c.Loser, c.Prefix, c.Winner, c.Origin)
+		fmt.Fprintf(out, "  %s (binding %s)\n", c.Notice(), c.Origin)
 	}
 	if len(servers) == 0 {
 		fmt.Fprintf(out, "no MCP servers are bound to %s\n", paths.Tilde(dir))

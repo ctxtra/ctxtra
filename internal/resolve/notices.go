@@ -3,6 +3,7 @@ package resolve
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
@@ -21,9 +22,31 @@ func (r *Result) sameNames() {
 			s.Name, skillRef(s.First), s.First.Origin, skillRef(s.Other), s.Other.Origin))
 	}
 	for _, c := range r.MCPConflicts {
-		r.Notices = append(r.Notices, fmt.Sprintf("MCP servers %s and %s are both named %s; the session gets %s, the first in binding order",
-			c.Winner, c.Loser, c.Prefix, c.Winner))
+		r.Notices = append(r.Notices, c.Notice())
 	}
+}
+
+// Notice says which of the two servers the session gets, and how to get
+// both: a new name for a source's server in the config's mcp-servers.
+func (c MCPConflict) Notice() string {
+	n := fmt.Sprintf("MCP servers %s and %s are both named %s; the session gets %s, the first in binding order", c.Winner, c.Loser, c.Prefix, c.Winner)
+	rename := c.Loser
+	if !strings.Contains(rename, ":") {
+		rename = c.Winner
+	}
+	source, server, ok := strings.Cut(rename, ":")
+	switch {
+	case !ok:
+	case server != c.Prefix:
+		n += fmt.Sprintf("; to get both, change the config's name %s for %s in mcp-servers", c.Prefix, rename)
+	default:
+		name := config.SuggestServerName(server + "_" + source)
+		if config.CheckServerName(name) != nil {
+			name = server + "_2"
+		}
+		n += fmt.Sprintf("; to get both, give %s a new name in the config's mcp-servers: %s: {use: '%s'}", rename, name, rename)
+	}
+	return n
 }
 
 func skillRef(h Hit) string {

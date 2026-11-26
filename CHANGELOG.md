@@ -66,6 +66,8 @@
 - The config's `mcp-servers` can give a source's server a new name, `jira_iam: {use: 'iam-team:jira'}`, wherever
   the server comes from, also when a source's collection adds it. A new name keeps the server's approval and
   sign-in. `mcp status` gives the approve command for a server that needs approval.
+- The notice about two MCP servers with one name suggests the config line that gives the source's server a new
+  name. Of two skills with one name, Claude Code's slash commands offer the second as `/SOURCE-NAME`.
 
 ## v0.6.0
 
