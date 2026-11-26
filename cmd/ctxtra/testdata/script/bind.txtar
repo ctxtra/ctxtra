@@ -92,6 +92,9 @@ cp budget.yaml .config/ctxtra/config.yaml
 stderr '~/notes/work.md would be dropped \(over max-ctx-chars \(5\)\)'
 cp original.yaml .config/ctxtra/config.yaml
 cp broken.yaml .config/ctxtra/config.yaml
+! exec ctxtra context files
+stderr -count=1 '^error: '
+stderr '^error: ~/.config/ctxtra/config.yaml: line 5: binding broken: unknown key "nope" in a binding .*; binding broken is left out$'
 exec ctxtra binding remove broken
 stdout '^removed binding broken'
 ! grep broken .config/ctxtra/config.yaml
@@ -150,9 +153,10 @@ bindings:
 schema: ctxtra/config/v1
 bindings:
   - name: broken
-    instructions: []
+    instructions: [../../notes/me.md]
+    nope: 1
   - name: ctxtra
-    instructions: [notes/me.md]
+    instructions: [../../notes/me.md]
 -- budget.yaml --
 schema: ctxtra/config/v1
 max-ctx-chars: 5
