@@ -13,7 +13,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/trust"
@@ -80,7 +80,7 @@ func (it Item) Ref() string {
 // couldn't add: folders the trust rules refuse leave out only what is in
 // them. An entry that names a source whose content can't be used gives
 // *Unavailable.
-func (c *Catalog) Paths(e cfg.Entry, kind Kind) ([]Item, []error) {
+func (c *Catalog) Paths(e config.Entry, kind Kind) ([]Item, []error) {
 	if !e.InSource {
 		base, rest := c.diskBase(e.Value)
 		root, pattern := path.Dir(rest), path.Base(rest)

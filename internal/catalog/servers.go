@@ -7,7 +7,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -27,14 +27,14 @@ type Server struct {
 // only that name. A source's server is served under the config's new name
 // for it, if the config gives one. A source whose content can't be used
 // gives *Unavailable.
-func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
+func (c *Catalog) Servers(e config.Entry) ([]Server, []error) {
 	if e.InSource {
 		return c.sourceServers(e.Source, e.Value, e.Text)
 	}
 	var out []Server
 	var errs []error
 	matched := false
-	for _, s := range c.config.MCPServers {
+	for _, s := range c.conf.MCPServers {
 		if !nameMatch(e.Value, s.Name) {
 			continue
 		}
@@ -61,12 +61,12 @@ func (c *Catalog) Servers(e cfg.Entry) ([]Server, []error) {
 // ManifestSources are the sources whose manifests positive entry e of an
 // mcp-servers list reads: its own source, or the sources of the config's
 // new names it matches.
-func (c *Catalog) ManifestSources(e cfg.Entry) []string {
+func (c *Catalog) ManifestSources(e config.Entry) []string {
 	if e.InSource {
 		return []string{e.Source}
 	}
 	var out []string
-	for _, s := range c.config.MCPServers {
+	for _, s := range c.conf.MCPServers {
 		if s.Use() != "" && !s.Broken() && nameMatch(e.Value, s.Name) && !slices.Contains(out, s.UseSource) {
 			out = append(out, s.UseSource)
 		}
@@ -130,15 +130,15 @@ func origin(s *Source) string {
 	if s.Live() {
 		return "dir:" + paths.Real(paths.Expand(s.Dir))
 	}
-	o := "repo:" + cfg.RepoID(s.Repo)
-	if sub := cfg.CleanSubdir(s.Subdir); sub != "" {
+	o := "repo:" + config.RepoID(s.Repo)
+	if sub := config.CleanSubdir(s.Subdir); sub != "" {
 		o += "//" + sub
 	}
 	return o
 }
 
 // define is the definition of d, served as name.
-func define(d *cfg.Server, name string) upstream.Server {
+func define(d *config.Server, name string) upstream.Server {
 	return upstream.Server{
 		Name:          name,
 		URL:           d.URL,

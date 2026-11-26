@@ -11,7 +11,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
@@ -21,12 +21,12 @@ var commitA = strings.Repeat("a", 40)
 
 // catalog writes the config and lock into a new home, where prepare has
 // made what the machine has, and returns their catalog.
-func catalog(t *testing.T, config, lockFile string, prepare func(home string)) (*Catalog, string) {
+func catalog(t *testing.T, conf, lockFile string, prepare func(home string)) (*Catalog, string) {
 	t.Helper()
 	h := testenv.Home(t)
 	prepare(h)
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{})
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{})
 	for _, e := range c.Errors {
 		t.Fatalf("config: %v", e)
 	}
@@ -34,8 +34,8 @@ func catalog(t *testing.T, config, lockFile string, prepare func(home string)) (
 	return New(c, l, path), h
 }
 
-func entry(text string) cfg.Entry {
-	c := cfg.Parse([]byte(fmt.Sprintf("schema: ctxtra/config/v1\nbindings:\n  - {name: b, instructions: ['%s']}\n", text)), cfg.Options{})
+func entry(text string) config.Entry {
+	c := config.Parse([]byte(fmt.Sprintf("schema: ctxtra/config/v1\nbindings:\n  - {name: b, instructions: ['%s']}\n", text)), config.Options{})
 	return c.Bindings[0].Instructions[0]
 }
 
@@ -48,7 +48,7 @@ func refs(items []Item) []string {
 }
 
 func TestSourceStates(t *testing.T) {
-	const config = `sources:
+	const conf = `sources:
   team: {repo: 'https://github.com/acme/team.git', branch: main}
   moved: {repo: 'https://github.com/acme/moved.git', branch: next}
   absent: {repo: 'https://github.com/acme/absent.git', branch: main}
@@ -64,8 +64,8 @@ func TestSourceStates(t *testing.T) {
 	h := testenv.Home(t)
 	testenv.Write(t, filepath.Join(source.GenDir("git@github.com:acme/team.git", commitA), "x.md"), "x")
 	testenv.Write(t, filepath.Join(h, "live", "y.md"), "y")
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 
 	want := map[string]State{"team": Active, "moved": Inactive, "absent": Inactive, "clone": NotHere, "live": Active, "gone": NotHere}
 	for name, state := range want {
@@ -140,7 +140,7 @@ func TestGlobLimit(t *testing.T) {
 }
 
 func TestStoredSymlinkLeftOut(t *testing.T) {
-	config := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
 	gen := source.GenDir("https://github.com/acme/team.git", commitA)
@@ -149,8 +149,8 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 	if err := os.Symlink(filepath.Join(h, "secret.md"), filepath.Join(gen, "b.md")); err != nil {
 		t.Fatal(err)
 	}
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 	items, err := expand(c, "team:*.md", Files)
 	if err != nil || !slices.Equal(refs(items), []string{"team:a.md"}) {
 		t.Errorf("files %v, %v", refs(items), err)
@@ -161,13 +161,13 @@ func TestStoredSymlinkLeftOut(t *testing.T) {
 }
 
 func TestStoreReadOnlyBySourcePath(t *testing.T) {
-	config := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
+	conf := "sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\n"
 	lockFile := fmt.Sprintf("sources:\n  team: {repo: 'https://github.com/acme/team.git', branch: main, commit: '%s'}\n", commitA)
 	h := testenv.Home(t)
 	gen := source.GenDir("https://github.com/acme/team.git", commitA)
 	testenv.Write(t, filepath.Join(gen, "a.md"), "a")
-	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+config)
-	c := New(cfg.Parse([]byte("schema: ctxtra/config/v1\n"+config), cfg.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
+	path := testenv.Config(t, h, "schema: ctxtra/config/v1\n"+conf)
+	c := New(config.Parse([]byte("schema: ctxtra/config/v1\n"+conf), config.Options{}), lock.Parse([]byte("schema: ctxtra/lock/v1\n"+lockFile)), path)
 	items, err := expand(c, filepath.Join(gen, "a.md"), Files)
 	if err != nil {
 		t.Fatal(err)

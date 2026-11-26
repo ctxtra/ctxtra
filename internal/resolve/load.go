@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
-	"github.com/ctxtra/ctxtra/internal/cfg"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
@@ -20,7 +19,7 @@ import (
 type Env struct {
 	// Path is the config file.
 	Path    string
-	Config  *cfg.Config
+	Config  *config.Config
 	Lock    *lock.Lock
 	Catalog *catalog.Catalog
 	// Errors are the errors of the config, the lock and the sources, which
@@ -50,11 +49,11 @@ func Load(path string, agents []string) *Env {
 	data, err := fsutil.ReadBounded(path, config.MaxFileBytes)
 	switch {
 	case os.IsNotExist(err):
-		env.Config = &cfg.Config{}
+		env.Config = &config.Config{}
 	case err != nil:
-		env.Config = &cfg.Config{Errors: []*yamlx.Error{{Mistake: yamlx.Unreadable, Msg: err.Error()}}}
+		env.Config = &config.Config{Errors: []*yamlx.Error{{Mistake: yamlx.Unreadable, Msg: err.Error()}}}
 	default:
-		env.Config = cfg.Parse(data, cfg.Options{Agents: agents})
+		env.Config = config.Parse(data, config.Options{Agents: agents})
 	}
 	for _, e := range env.Config.Errors {
 		env.Errors = append(env.Errors, &catalog.Error{File: path, Err: e})
@@ -70,7 +69,7 @@ func Load(path string, agents []string) *Env {
 
 // readLock reads the lock at path. A config without repo sources needs no
 // lock, and a missing lock is empty: every repo source is then inactive.
-func readLock(path string, c *cfg.Config) *lock.Lock {
+func readLock(path string, c *config.Config) *lock.Lock {
 	repos := false
 	for _, s := range c.Sources {
 		repos = repos || s.Repo != ""

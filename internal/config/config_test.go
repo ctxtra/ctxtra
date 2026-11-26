@@ -6,634 +6,597 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/ctxtra/ctxtra/internal/fsutil"
-	"github.com/ctxtra/ctxtra/internal/source"
-	"github.com/ctxtra/ctxtra/internal/state"
-	"github.com/ctxtra/ctxtra/internal/testenv"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
-func load(path string) *Config {
-	return Load(path, fsutil.NewReader(MaxFileBytes, MaxSessionBytes))
-}
+var agents = []string{"claude-code", "codex", "cursor", "github-copilot", "opencode", "pi", "antigravity", "devin", "muse", "dsh", "hermes-agent"}
 
-const head = "schema: ctxtra/v1\nbindings:\n"
-
-// setup writes a config that includes bindings.yaml and returns the loaded
-// config.
-func setup(t *testing.T, h, bindings string) *Config {
+func parse(t *testing.T, body string) *Config {
 	t.Helper()
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "bindings.yaml"), bindings)
-	return load(testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [bindings.yaml]\n"))
+	return Parse([]byte("schema: ctxtra/config/v1\n"+body), Options{Agents: agents})
 }
 
-func TestLoad(t *testing.T) {
-	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, "team", "bindings", "go.yaml"), head+`  - name: go
-    match:
-      repos:
-        - remote: github.com/Acme/**
-    instructions: [../go.md]
-    skills: [../skills/release]
-`)
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "personal.yaml"), head+`  - name: soul
-    match: {global: true}
-    instructions: [~/notes/me.md]
-  - name: work
-    match:
-      dirs: [~/dev/work/**]
-      repos:
-        - remote: github.com/acme/mono
-          subpath: ./services/billing/
-        - github.com/acme/OPS
-    instructions: [notes/work.md, /abs/x.md]
-`)
-	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
-bindings:
-  - name: own
-    match: {dirs: [~/own]}
-    instructions: [own.md]
-include:
-  - personal.yaml
-  - ~/team/bindings/go.yaml
-budget:
-  max-chars: 40000
-`))
-	if len(cfg.Problems) > 0 {
-		t.Fatalf("problems: %v", cfg.Problems)
+// only returns the config's one error, and fails unless each of want is in
+// it.
+func only(t *testing.T, c *Config, want ...string) *yamlx.Error {
+	t.Helper()
+	if len(c.Errors) != 1 {
+		t.Fatalf("errors %v, want one", c.Errors)
 	}
-	if cfg.MaxChars != 40000 || len(cfg.BindingFiles) != 2 || len(cfg.Bindings) != 4 {
-		t.Fatalf("got %+v", cfg)
+	for _, w := range want {
+		if !strings.Contains(c.Errors[0].Error(), w) {
+			t.Errorf("error %q doesn't say %q", c.Errors[0], w)
+		}
 	}
-	own, soul, work, goB := cfg.Bindings[0], cfg.Bindings[1], cfg.Bindings[2], cfg.Bindings[3]
-	conf := filepath.Join(h, ".config", "ctxtra")
-	if own.Name != "own" || own.Instructions[0] != filepath.Join(conf, "own.md") || own.ID() != "own (~/.config/ctxtra/config.yaml)" {
-		t.Errorf("the config's own binding comes first, relative to the config: %+v", own)
-	}
-	if soul.Name != "soul" || !soul.Selector.Global || soul.Instructions[0] != filepath.Join(h, "notes", "me.md") {
-		t.Errorf("soul: %+v", soul)
-	}
-	if work.Instructions[0] != filepath.Join(conf, "notes", "work.md") || work.Instructions[1] != "/abs/x.md" {
-		t.Errorf("work instructions relative to the binding file: %v", work.Instructions)
-	}
-	if work.Selector.Dirs[0] != h+"/dev/work/**" || work.Selector.GitRepos[0].Subpath != "services/billing" ||
-		work.Selector.GitRepos[1] != (GitRepo{Remote: "github.com/acme/ops"}) {
-		t.Errorf("work match: %+v", work.Selector)
-	}
-	if goB.Selector.GitRepos[0].Remote != "github.com/acme/**" {
-		t.Errorf("remote patterns are lower case: %+v", goB.Selector)
-	}
-	if goB.Instructions[0] != filepath.Join(h, "team", "go.md") || goB.Skills[0] != filepath.Join(h, "team", "skills", "release") {
-		t.Errorf("go paths: %v %v", goB.Instructions, goB.Skills)
-	}
-	if id := goB.ID(); id != "go (~/team/bindings/go.yaml)" {
-		t.Errorf("ID = %q", id)
+	return c.Errors[0]
+}
+
+func noErrors(t *testing.T, c *Config) {
+	t.Helper()
+	for _, e := range c.Errors {
+		t.Errorf("error: %v", e)
 	}
 }
 
-// Every broken binding is skipped and reported; it never applies.
-func TestStrictBindings(t *testing.T) {
-	h := testenv.Home(t)
-	item := func(s string) string { return head + "  - " + s + "\n" }
-	cases := map[string]string{
-		"no name":          item("{match: {global: true}, instructions: [x.md]}"),
-		"bad name":         item("{name: 'a b', match: {global: true}, instructions: [x.md]}"),
-		"unknown key":      item("{name: a, match: {global: true}, instructions: [x.md], files: [y.md]}"),
-		"no match":         item("{name: a, instructions: [x.md]}"),
-		"empty match":      item("{name: a, match: {}, instructions: [x.md]}"),
-		"global false":     item("{name: a, match: {global: false}, instructions: [x.md]}"),
-		"global string":    item("{name: a, match: {global: 'true'}, instructions: [x.md]}"),
-		"typo in match":    item("{name: a, match: {repo: [x]}, instructions: [x.md]}"),
-		"null remote":      item("{name: a, match: {repos: [{remote: null}]}, instructions: [x.md]}"),
-		"null repo":        item("{name: a, match: {repos: [null]}, instructions: [x.md]}"),
-		"empty repo":       item("{name: a, match: {repos: ['']}, instructions: [x.md]}"),
-		"subpath only":     item("{name: a, match: {repos: [{subpath: src}]}, instructions: [x.md]}"),
-		"subpath escapes":  item("{name: a, match: {repos: [{remote: x, subpath: ../y}]}, instructions: [x.md]}"),
-		"empty dirs":       item("{name: a, match: {dirs: []}, instructions: [x.md]}"),
-		"relative dir":     item("{name: a, match: {dirs: [dev/x]}, instructions: [x.md]}"),
-		"no instructions":  item("{name: a, match: {global: true}}"),
-		"bad glob":         item("{name: a, match: {global: true}, instructions: ['notes/[bad']}"),
-		"null instruction": item("{name: a, match: {global: true}, instructions: [null]}"),
-		"not a list":       item("{name: a, match: {global: true}, instructions: x.md}"),
-		"duplicate key":    item("{name: a, match: {global: true}, match: {dirs: [/x]}, instructions: [x.md]}"),
-		"a string":         item("x.yaml"),
-		"a list":           item("[a]"),
+func texts(list []Entry) []string {
+	var out []string
+	for _, e := range list {
+		out = append(out, e.Text)
 	}
-	for name, y := range cases {
-		cfg := setup(t, h, y)
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], "binding skipped") {
-			t.Errorf("%s: bindings=%d problems=%v; want none and a problem", name, len(cfg.Bindings), cfg.Problems)
-		}
-	}
-	// A broken binding doesn't disable the good ones in the same file, and
-	// names are unique per file.
-	ok := "  - {name: a, match: {global: true}, instructions: [x.md]}\n"
-	cfg := setup(t, h, head+"  - {name: a, match: {dirz: [/x]}, instructions: [x.md]}\n"+ok+ok)
-	if len(cfg.Bindings) != 1 || len(cfg.Problems) != 2 || !strings.Contains(cfg.Problems[1], "duplicate name") {
-		t.Errorf("bindings=%d problems=%v", len(cfg.Bindings), cfg.Problems)
-	}
+	return out
 }
 
-// A binding file that can't be read as a whole is skipped as a whole.
-func TestStrictBindingFile(t *testing.T) {
-	h := testenv.Home(t)
-	ok := "  - {name: a, match: {global: true}, instructions: [x.md]}\n"
-	cases := map[string]string{
-		"no schema":           "bindings:\n" + ok,
-		"old schema":          "schema: ctxtra/v1alpha1\nbindings:\n" + ok,
-		"schema not a string": "schema: [ctxtra/v1]\nbindings:\n" + ok,
-		"unknown key":         head + ok + "rules: []\n",
-		"no bindings":         "schema: ctxtra/v1\n",
-		"empty bindings":      "schema: ctxtra/v1\nbindings: []\n",
-		"bindings not a list": "schema: ctxtra/v1\nbindings: {a: b}\n",
-		"two documents":       head + ok + "---\n" + head + ok,
-		"alias":               head + "  - {name: &n a, match: {global: true}, instructions: [x.md]}\n  - {name: b, match: {global: true}, instructions: [*n]}\n",
-		"top level is a list": "- a\n",
-		"syntax error":        head + ok + "  - [\n",
-		"empty":               "",
+func TestDemoConfig(t *testing.T) {
+	data, err := os.ReadFile("testdata/demo.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, y := range cases {
-		cfg := setup(t, h, y)
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 {
-			t.Errorf("%s: bindings=%d problems=%v; want none and a problem", name, len(cfg.Bindings), cfg.Problems)
-		}
-	}
-	// The keys of the config are refused by name, also in front of good
-	// bindings: a binding file can't choose sources, other files, the budget
-	// or update checks.
-	for _, k := range []string{"sources: {a: {trusted-path: /a}}", "include: [x.yaml]", "budget: {max-chars: 5}", "check-updates: false", "summary-message: {max-skills: 3}"} {
-		cfg := setup(t, h, head+ok+k+"\n")
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 ||
-			!strings.Contains(cfg.Problems[0], " works only in the config (~/.config/ctxtra/config.yaml); nothing from this file is used") {
-			t.Errorf("%s: bindings=%d problems=%v", k, len(cfg.Bindings), cfg.Problems)
-		}
-	}
-}
+	c := Parse(data, Options{Agents: agents})
+	noErrors(t, c)
 
-func TestStrictConfig(t *testing.T) {
-	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [x.md]}\n")
-	cases := map[string]string{
-		"no schema":           "include: [b.yaml]\n",
-		"wrong schema":        "schema: ctxtra/v2\ninclude: [b.yaml]\n",
-		"unknown key":         "schema: ctxtra/v1\ninclude: [b.yaml]\nrules: []\n",
-		"two documents":       "schema: ctxtra/v1\ninclude: [b.yaml]\n---\nschema: ctxtra/v1\n",
-		"include not a list":  "schema: ctxtra/v1\ninclude: b.yaml\n",
-		"bindings not a list": "schema: ctxtra/v1\ninclude: [b.yaml]\nbindings: {a: b}\n",
-		"empty bindings":      "schema: ctxtra/v1\ninclude: [b.yaml]\nbindings: []\n",
-		"broken YAML":         "schema: [",
+	var names []string
+	for _, s := range c.Sources {
+		names = append(names, s.Name)
 	}
-	for name, y := range cases {
-		cfg := load(testenv.Config(t, h, y))
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) == 0 {
-			t.Errorf("%s: bindings=%d problems=%v", name, len(cfg.Bindings), cfg.Problems)
-		}
+	if got := strings.Join(names, " "); got != "iam-team obs-team security go-style iam-dev billing-ctx dotfiles" {
+		t.Errorf("sources %s", got)
 	}
-	if cfg := load(testenv.Config(t, h, "schema: ctxtra/v9\n")); len(cfg.Problems) != 1 ||
-		!strings.Contains(cfg.Problems[0], `schema must be ctxtra/v1 (found "ctxtra/v9")`) {
-		t.Errorf("wrong schema: %v", cfg.Problems)
+	if s := c.Source("obs-team"); s.Repo != "https://github.com/acme/observability-ctx.git" || s.Ref != (Ref{Tag, "v1.4.0"}) {
+		t.Errorf("obs-team %+v", s)
 	}
-	// A broken budget rejects the whole config: the bindings without the
-	// budget would add more than intended.
-	for _, b := range []string{"{max-chars: -1}", "{max-chars: '5'}", "{maxChars: 5}", "5"} {
-		cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nbindings: [{name: own, match: {global: true}, instructions: [x.md]}]\ninclude: [b.yaml]\nbudget: "+b+"\n"))
-		if len(cfg.Problems) == 0 || len(cfg.Bindings) != 0 {
-			t.Errorf("budget %s: bindings=%d problems=%v", b, len(cfg.Bindings), cfg.Problems)
-		}
+	if s := c.Source("security"); s.Ref != (Ref{Rev, "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"}) {
+		t.Errorf("security %+v", s)
 	}
-	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml, ./b.yaml, missing.yaml, config.yaml]\n"))
-	if len(cfg.Bindings) != 1 || len(cfg.Problems) != 3 || !strings.Contains(cfg.Problems[2], "config.yaml is the config itself") {
-		t.Errorf("duplicate, missing and self include: bindings=%d problems=%v", len(cfg.Bindings), cfg.Problems)
+	if s := c.Source("go-style"); s.CheckUpdates == nil || *s.CheckUpdates {
+		t.Errorf("go-style check-updates %v", s.CheckUpdates)
 	}
-	if cfg := load(filepath.Join(h, "nope.yaml")); len(cfg.Problems) != 0 || len(cfg.Bindings) != 0 {
-		t.Errorf("a missing config is not a problem: %v", cfg.Problems)
+	if s := c.Source("billing-ctx"); s.Subdir != "teams/billing" || s.Ref != (Ref{Branch, "main"}) {
+		t.Errorf("billing-ctx %+v", s)
 	}
-}
+	if s := c.Source("dotfiles"); s.Dir != "~/dev/dotfiles" || s.Repo != "" {
+		t.Errorf("dotfiles %+v", s)
+	}
 
-// check-updates is on for ctxtra releases unless the config turns it off,
-// and for pinned sources unless the source turns it off.
-func TestCheckUpdates(t *testing.T) {
-	h := testenv.Home(t)
-	if cfg := load(filepath.Join(h, "nope.yaml")); !cfg.CheckCtxtra {
-		t.Error("no config: the release check is off")
+	names = nil
+	for _, b := range c.Bindings {
+		names = append(names, b.Name)
 	}
-	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
-check-updates: false
-sources:
-  a: {git: 'https://h/a', branch: main}
-  b: {git: 'https://h/b', branch: main, check-updates: true}
-  c: {local-git: ~/c, check-updates: false}
-  d: {git: 'https://h/d', branch: main, check-updates: TRUE}
-  e: {local-git: ~/e}
-  f: {git: 'https://h/f', branch: main, check-updates: false}
-  g: {trusted-path: ~/g}
-`))
-	if len(cfg.Problems) > 0 || cfg.CheckCtxtra || !cfg.Sources[0].CheckUpdates || !cfg.Sources[1].CheckUpdates || cfg.Sources[2].CheckUpdates || !cfg.Sources[3].CheckUpdates || !cfg.Sources[4].CheckUpdates || cfg.Sources[5].CheckUpdates || cfg.Sources[6].CheckUpdates {
-		t.Errorf("problems %v, release %v, sources %+v", cfg.Problems, cfg.CheckCtxtra, cfg.Sources)
+	if got := strings.Join(names, " "); got != "me iam iam-repos obs billing security review go go-work iam-preview tracker" {
+		t.Errorf("bindings in the order of the list: %s", got)
 	}
-	for _, v := range []string{"'false'", "no-thanks", "{ctxtra: false}"} {
-		if cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: "+v+"\n")); len(cfg.Problems) != 1 ||
-			!strings.Contains(cfg.Problems[0], "check-updates must be true or false") || !cfg.Ignored() || cfg.CheckCtxtra {
-			t.Errorf("check-updates: %s: %v", v, cfg.Problems)
-		}
+	me := c.Binding("me")
+	if me.Location != nil || me.Profiles != nil || me.Agents != nil {
+		t.Errorf("me has conditions: %+v", me)
 	}
-	// A config ignored for another reason may have meant check-updates: false.
-	for _, y := range []string{"schema: ctxtra/v1\ncheck-updates: false\nbudget: {max-chars: -1}\n", "schema: [", "schema: ctxtra/v1\n---\nschema: ctxtra/v1\n"} {
-		if cfg := load(testenv.Config(t, h, y)); !cfg.Ignored() || cfg.CheckCtxtra {
-			t.Errorf("%q: ignored %v, release check %v", y, cfg.Ignored(), cfg.CheckCtxtra)
-		}
+	if got := me.Instructions; len(got) != 3 || got[0].Source != "" || got[1].Source != "dotfiles" || got[1].Value != "agents/*.md" ||
+		!got[2].Not || got[2].Source != "dotfiles" || got[2].Value != "agents/draft-*.md" {
+		t.Errorf("me instructions %+v", got)
 	}
-	if cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\n")); cfg.Ignored() {
-		t.Error("a good config is ignored")
+	iam := c.Binding("iam")
+	if iam.Collections[0].Source != "iam-team" || iam.Collections[0].Value != "essentials" || !iam.Instructions[0].Not {
+		t.Errorf("iam %+v", iam)
 	}
-}
-
-// Each key of summary-message has its own default. A wrong key or value is
-// a problem, and the default applies to that key alone: the other keys and
-// the bindings still do.
-func TestSummaryMessage(t *testing.T) {
-	h := testenv.Home(t)
-	def := DefaultSummaryMessage
-	if def != (SummaryMessage{ShowInstructions: true, ShowSkills: true, MaxInstructions: 30, MaxSkills: 30}) {
-		t.Errorf("defaults %+v", def)
+	repos := c.Binding("iam-repos").Location
+	if repos.RepoSets[0].Source != "iam-team" || repos.RepoSets[0].Value != "services" || repos.Repos[0].Not || !repos.Repos[1].Not ||
+		repos.Repos[1].Repo != "github.com/acme/iam-legacy" {
+		t.Errorf("iam-repos %+v", repos)
 	}
-	if cfg := load(filepath.Join(h, "nope.yaml")); cfg.Summary != def {
-		t.Errorf("no config: %+v", cfg.Summary)
+	billing := c.Binding("billing").Location.Repos[0]
+	if billing.Repo != "github.com/acme/mono" || texts(billing.Subdirs)[0] != "services/billing/**" {
+		t.Errorf("billing %+v", billing)
 	}
-	own := "bindings: [{name: own, match: {global: true}, instructions: [x.md]}]\n"
-	with := func(section string) *Config {
-		return load(testenv.Config(t, h, "schema: ctxtra/v1\n"+own+section))
+	security := c.Binding("security").Location
+	if len(security.Dirs) != 2 || !security.Dirs[1].Not || security.Dirs[1].Value != "~/work/clients/**" || len(security.Repos) != 1 {
+		t.Errorf("security %+v", security)
 	}
-	for section, want := range map[string]SummaryMessage{
-		"":                                   def,
-		"summary-message: {}\n":              def,
-		"summary-message: {max-skills: 5}\n": {ShowInstructions: true, ShowSkills: true, MaxInstructions: 30, MaxSkills: 5},
-		"summary-message: {show-skills: false}\n": {ShowInstructions: true, MaxInstructions: 30, MaxSkills: 30},
-		"summary-message:\n  show-instructions: false\n  show-skills: true\n  max-instructions: 0\n  max-skills: 100\n": {
-			ShowSkills: true, MaxSkills: 100},
-	} {
-		if cfg := with(section); len(cfg.Problems) > 0 || cfg.Summary != want {
-			t.Errorf("%q: %+v, problems %v", section, cfg.Summary, cfg.Problems)
-		}
+	tracker := c.Binding("tracker")
+	if !tracker.Profiles[0].Not || tracker.Profiles[0].Value != "oncall" || !tracker.Agents[0].Not || tracker.MCPServers[0].Value != "linear" {
+		t.Errorf("tracker %+v", tracker)
 	}
-	// A wrong value of one key; max-instructions: 7 still applies.
-	for _, c := range []struct{ key, value, problem string }{
-		{"show-skills", "'false'", "summary-message.show-skills must be true or false; the default, true, applies"},
-		{"show-skills", "no", "summary-message.show-skills must be true or false; the default, true, applies"},
-		{"show-skills", "0", "summary-message.show-skills must be true or false; the default, true, applies"},
-		{"show-skills", "~", "summary-message.show-skills has no value; the default, true, applies"},
-		{"show-skills", "", "summary-message.show-skills has no value; the default, true, applies"},
-		{"max-skills", "-1", "summary-message.max-skills must be a whole number, 0 or more; the default, 30, applies"},
-		{"max-skills", "'5'", "summary-message.max-skills must be a whole number, 0 or more; the default, 30, applies"},
-		{"max-skills", "2.5", "summary-message.max-skills must be a whole number, 0 or more; the default, 30, applies"},
-		{"max-skills", "{a: 1}", "summary-message.max-skills must be a whole number, 0 or more; the default, 30, applies"},
-		{"max-skills", "true", "summary-message.max-skills must be a whole number, 0 or more; the default, 30, applies"},
-		{"max-skills", "~", "summary-message.max-skills has no value; the default, 30, applies"},
-		{"max-skills", "", "summary-message.max-skills has no value; the default, 30, applies"},
-		{"max-skils", "5", `unknown key "max-skils" in summary-message (allowed: show-instructions, show-skills, max-instructions, max-skills); it is ignored`},
-	} {
-		want := def
-		want.MaxInstructions = 7
-		cfg := with("summary-message:\n  max-instructions: 7\n  " + c.key + ": " + c.value + "\n")
-		if len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], c.problem) || cfg.Ignored() || len(cfg.Bindings) != 1 || cfg.Summary != want {
-			t.Errorf("%s: %s: %+v, bindings %d, problems %v", c.key, c.value, cfg.Summary, len(cfg.Bindings), cfg.Problems)
-		}
+	if kit := c.Collection("go-kit"); kit == nil || texts(kit.Instructions)[0] != "go-notes.md" || kit.Instructions[1].Source != "go-style" {
+		t.Errorf("go-kit %+v", kit)
 	}
-	// A key that is there twice gets the default; the other keys still apply.
-	for section, problem := range map[string]string{
-		"summary-message:\n  max-instructions: 7\n  max-skills: 3\n  max-skills: 4\n":           `line 6: duplicate key "max-skills" in summary-message; the default, 30, applies`,
-		"summary-message:\n  max-instructions: 7\n  show-skills: false\n  show-skills: false\n": `line 6: duplicate key "show-skills" in summary-message; the default, true, applies`,
-	} {
-		want := def
-		want.MaxInstructions = 7
-		if cfg := with(section); len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], problem) || cfg.Summary != want {
-			t.Errorf("duplicate: %+v, problems %v", cfg.Summary, cfg.Problems)
-		}
+	if set := c.RepoSet("acme"); set == nil || set.Entries[0].Repo != "github.com/acme/**" {
+		t.Errorf("acme %+v", set)
 	}
-	// Not a map: all the defaults apply.
-	for v, problem := range map[string]string{
-		"5":   "line 3: summary-message must be a map; the defaults apply",
-		"[a]": "line 3: summary-message must be a map; the defaults apply",
-		"''":  "line 3: summary-message must be a map; the defaults apply",
-		"~":   "line 3: summary-message has no value; the defaults apply",
-		"":    "line 3: summary-message has no value; the defaults apply",
-	} {
-		cfg := with("summary-message: " + v + "\n")
-		if len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], problem) || cfg.Ignored() || len(cfg.Bindings) != 1 || cfg.Summary != def {
-			t.Errorf("%q: %+v, bindings %d, problems %v", v, cfg.Summary, len(cfg.Bindings), cfg.Problems)
-		}
+	if s := c.MCPServer("linear"); s == nil || s.URL != "https://mcp.linear.app/mcp" || s.Notes != "Choose the work workspace" {
+		t.Errorf("linear %+v", s)
 	}
-	// Nothing of an ignored config is used.
-	if cfg := with("summary-message: {max-skills: 2}\nbudget: {max-chars: -1}\n"); !cfg.Ignored() || cfg.Summary != def {
-		t.Errorf("ignored: %+v", cfg.Summary)
-	}
-}
-
-// A broken binding in the config is skipped alone, like one in a binding
-// file: the config's sources, budget and other bindings still apply. A
-// binding file listed under bindings gets a hint.
-func TestConfigOwnBindings(t *testing.T) {
-	h := testenv.Home(t)
-	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
-sources:
-  dot: {trusted-path: ~/dot}
-bindings:
-  - {name: a, match: {global: true}, instructions: [a.md, ctxtra://dot/x.md]}
-  - {name: a, match: {global: true}, instructions: [b.md]}
-  - {name: c, match: {gitRepo: [x]}, instructions: [c.md]}
-  - bindings.yaml
-budget: {max-chars: 10}
-`))
-	if len(cfg.Bindings) != 1 || cfg.Bindings[0].Name != "a" || cfg.MaxChars != 10 ||
-		!slices.Equal(cfg.Bindings[0].Instructions, []string{filepath.Join(h, ".config", "ctxtra", "a.md"), filepath.Join(h, "dot", "x.md")}) {
-		t.Errorf("bindings %+v", cfg.Bindings)
-	}
-	if len(cfg.Problems) != 3 || !strings.Contains(cfg.Problems[0], "duplicate name") ||
-		!strings.Contains(cfg.Problems[2], "a binding file goes under include, in the config") {
-		t.Errorf("problems %v", cfg.Problems)
-	}
-	// Check, which add and sync run before they change the config, doesn't
-	// check the bindings one by one.
-	if err := Check([]byte("schema: ctxtra/v1\nbindings: [x.yaml]\n")); err != nil {
-		t.Errorf("Check: %v", err)
+	if *c.MaxCtxChars != 40000 || !*c.CheckReleases || *c.SessionMessage.MaxSkills != 0 || c.SessionMessage.MaxInstructions != nil {
+		t.Errorf("settings %v %v %+v", *c.MaxCtxChars, *c.CheckReleases, c.SessionMessage)
 	}
 }
 
 func TestSources(t *testing.T) {
-	h := testenv.Home(t)
-	dot := testenv.Repo(t, filepath.Join(h, "dev", "dotfiles"), "git@github.com:me/dotfiles.git")
-	testenv.Write(t, filepath.Join(dot, "ctxtra", "work.yaml"), head+`  - name: work
-    match: {global: true}
-    instructions: [work.md, ctxtra://dotfiles/notes/me.md, ~/notes/x.md]
-    skills: [ctxtra://dotfiles/skills/deploy]
-`)
-	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
-sources:
-  dotfiles:
-    trusted-path: ~/dev/dotfiles
-include:
-  - ctxtra://dotfiles/ctxtra/work.yaml
-`))
-	if len(cfg.Problems) > 0 || len(cfg.Bindings) != 1 {
-		t.Fatalf("bindings=%d problems=%v", len(cfg.Bindings), cfg.Problems)
+	tests := []struct {
+		name string
+		body string
+		want []string // the error; none when the source is fine
+	}{
+		{name: "a name that starts with a digit", body: "2024-notes: {dir: ~/notes}", want: []string{"doesn't start with a letter"}},
+		{name: "a name with a space", body: "'my notes': {dir: ~/notes}", want: []string{"names are 1 to 64"}},
+		{name: "a name of 65 characters", body: strings.Repeat("a", 65) + ": {dir: ~/notes}", want: []string{"longer than 64"}},
+		{name: "a short rev", body: "s: {repo: 'git@github.com:acme/x.git', rev: 9f8e7d6}",
+			want: []string{"rev 9f8e7d6 is not a full commit ID", "40 hex characters, or 64"}},
+		{name: "a rev in upper case", body: "s: {repo: 'git@github.com:acme/x.git', rev: 9F8E7D6C5B4A39281706F5E4D3C2B1A098765432}",
+			want: []string{"has upper-case letters; write it in lower case: 9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"}},
+		{name: "a rev of a SHA-256 repository", body: "s: {repo: 'git@github.com:acme/x.git', rev: " + strings.Repeat("ab", 32) + "}"},
+		{name: "branch and tag together", body: "s: {repo: 'git@github.com:acme/x.git', branch: main, tag: v1.4.0}",
+			want: []string{"not branch and tag"}},
+		{name: "no branch, tag or rev", body: "s: {repo: 'git@github.com:acme/x.git'}", want: []string{"needs one of branch, tag and rev"}},
+		{name: "a folder with a branch", body: "s: {dir: ~/dev/dotfiles, branch: main}",
+			want: []string{"a dir source has no branch: it is read as it is on disk"}},
+		{name: "a folder with subdir", body: "s: {dir: ~/dev/dotfiles, subdir: x}", want: []string{"dir already names a folder"}},
+		{name: "a folder with check-updates", body: "s: {dir: ~/dev/dotfiles, check-updates: false}", want: []string{"no check-updates"}},
+		{name: "a relative folder", body: "s: {dir: dev/dotfiles}", want: []string{"absolute or start with ~"}},
+		{name: "repo and dir", body: "s: {repo: 'git@github.com:acme/x.git', branch: main, dir: ~/x}", want: []string{"repo or dir, not both"}},
+		{name: "neither repo nor dir", body: "s: {branch: main}", want: []string{"needs repo"}},
+		{name: "an unknown key", body: "s: {dir: ~/x, comit: abc}", want: []string{`unknown key "comit"`}},
+		{name: "a tag that looks like a number", body: "s: {repo: 'git@github.com:acme/x.git', tag: 1.10}",
+			want: []string{"YAML reads 1.10 as a number", "tag: '1.10'"}},
+		{name: "a branch of true", body: "s: {repo: 'git@github.com:acme/x.git', branch: true}", want: []string{"branch: 'true'"}},
+		{name: "a key twice", body: "s:\n    repo: 'git@github.com:acme/x.git'\n    branch: main\n    branch: next",
+			want: []string{"branch is there twice, lines 5 and 6"}},
+		{name: "a subdir that leaves the repository", body: "s: {repo: 'git@github.com:acme/x.git', branch: main, subdir: ../x}",
+			want: []string{"a folder inside the repository"}},
+		{name: "an https address", body: "s: {repo: 'https://github.com/acme/x', branch: main}"},
+		{name: "an ssh address with a port", body: "s: {repo: 'ssh://git@host:2222/acme/x.git', branch: main}"},
+		{name: "a local clone", body: "s: {repo: ~/dev/iam-ctx, branch: my-change}"},
+		{name: "an absolute local clone", body: "s: {repo: /srv/git/iam-ctx, branch: main}"},
+		{name: "an http address", body: "s: {repo: 'http://github.com/acme/x', branch: main}", want: []string{"is not a git address"}},
+		{name: "a relative path", body: "s: {repo: dev/x, branch: main}", want: []string{"is not a git address"}},
+		{name: "a subdir of a repository", body: "s: {repo: 'git@github.com:acme/x.git', branch: main, subdir: teams/billing}"},
 	}
-	b := cfg.Bindings[0]
-	want := []string{filepath.Join(dot, "ctxtra", "work.md"), filepath.Join(dot, "notes", "me.md"), filepath.Join(h, "notes", "x.md")}
-	if !slices.Equal(b.Instructions, want) || b.Skills[0] != filepath.Join(dot, "skills", "deploy") {
-		t.Errorf("instructions %v, skills %v", b.Instructions, b.Skills)
-	}
-	if len(cfg.Sources) != 1 || cfg.Sources[0] != (Source{Name: "dotfiles", Line: 3, TrustedPath: dot}) {
-		t.Errorf("sources %v", cfg.Sources)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "sources:\n  "+tt.body+"\n  other: {dir: ~/other}\n")
+			if c.Source("other") == nil || c.Source("other").Broken() {
+				t.Errorf("another source is left out: %v", c.Errors)
+			}
+			if tt.want == nil {
+				noErrors(t, c)
+				return
+			}
+			err := only(t, c, tt.want...)
+			if err.Out() != yamlx.OutPart || err.Part.Kind != "source" {
+				t.Errorf("error %v leaves out %v %d, want the source", err, err.Part, err.Out())
+			}
+			if len(c.Sources) == 2 && !c.Sources[0].Broken() {
+				t.Error("the source is used")
+			}
+		})
 	}
 }
 
-// A binding file in a repository with a remote is read only from a trusted
-// source.
-func TestUntrustedBindingFile(t *testing.T) {
-	h := testenv.Home(t)
-	team := testenv.Repo(t, filepath.Join(h, "team"), "git@github.com:acme/team.git")
-	testenv.Write(t, filepath.Join(team, "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/.ssh/id]}\n")
-	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [~/team/b.yaml]\n"))
-	if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], "is not a trusted source") {
-		t.Errorf("bindings=%d problems=%v", len(cfg.Bindings), cfg.Problems)
+func TestSourceNameTwice(t *testing.T) {
+	c := parse(t, "sources:\n  a: {dir: ~/a}\n  b: {dir: ~/b}\n  a: {dir: ~/c}\n")
+	only(t, c, "a is there twice, lines 3 and 5", "source a is left out")
+	if c.Source("a") != nil || c.Source("b") == nil {
+		t.Errorf("sources %+v", c.Sources)
 	}
 }
 
-// A relative config path is made absolute, so that the trust check sees the
-// file that is read.
-func TestRelativeConfigPath(t *testing.T) {
-	h := testenv.Home(t)
-	team := testenv.Repo(t, filepath.Join(h, "team"), "git@github.com:acme/team.git")
-	testenv.Write(t, filepath.Join(team, "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/.ssh/id]}\n")
-	testenv.Write(t, filepath.Join(team, "config.yaml"), "schema: ctxtra/v1\ninclude: [b.yaml]\n")
-	t.Chdir(team)
-	cfg := load("config.yaml")
-	if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], "is not a trusted source") {
-		t.Errorf("bindings=%d problems=%v", len(cfg.Bindings), cfg.Problems)
+func TestRepoID(t *testing.T) {
+	t.Run("from ssh to https", func(t *testing.T) {
+		forms := []string{"git@github.com:acme/iam-ctx.git", "https://github.com/acme/iam-ctx", "ssh://git@github.com:22/Acme/iam-ctx.git/",
+			"https://user@github.com/acme/iam-ctx.git"}
+		for _, f := range forms {
+			if got := RepoID(f); got != "github.com/acme/iam-ctx" {
+				t.Errorf("RepoID(%s) = %s", f, got)
+			}
+		}
+		if RepoID("git@github.com:Acme/IAM-ctx.GIT") != RepoID(forms[0]) {
+			t.Error(".git in upper case makes another repository")
+		}
+		if RepoID("git@github.com:other/iam-ctx.git") == RepoID(forms[0]) {
+			t.Error("another repository is the same")
+		}
+	})
+	t.Run("a local path as its real path", func(t *testing.T) {
+		dir := t.TempDir()
+		real := filepath.Join(dir, "real")
+		if err := os.Mkdir(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(dir, "link")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		if RepoID(link) != RepoID(real+"/") {
+			t.Errorf("RepoID(%s) = %s, RepoID(%s) = %s", link, RepoID(link), real, RepoID(real))
+		}
+	})
+}
+
+func TestBindings(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		// want is the error, none when the binding is fine.
+		want []string
+		// out is what the error leaves out.
+		out yamlx.Out
+		// check checks the binding x.
+		check func(t *testing.T, b *Binding)
+	}{
+		{name: "profile only", body: "profiles: [iam]\n    skills: [a]", check: func(t *testing.T, b *Binding) {
+			if b.Location != nil || texts(b.Profiles)[0] != "iam" {
+				t.Errorf("%+v", b)
+			}
+		}},
+		{name: "a broken binding", body: "agents: [claude-cod]\n    skills: [a]", out: yamlx.OutPart,
+			want: []string{`unknown agent "claude-cod"`, "known: claude-code, codex"}},
+		{name: "unknown agent after !", body: "agents: ['!curser']\n    skills: [a]", out: yamlx.OutPart,
+			want: []string{`unknown agent "curser"`, "known: claude-code"}},
+		{name: "agents compared without case", body: "agents: [Claude-Code, '!CURSOR']\n    skills: [a]"},
+		{name: "invalid name", body: "profiles: [iam, \"on call\"]\n    skills: [a]", out: yamlx.OutPart, want: []string{`profile "on call"`}},
+		{name: "case", body: "profiles: [IAM, iam]\n    skills: [a]"},
+		{name: "unquoted on its own line", body: "agents:\n      - !cursor\n      - codex\n    skills: [a]", out: yamlx.OutPart,
+			want: []string{"'!cursor'"}},
+		{name: "a broken folder entry", body: "location: {dirs: ['work/**']}\n    mcp-servers: [jira]", out: yamlx.OutNothing,
+			want: []string{"work/** is a relative folder", "the entry matches nothing"}, check: func(t *testing.T, b *Binding) {
+				if b.Location.Dirs[0].Err == nil {
+					t.Error("the entry has no error, so it would match")
+				}
+			}},
+		{name: "a bad folder pattern", body: "location: {dirs: ['~/work/[x']}\n    skills: [a]", out: yamlx.OutNothing,
+			want: []string{"not a valid pattern"}},
+		{name: "a broken folder exclusion", body: "location: {dirs: ['!clients/**']}\n    mcp-servers: [jira]", out: yamlx.OutPart,
+			want: []string{"clients/** is a relative folder"}},
+		{name: "the last repository removed by hand", body: "location: {repos: []}\n    mcp-servers: [jira]", out: yamlx.OutPart,
+			want: []string{"repos is empty; remove location to apply everywhere, or remove the binding"}},
+		{name: "an empty content list", body: "instructions: []\n    skills: ['dotfiles:skills/*']", check: func(t *testing.T, b *Binding) {
+			if b.Instructions != nil || len(b.Skills) != 1 {
+				t.Errorf("%+v", b.Content)
+			}
+		}},
+		{name: "a null content list", body: "instructions:\n    skills: [a]"},
+		{name: "a binding that adds nothing", body: "profiles: [iam]\n    instructions: []", out: yamlx.OutPart, want: []string{"adds nothing"}},
+		{name: "! on the repo of an entry with subdirs", body: "location:\n      repos: [{repo: '!github.com/acme/mono', subdirs: [services/**]}]\n    skills: [a]",
+			out: yamlx.OutPart, want: []string{"put ! in subdirs", "write the repository alone"}},
+		{name: "two parts of a monorepo", body: "location:\n      repos: [{repo: github.com/acme/mono, subdirs: [services/iam/**, '!services/iam/old/**']}]\n    skills: [a]",
+			check: func(t *testing.T, b *Binding) {
+				if s := b.Location.Repos[0].Subdirs; len(s) != 2 || s[0].Not || !s[1].Not || s[1].Value != "services/iam/old/**" {
+					t.Errorf("%+v", s)
+				}
+			}},
+		{name: "a subdir that leaves the repository", body: "location:\n      repos: [{repo: github.com/acme/mono, subdirs: [../x]}]\n    skills: [a]",
+			out: yamlx.OutNothing, want: []string{"leaves the repository"}, check: func(t *testing.T, b *Binding) {
+				if r := b.Location.Repos[0]; r.Err != nil || r.Subdirs[0].Err == nil {
+					t.Error("the subdirs entry would match, or the repository entry has its error")
+				}
+			}},
+		{name: "a folder in repos", body: "location: {repos: [~/work/**]}\n    skills: [a]", out: yamlx.OutNothing, want: []string{"folders go in dirs"}},
+		{name: "a repository address in repos", body: "location: {repos: ['git@github.com:acme/api.git', 'https://github.com/acme/*']}\n    skills: [a]"},
+		{name: "only ! in collections", body: "collections: ['!iam-team:team-legacy']", out: yamlx.OutPart,
+			want: []string{"collections has only ! entries"}},
+		{name: "only ! in instructions, without collections", body: "instructions: ['!a.md']", out: yamlx.OutPart,
+			want: []string{"instructions has only ! entries", "no collections"}},
+		{name: "a file left out of a collection", body: "collections: ['iam-team:essentials']\n    instructions: ['!iam-team:docs/testing.md']"},
+		{name: "collections by pattern, one left out", body: "collections: ['iam-team:team-*', '!iam-team:team-legacy']",
+			check: func(t *testing.T, b *Binding) {
+				if c := b.Collections; c[0].Value != "team-*" || !c[1].Not || c[1].Source != "iam-team" {
+					t.Errorf("%+v", c)
+				}
+			}},
+		{name: "a file name with a colon", body: "instructions: ['./draft:notes.md', '/tmp/draft:notes.md', 'draft:notes.md']",
+			check: func(t *testing.T, b *Binding) {
+				if got := b.Instructions; got[0].Source != "" || got[1].Source != "" || got[2].Source != "draft" || got[2].Value != "notes.md" {
+					t.Errorf("%+v", got)
+				}
+			}},
+		{name: "an empty source name in a content list", body: "instructions: [':notes.md', a.md]", out: yamlx.OutEntry,
+			want: []string{"the source name before : is empty"}, check: func(t *testing.T, b *Binding) {
+				if e := b.Instructions[0]; !e.InSource || e.Source != "" || e.Err == nil {
+					t.Errorf("%+v", e)
+				}
+			}},
+		{name: "an empty source name in repo-sets", body: "location: {repo-sets: [':acme']}\n    skills: [a]", out: yamlx.OutNothing,
+			want: []string{"the source name before : is empty", "the entry matches nothing"}, check: func(t *testing.T, b *Binding) {
+				if e := b.Location.RepoSets[0]; !e.InSource || e.Value != "acme" || e.Err == nil {
+					t.Errorf("%+v", e)
+				}
+			}},
+		{name: "an empty source name in an excluded repo set", body: "location: {repo-sets: ['!:acme']}\n    skills: [a]", out: yamlx.OutPart,
+			want: []string{"the source name before : is empty"}},
+		{name: "a raw file from a source", body: "instructions: ['iam-team:instructions/*.md']", check: func(t *testing.T, b *Binding) {
+			if e := b.Instructions[0]; e.Source != "iam-team" || e.Value != "instructions/*.md" {
+				t.Errorf("%+v", e)
+			}
+		}},
+		{name: "leaving the source", body: "instructions: ['iam-team:../secrets.md', ~/notes/me.md]", out: yamlx.OutEntry,
+			want: []string{"iam-team:../secrets.md: the path leaves its source"}, check: func(t *testing.T, b *Binding) {
+				if b.Instructions[0].Err == nil || b.Instructions[1].Err != nil {
+					t.Errorf("%+v", b.Instructions)
+				}
+			}},
+		{name: "an absolute path in a source", body: "instructions: ['iam-team:/etc/x.md', a.md]", out: yamlx.OutEntry,
+			want: []string{"relative to the top of the source"}},
+		{name: "a bad source name", body: "skills: ['1team:x', a]", out: yamlx.OutEntry, want: []string{"names no source"}},
+		{name: "a bad server name", body: "mcp-servers: [Jira]", out: yamlx.OutEntry, want: []string{`server name "Jira"`}},
+		{name: "servers by pattern", body: "mcp-servers: ['iam-team:*', '!iam-team:deploy']"},
+		{name: "a typo in a key", body: "locaton: {dirs: [~/work/**]}\n    skills: [a]", out: yamlx.OutPart, want: []string{`unknown key "locaton"`}},
+		{name: "match is not a key", body: "match: {global: true}\n    skills: [a]", out: yamlx.OutPart, want: []string{`unknown key "match"`}},
+		{name: "a number in a content list", body: "instructions: [1.10]", out: yamlx.OutPart, want: []string{"quote it: '1.10'"}},
+		{name: "a repo set of a source and my own", body: "location: {repo-sets: ['iam-team:services', acme, '!corp:clients']}\n    skills: [a]",
+			check: func(t *testing.T, b *Binding) {
+				if s := b.Location.RepoSets; s[0].Source != "iam-team" || s[1].Source != "" || !s[2].Not || s[2].Source != "corp" {
+					t.Errorf("%+v", s)
+				}
+			}},
+		{name: "a broken repo set entry", body: "location: {repo-sets: ['iam-team:a/b']}\n    skills: [a]", out: yamlx.OutNothing, want: []string{"iam-team:a/b"}},
+		{name: "a broken excluded repo set", body: "location: {repo-sets: ['!iam-team:a/b']}\n    skills: [a]", out: yamlx.OutPart, want: []string{"iam-team:a/b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "bindings:\n  - name: x\n    "+tt.body+"\n  - name: other\n    skills: [b]\n")
+			if o := c.Binding("other"); o == nil || o.Broken() {
+				t.Errorf("another binding is left out: %v", c.Errors)
+			}
+			b := c.Binding("x")
+			if b == nil {
+				t.Fatal("no binding x")
+			}
+			if tt.want == nil {
+				noErrors(t, c)
+			} else {
+				err := only(t, c, tt.want...)
+				if err.Out() != tt.out {
+					t.Errorf("error %v leaves out %d, want %d", err, err.Out(), tt.out)
+				}
+				if got := b.Broken(); got != (tt.out == yamlx.OutPart) {
+					t.Errorf("the binding is left out: %v", got)
+				}
+			}
+			if tt.check != nil {
+				tt.check(t, b)
+			}
+		})
 	}
 }
 
-func TestBadSources(t *testing.T) {
-	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [x.md]}\n")
-	const cfgHead = "schema: ctxtra/v1\ninclude: [b.yaml]\n"
-	cases := map[string]string{
-		"empty":            cfgHead + "sources: {}\n",
-		"list":             cfgHead + "sources: [a]\n",
-		"no kind":          cfgHead + "sources: {a: {}}\n",
-		"unknown kind":     cfgHead + "sources: {a: {git: x}}\n",
-		"two kinds":        cfgHead + "sources: {a: {trusted-path: /x, git: y}}\n",
-		"relative path":    cfgHead + "sources: {a: {trusted-path: x}}\n",
-		"bad name":         cfgHead + "sources: {a/b: {trusted-path: /x}}\n",
-		"null path":        cfgHead + "sources: {a: {trusted-path: ~}}\n",
-		"duplicate source": cfgHead + "sources:\n  a: {trusted-path: /x}\n  a: {trusted-path: /y}\n",
-		"check trusted":    cfgHead + "sources: {a: {trusted-path: /x, check-updates: true}}\n",
-		"check a string":   cfgHead + "sources: {a: {git: 'https://h/a', branch: main, check-updates: 'true'}}\n",
+func TestBindingOrderAndNames(t *testing.T) {
+	t.Run("order of text", func(t *testing.T) {
+		c := parse(t, "bindings:\n  - name: me\n    skills: [a]\n  - name: iam\n    skills: [b]\n")
+		noErrors(t, c)
+		if c.Bindings[0].Name != "me" || c.Bindings[1].Name != "iam" {
+			t.Errorf("bindings %v, %v", c.Bindings[0].Name, c.Bindings[1].Name)
+		}
+	})
+	t.Run("duplicate name", func(t *testing.T) {
+		c := parse(t, "bindings:\n  - name: iam\n    skills: [a]\n  - name: me\n    skills: [b]\n  - name: iam\n    skills: [c]\n")
+		if len(c.Errors) != 2 {
+			t.Fatalf("errors %v", c.Errors)
+		}
+		for _, e := range c.Errors {
+			if !strings.Contains(e.Error(), "2 bindings are named iam, at lines 3 and 7") || e.Mistake != yamlx.DuplicateBinding {
+				t.Errorf("error %v", e)
+			}
+		}
+		if !c.Bindings[0].Broken() || c.Bindings[1].Broken() || !c.Bindings[2].Broken() {
+			t.Error("not both bindings are left out, or the other one is")
+		}
+	})
+	t.Run("a binding without a name", func(t *testing.T) {
+		c := parse(t, "bindings:\n  - skills: [a]\n")
+		only(t, c, "binding #1: a binding needs a name")
+	})
+}
+
+func TestBindingsBelongToTheUser(t *testing.T) {
+	c := parse(t, "include: [bindings.yaml]\nbindings:\n  - name: me\n    skills: [a]\n")
+	err := only(t, c, `unknown key "include"`)
+	if err.Mistake != yamlx.UnknownTopKey || err.Part != (yamlx.Part{Kind: "key", Name: "include"}) {
+		t.Errorf("error %v", err)
 	}
-	for name, y := range cases {
-		cfg := load(testenv.Config(t, h, y))
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 {
-			t.Errorf("%s: bindings=%d problems=%v", name, len(cfg.Bindings), cfg.Problems)
+	if len(c.Bindings) != 1 || c.Bindings[0].Broken() {
+		t.Error("the config's own bindings don't apply")
+	}
+}
+
+func TestServers(t *testing.T) {
+	t.Run("two teams' jira", func(t *testing.T) {
+		c := parse(t, "mcp-servers:\n  jira_iam: {use: 'iam-team:jira'}\n  jira_obs: {use: 'obs-team:jira'}\n")
+		noErrors(t, c)
+		if s := c.MCPServer("jira_iam"); s.Use() != "iam-team:jira" || s.UseSource != "iam-team" || s.UseServer != "jira" {
+			t.Errorf("%+v", s)
+		}
+	})
+	t.Run("two names for one server", func(t *testing.T) {
+		c := parse(t, "mcp-servers:\n  a: {use: 'iam-team:jira'}\n  b: {use: 'iam-team:jira'}\n  c: {use: 'obs-team:jira'}\n")
+		if len(c.Errors) != 2 || !strings.Contains(c.Errors[0].Error(), "as b does") || !strings.Contains(c.Errors[1].Error(), "as a does") {
+			t.Fatalf("errors %v", c.Errors)
+		}
+		if !c.MCPServer("a").Broken() || !c.MCPServer("b").Broken() || c.MCPServer("c").Broken() {
+			t.Error("wrong servers left out")
+		}
+	})
+	tests := []struct{ name, body, want string }{
+		{"a local server", "s: {command: [deploy-mcp, --all], env: {A: '1'}, pass-env: [HOME], secret-env: [TOKEN]}", ""},
+		{"a remote server", "s: {url: 'https://x.example/mcp', headers: {X-Team: a}, secret-headers: [Authorization], client-id: abc, scopes: [read]}", ""},
+		{"env-pass is not a key", "s: {command: [x], env-pass: [HOME]}", `unknown key "env-pass"`},
+		{"use with other keys", "s: {use: 'a:b', url: 'https://x.example'}", "a server with use has no other keys"},
+		{"use without a source", "s: {use: jira}", "SOURCE:SERVER"},
+		{"a bad server name", "Jira: {url: 'https://x.example'}", `server name "Jira"`},
+		{"url and command", "s: {url: 'https://x.example', command: [x]}", "url or command, not both"},
+		{"http to another machine", "s: {url: 'http://x.example'}", "need https"},
+		{"a relative program", "s: {command: [./x]}", "not a relative path"},
+		{"a local key on a remote server", "s: {url: 'https://x.example', env: {A: b}}", "env doesn't apply to a remote server"},
+		{"a variable set twice", "s: {command: [x], env: {A: b}, pass-env: [A]}", "the variable A is set twice"},
+		{"a number in env", "s: {command: [x], env: {PORT: 8080}}", "quote it: env.PORT: '8080'"},
+		{"true as a variable name", "s: {command: [x], env: {true: x}}", "YAML reads true as true or false, not text; quote it: 'true'"},
+		{"a number as a header name", "s: {url: 'https://x.example', headers: {1: x}}", "YAML reads 1 as a number, not text; quote it: '1'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "mcp-servers:\n  "+tt.body+"\n")
+			if tt.want == "" {
+				noErrors(t, c)
+				return
+			}
+			if err := only(t, c, tt.want); err.Out() != yamlx.OutPart || !c.MCPServers[0].Broken() {
+				t.Errorf("the server is used: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfigCollectionsAndRepoSets(t *testing.T) {
+	t.Run("one set, two places", func(t *testing.T) {
+		c := parse(t, "collections:\n  go-kit:\n    instructions: [go-notes.md, 'go-style:go/*.md']\n"+
+			"bindings:\n  - name: go\n    location: {dirs: [~/dev/**]}\n    collections: [go-kit]\n"+
+			"  - name: go-work\n    location: {repos: [github.com/acme/**]}\n    collections: [go-kit]\n")
+		noErrors(t, c)
+		for _, b := range c.Bindings {
+			if e := b.Collections[0]; e.Source != "" || e.Value != "go-kit" {
+				t.Errorf("%s: %+v", b.Name, e)
+			}
+		}
+	})
+	t.Run("my own set", func(t *testing.T) {
+		c := parse(t, "repo-sets: {acme: [github.com/acme/**]}\n")
+		noErrors(t, c)
+	})
+	t.Run("a folder in a set", func(t *testing.T) {
+		c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, ~/work/**, github.com/acme/web]\n")
+		err := only(t, c, "~/work/** is a folder; a set lists repositories only")
+		if err.Out() != yamlx.OutEntry {
+			t.Errorf("error %v leaves out %d", err, err.Out())
+		}
+		s := c.RepoSet("acme")
+		if s.Broken() || len(s.Entries) != 3 || s.Entries[0].Err != nil || s.Entries[2].Err != nil {
+			t.Errorf("the other entries don't apply: %+v", s)
+		}
+		if e := s.Entries[1]; e.Err != err || e.Text != "~/work/**" || e.Pos.Line != 3 {
+			t.Errorf("the broken entry isn't kept as written, with its error: %+v", e)
+		}
+	})
+	for _, tt := range []struct{ name, item, want string }{
+		{"a list in a set", "[]", "a repos entry is a repository, or a map with repo and subdirs"},
+		{"a map without repo in a set", "{subdirs: [x/**]}", "needs repo"},
+		{"an empty subdirs in a set", "{repo: github.com/acme/mono, subdirs: []}", "subdirs is empty"},
+		{"a broken subdirs entry in a set", "{repo: github.com/acme/mono, subdirs: [../x]}", "leaves the repository"},
+		{"a malformed repo value in a set", "{repo: [github.com/acme/mono]}", "repo must be one repository"},
+		{"a subdirs value that isn't a list in a set", "{repo: github.com/acme/mono, subdirs: src/**}", "subdirs must be a list of folders"},
+		{"a bad subdirs item in a set", "{repo: github.com/acme/mono, subdirs: [[]]}", "a subdirs entry must be one folder"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+", github.com/acme/web]\n")
+			err := only(t, c, tt.want)
+			s := c.RepoSet("acme")
+			if err.Out() != yamlx.OutEntry || s.Broken() || len(s.Entries) != 3 || s.Entries[1].Err != err ||
+				s.Entries[0].Err != nil || s.Entries[2].Err != nil {
+				t.Errorf("error %v leaves out %d; set %+v", err, err.Out(), s)
+			}
+		})
+	}
+	for _, tt := range []struct{ name, item string }{
+		{"a tag in a set", "!x y"},
+		{"a number in a set", "1.10"},
+		{"an unknown key in a set entry", "{repo: github.com/acme/mono, path: x}"},
+		{"a number as a set entry's repo", "{repo: 1.10}"},
+		{"true in a set entry's subdirs", "{repo: github.com/acme/mono, subdirs: [true]}"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, "repo-sets:\n  acme: [github.com/acme/api, "+tt.item+"]\n  ok: [github.com/acme/web]\n")
+			if len(c.Errors) != 1 || !c.RepoSet("acme").Broken() || c.RepoSet("ok").Broken() {
+				t.Errorf("errors %v: the set should be left out, and only it", c.Errors)
+			}
+		})
+	}
+	t.Run("an empty repo set", func(t *testing.T) {
+		c := parse(t, "repo-sets:\n  acme: []\n")
+		err := only(t, c, "matches nothing")
+		if err.Out() != yamlx.OutNothing || c.RepoSet("acme") == nil || c.RepoSet("acme").Broken() {
+			t.Errorf("error %v, set %+v", err, c.RepoSet("acme"))
+		}
+	})
+	t.Run("a set of two monorepo parts", func(t *testing.T) {
+		c := parse(t, "repo-sets:\n  products: [{repo: github.com/acme/a, subdirs: [api/**]}, {repo: github.com/acme/b, subdirs: [web/**]}]\n")
+		noErrors(t, c)
+		if s := c.RepoSet("products"); len(s.Entries) != 2 || s.Entries[1].Subdirs[0].Value != "web/**" {
+			t.Errorf("%+v", s)
+		}
+	})
+	t.Run("an excluded repository in a set", func(t *testing.T) {
+		c := parse(t, "repo-sets:\n  acme: [github.com/acme/**, '!github.com/acme/legacy']\n")
+		noErrors(t, c)
+		if e := c.RepoSet("acme").Entries[1]; !e.Not || e.Repo != "github.com/acme/legacy" {
+			t.Errorf("%+v", e)
+		}
+	})
+}
+
+func TestSettings(t *testing.T) {
+	tests := []struct{ name, body, want string }{
+		{"turning off release checks", "check-releases: false", ""},
+		{"no limit", "max-ctx-chars: 0", ""},
+		{"yes is text in YAML 1.2", "check-releases: yes", "check-releases must be true or false"},
+		{"a negative limit", "max-ctx-chars: -1", "a whole number of 0 or more"},
+		{"a limit as text", "max-ctx-chars: lots", "a whole number of 0 or more"},
+		{"show-skills is not a key", "session-message: {show-skills: false}", `unknown key "show-skills"`},
+		{"budget is not a key", "budget: {max-chars: 1}", `unknown key "budget"`},
+		{"check-updates is a source's key", "check-updates: false", `unknown key "check-updates"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := parse(t, tt.body+"\n")
+			if tt.want == "" {
+				noErrors(t, c)
+				return
+			}
+			err := only(t, c, tt.want)
+			if err.Out() != yamlx.OutPart || err.Part.Kind != "key" {
+				t.Errorf("error %v leaves out %v", err, err.Part)
+			}
+			if c.MaxCtxChars != nil || c.CheckReleases != nil || c.SessionMessage != (SessionMessage{}) {
+				t.Error("a wrong value is used")
+			}
+		})
+	}
+}
+
+func TestCheckName(t *testing.T) {
+	for _, ok := range []string{"a", "iam.essentials", "IAM", "a_b-c.1", strings.Repeat("x", 64)} {
+		if err := CheckName(ok); err != nil {
+			t.Errorf("CheckName(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "1a", "-a", "a b", "a,b", "a:b", "a/b", "!a", "+a", "é", strings.Repeat("x", 65)} {
+		if CheckName(bad) == nil {
+			t.Errorf("CheckName(%q) = nil", bad)
 		}
 	}
 }
 
-func TestBadReferences(t *testing.T) {
-	h := testenv.Home(t)
-	for _, ref := range []string{"ctxtra://nope/a.md", "ctxtra://dot", "ctxtra://dot/", "ctxtra://dot/../x.md", "ctxtra://dot/a/../../x.md", "ctxtra://dot//etc/passwd"} {
-		testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: ['"+ref+"']}\n")
-		cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nsources: {dot: {trusted-path: ~/dot}}\ninclude: [b.yaml, '"+ref+"']\n"))
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 2 {
-			t.Errorf("%s: bindings=%d problems=%v", ref, len(cfg.Bindings), cfg.Problems)
-		}
+func TestErrorsInFileOrder(t *testing.T) {
+	c := parse(t, "bindings:\n  - name: b\n    agents: [nope]\n    skills: [a]\nsources:\n  1x: {dir: ~/x}\nmax-ctx-chars: -1\n")
+	var lines []int
+	for _, e := range c.Errors {
+		lines = append(lines, e.Pos.Line)
 	}
-}
-
-// The store is read only through ctxtra:// references: by a plain path or a
-// symlink, a pinned source's binding file would escape its limits.
-func TestStoreByPlainPath(t *testing.T) {
-	h := testenv.Home(t)
-	gen := filepath.Join(h, ".local/share/ctxtra", "store", "0123456789abcdef", strings.Repeat("a", 40))
-	testenv.Write(t, filepath.Join(gen, "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/.ssh/id]}\n")
-	symlink := filepath.Join(h, "link.yaml")
-	if err := os.Symlink(filepath.Join(gen, "b.yaml"), symlink); err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{filepath.Join(gen, "b.yaml"), symlink} {
-		cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\ninclude: ['"+p+"']\n"))
-		if len(cfg.Bindings) != 0 || len(cfg.Problems) != 1 || !strings.Contains(cfg.Problems[0], "can't be referenced by its path") {
-			t.Errorf("%s: bindings=%d problems=%v", p, len(cfg.Bindings), cfg.Problems)
-		}
-	}
-}
-
-// A pinned source that isn't in the store skips only its references: the
-// user's own files in the same binding still apply.
-func TestUnavailablePinnedSource(t *testing.T) {
-	h := testenv.Home(t)
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/me.md, ctxtra://team/x.md, ctxtra://new/y.md]}\n")
-	cfg := load(testenv.Config(t, h, `schema: ctxtra/v1
-sources:
-  team: {git: https://h/team, branch: main, commit: '`+strings.Repeat("a", 40)+`'}
-  new: {git: https://h/new, branch: main}
-include: [b.yaml, ctxtra://team/b.yaml]
-`))
-	if len(cfg.Bindings) != 1 || !slices.Equal(cfg.Bindings[0].Instructions, []string{filepath.Join(h, "me.md")}) {
-		t.Errorf("bindings %v", cfg.Bindings)
-	}
-	want := []string{"ctxtra://team/x.md: team aaaaaaa is not in ctxtra's store; run: ctxtra source restore team",
-		"ctxtra://new/y.md: the source new has no accepted commit yet; run: ctxtra source update new", "ctxtra://team/b.yaml: team aaaaaaa"}
-	if len(cfg.Problems) != 3 {
-		t.Fatalf("problems %v", cfg.Problems)
-	}
-	for i, w := range want {
-		if !strings.Contains(cfg.Problems[i], w) {
-			t.Errorf("problem %d: %s, want %q", i, cfg.Problems[i], w)
-		}
-	}
-}
-
-func TestLocalGitSource(t *testing.T) {
-	h := testenv.Home(t)
-	c := strings.Repeat("a", 40)
-	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  dev: {local-git: ~/dev/team, commit: '"+c+"'}\n"))
-	if len(cfg.Problems) > 0 || cfg.Sources[0].LocalGit != filepath.Join(h, "dev", "team") || !cfg.Sources[0].Pinned() ||
-		cfg.Sources[0].Gen() != source.GenDir(filepath.Join(h, "dev", "team"), c) {
-		t.Errorf("%+v %v", cfg.Sources, cfg.Problems)
-	}
-	for _, y := range []string{"{local-git: x}", "{local-git: /x, branch: main}", "{local-git: /x, git: https://h/x, branch: main}", "{trusted-path: /x, commit: '" + c + "'}"} {
-		if cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  dev: "+y+"\n")); len(cfg.Problems) != 1 {
-			t.Errorf("%s: %v", y, cfg.Problems)
-		}
-	}
-}
-
-// Plain paths under an imported clone are served from its source; a
-// trusted-path source that covers them comes first; when the source is
-// gone, they are skipped.
-func TestCloneMapping(t *testing.T) {
-	h := testenv.Home(t)
-	url, c := "https://h/team", strings.Repeat("a", 40)
-	clone := filepath.Join(h, "dev", "team")
-	testenv.Write(t, filepath.Join(clone, "a.md"), "on disk")
-	testenv.Write(t, filepath.Join(source.GenDir(url, c), "a.md"), "in the store")
-	if _, err := state.Map(clone, "team", url); err != nil {
-		t.Fatal(err)
-	}
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/dev/team/a.md]}\n")
-	files := func(sources string) ([]string, []string) {
-		cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\n"+sources+"include: [b.yaml]\n"))
-		if len(cfg.Bindings) == 0 {
-			return nil, cfg.Problems
-		}
-		return cfg.Bindings[0].Instructions, cfg.Problems
-	}
-	got, problems := files("sources:\n  team: {git: '" + url + "', branch: main, commit: '" + c + "'}\n")
-	if !slices.Equal(got, []string{filepath.Join(source.GenDir(url, c), "a.md")}) || len(problems) != 0 {
-		t.Errorf("mapped: %v %v", got, problems)
-	}
-	got, _ = files("sources:\n  team: {git: '" + url + "', branch: main, commit: '" + c + "'}\n  live: {trusted-path: ~/dev/team}\n")
-	if !slices.Equal(got, []string{filepath.Join(clone, "a.md")}) {
-		t.Errorf("trusted first: %v", got)
-	}
-	got, problems = files("")
-	if len(got) != 0 || len(problems) != 1 || !strings.Contains(problems[0], "not in the config any more; skipped, not read from disk") {
-		t.Errorf("source removed: %v %v", got, problems)
-	}
-	// Another source with the same URL is not the imported one: the mapping
-	// is by name and URL, whatever the order.
-	other := "  dev: {git: '" + url + "', branch: dev, commit: '" + strings.Repeat("b", 40) + "'}\n"
-	got, problems = files("sources:\n" + other)
-	if len(got) != 0 || len(problems) != 1 {
-		t.Errorf("only another alias: %v %v", got, problems)
-	}
-	got, _ = files("sources:\n" + other + "  team: {git: '" + url + "', branch: main, commit: '" + c + "'}\n")
-	if !slices.Equal(got, []string{filepath.Join(source.GenDir(url, c), "a.md")}) {
-		t.Errorf("two aliases: %v", got)
-	}
-	if _, err := state.Map(filepath.Join(clone, "sub"), "other", "https://h/other"); err == nil {
-		t.Error("a mapping inside a mapped folder")
-	}
-	// With a broken mappings file, ctxtra can't tell whether a path was
-	// mapped: plain paths are skipped, also where the clone was replaced by a
-	// folder outside git, except under a trusted-path source.
-	os.WriteFile(state.MappingsPath(), []byte("{"), 0o600)
-	os.RemoveAll(filepath.Join(clone, ".git"))
-	got, problems = files("")
-	if len(got) != 0 || len(problems) != 1 || !strings.Contains(problems[0], "mappings.json can't be read") {
-		t.Errorf("broken mappings: %v %v", got, problems)
-	}
-	testenv.Write(t, filepath.Join(clone, "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [a.md]}\n")
-	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  live: {trusted-path: ~/dev/team}\ninclude: [ctxtra://live/b.yaml]\n"))
-	if len(cfg.Bindings) != 1 || !slices.Equal(cfg.Bindings[0].Instructions, []string{filepath.Join(clone, "a.md")}) || len(cfg.Problems) != 0 {
-		t.Errorf("broken mappings, trusted: %v %v", cfg.Bindings, cfg.Problems)
-	}
-	if _, err := state.Map(filepath.Join(h, "x"), "x", "https://h/x"); err == nil {
-		t.Error("a broken mappings file was written")
-	}
-}
-
-// While cleaning holds the store, a session waits once, not once per
-// reference.
-func TestStoreBusyWaitsOnce(t *testing.T) {
-	h := testenv.Home(t)
-	c1, c2 := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	for _, c := range []string{c1, c2} {
-		for _, f := range []string{"x.md", "y.md", "z.md"} {
-			testenv.Write(t, filepath.Join(source.GenDir("https://h/"+c[:1], c), f), f)
-		}
-	}
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/me.md, ctxtra://a/x.md, ctxtra://a/y.md, ctxtra://b/z.md]}\n")
-	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  a: {git: 'https://h/a', branch: main, commit: '"+c1+"'}\n  b: {git: 'https://h/b', branch: main, commit: '"+c2+"'}\ninclude: [b.yaml]\n")
-	unlock, err := fsutil.Lock(filepath.Join(h, ".local/state/ctxtra", "store.lock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	start := time.Now()
-	cfg := load(cfgPath)
-	if d := time.Since(start); d > 1500*time.Millisecond {
-		t.Errorf("load took %v", d)
-	}
-	if len(cfg.Bindings) != 1 || !slices.Equal(cfg.Bindings[0].Instructions, []string{filepath.Join(h, "me.md")}) || len(cfg.Problems) != 3 {
-		t.Errorf("bindings %v problems %v", cfg.Bindings, cfg.Problems)
-	}
-}
-
-// Waits that end well count against the budget too: each touch gets what
-// the earlier ones left.
-func TestStoreWaitBudget(t *testing.T) {
-	h := testenv.Home(t)
-	var waits []time.Duration
-	old := touch
-	t.Cleanup(func() { touch = old })
-	touch = func(dir string, wait time.Duration) error {
-		waits = append(waits, wait)
-		if wait < 450*time.Millisecond {
-			time.Sleep(wait)
-			return fsutil.ErrLockTimeout
-		}
-		time.Sleep(450 * time.Millisecond)
-		return nil
-	}
-	var srcs, refs string
-	for _, n := range []string{"a", "b", "c", "d"} {
-		c := strings.Repeat(n, 40)
-		testenv.Write(t, filepath.Join(source.GenDir("https://h/"+n, c), "x.md"), "x")
-		srcs += "  " + n + ": {git: 'https://h/" + n + "', branch: main, commit: '" + c + "'}\n"
-		refs += ", ctxtra://" + n + "/x.md"
-	}
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"), head+"  - {name: a, match: {global: true}, instructions: [~/me.md"+refs+"]}\n")
-	start := time.Now()
-	cfg := load(testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n"+srcs+"include: [b.yaml]\n"))
-	if d := time.Since(start); d > 1300*time.Millisecond {
-		t.Errorf("load took %v, waits %v", d, waits)
-	}
-	if len(waits) != 3 || waits[0] != source.TouchWait || waits[1] >= waits[0] || waits[2] >= waits[1] {
-		t.Errorf("waits %v", waits)
-	}
-	if len(cfg.Bindings) != 1 || len(cfg.Bindings[0].Instructions) != 3 || len(cfg.Problems) != 2 {
-		t.Errorf("files %v problems %v", cfg.Bindings, cfg.Problems)
+	if !slices.IsSorted(lines) || len(lines) != 3 {
+		t.Errorf("lines %v", lines)
 	}
 }

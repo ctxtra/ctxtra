@@ -1,4 +1,4 @@
-package cfg
+package config
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -131,7 +130,7 @@ func contentEntry(text string, kind listKind, owner Owner) (Entry, string) {
 	case nameList:
 		return e, checkNamePattern(value, CheckName)
 	default:
-		return e, checkNamePattern(value, config.CheckServerName)
+		return e, checkNamePattern(value, CheckServerName)
 	}
 }
 

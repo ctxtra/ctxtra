@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -22,7 +22,7 @@ import (
 
 // Catalog is what the bindings of one config can reference.
 type Catalog struct {
-	config *cfg.Config
+	conf *config.Config
 	// file is the config file; base the folder of its real file, which
 	// relative paths in the config start from.
 	file, base string
@@ -52,7 +52,7 @@ const (
 
 // Source is a source of the config, with what this machine has of it.
 type Source struct {
-	*cfg.Source
+	*config.Source
 	State State
 	// Top is the folder that the source's paths start from, without
 	// symlinks: its accepted commit in ctxtra's store, under subdir, or the
@@ -98,9 +98,9 @@ func (u *Unavailable) Error() string { return "source " + u.Source.Name + ": " +
 // New is the catalog of config c with lock l, for the config file at
 // configFile. It checks which sources this machine has, and reads nothing
 // else.
-func New(c *cfg.Config, l *lock.Lock, configFile string) *Catalog {
+func New(c *config.Config, l *lock.Lock, configFile string) *Catalog {
 	cat := &Catalog{
-		config:  c,
+		conf: c,
 		file:    configFile,
 		base:    filepath.Dir(paths.Real(configFile)),
 		sources: map[string]*Source{},
@@ -145,7 +145,7 @@ func (c *Catalog) Errors() []*Error {
 }
 
 // source is s with what this machine has of it.
-func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
+func (c *Catalog) source(s *config.Source, l *lock.Lock) *Source {
 	src := &Source{Source: s}
 	fail := func(state State, m yamlx.Mistake, format string, args ...any) *Source {
 		src.State, src.Why = state, fmt.Sprintf(format, args...)
@@ -168,7 +168,7 @@ func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
 		src.Top = paths.Real(dir)
 		return src
 	}
-	if cfg.IsLocalRepo(s.Repo) {
+	if config.IsLocalRepo(s.Repo) {
 		dir := filepath.Clean(paths.Expand(s.Repo))
 		why := folder(dir)
 		if why == "" && !isRepo(dir) {
@@ -198,7 +198,7 @@ func (c *Catalog) source(s *cfg.Source, l *lock.Lock) *Source {
 		return fail(Inactive, yamlx.Inactive, "the accepted commit %s is not downloaded on this machine; run `ctxtra source download`",
 			source.Short(e.Commit))
 	}
-	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(cfg.CleanSubdir(s.Subdir)))
+	src.Top = filepath.Join(paths.Real(dir), filepath.FromSlash(config.CleanSubdir(s.Subdir)))
 	return src
 }
 
@@ -222,7 +222,7 @@ func changed(ch lock.Changes) string {
 // downloaded from.
 func commitDir(e *lock.Entry) string {
 	remote := e.Repo
-	if cfg.IsLocalRepo(remote) {
+	if config.IsLocalRepo(remote) {
 		remote = filepath.Clean(paths.Expand(remote))
 	}
 	return source.GenDir(remote, e.Commit)
@@ -292,12 +292,12 @@ func (e errNotImplemented) Error() string { return string(e) + " are not impleme
 
 // Collections are the collections that entry e of a collections list names.
 // Collections are not implemented yet: it is always an error.
-func (c *Catalog) Collections(e cfg.Entry) ([]*cfg.Collection, error) {
+func (c *Catalog) Collections(e config.Entry) ([]*config.Collection, error) {
 	return nil, errNotImplemented("collections")
 }
 
 // RepoSet is the repo set that entry e of location.repo-sets names. Repo
 // sets are not implemented yet: it is always an error.
-func (c *Catalog) RepoSet(e cfg.Entry) (*cfg.RepoSet, error) {
+func (c *Catalog) RepoSet(e config.Entry) (*config.RepoSet, error) {
 	return nil, errNotImplemented("repo sets")
 }

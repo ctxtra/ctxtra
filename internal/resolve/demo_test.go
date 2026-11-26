@@ -231,7 +231,7 @@ func contentChars(res *Result) int {
 
 func TestDemoConfig(t *testing.T) {
 	d := newDemo(t)
-	demoFile, err := os.ReadFile("../cfg/testdata/demo.yaml")
+	demoFile, err := os.ReadFile("../config/testdata/demo.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestDemoConfig(t *testing.T) {
 // git-only measures alone; repository-known leaves it out.
 func BenchmarkResolve(b *testing.B) {
 	d := newDemo(b)
-	demoFile, err := os.ReadFile("../cfg/testdata/demo.yaml")
+	demoFile, err := os.ReadFile("../config/testdata/demo.yaml")
 	if err != nil {
 		b.Fatal(err)
 	}

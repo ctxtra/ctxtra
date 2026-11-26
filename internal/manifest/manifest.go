@@ -5,7 +5,7 @@
 package manifest
 
 import (
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -14,9 +14,9 @@ const FileName = "ctxtra-source.yaml"
 
 // Manifest is a manifest as written. Named things keep the file's order.
 type Manifest struct {
-	Collections []*cfg.Collection
-	MCPServers  []*cfg.Server
-	RepoSets    []*cfg.RepoSet
+	Collections []*config.Collection
+	MCPServers  []*config.Server
+	RepoSets    []*config.RepoSet
 	// Errors are every error in the file, in file order. A manifest that
 	// can't be read has one error and nothing else.
 	Errors []*yamlx.Error
@@ -44,7 +44,7 @@ func Parse(data []byte) *Manifest {
 	pairs, errs := d.Pairs(d.Root, func(key string) yamlx.Part { return yamlx.Part{Kind: "key", Name: key} })
 	m.Errors = errs
 	named := func(p yamlx.Pair, kind string) []yamlx.Pair {
-		entries, errs := cfg.NamedMap(d, p, kind)
+		entries, errs := config.NamedMap(d, p, kind)
 		m.Errors = append(m.Errors, errs...)
 		return entries
 	}
@@ -53,32 +53,32 @@ func Parse(data []byte) *Manifest {
 		case "schema":
 		case "collections":
 			for _, e := range named(p, "collection") {
-				c := cfg.DecodeCollection(d, e, cfg.InManifest)
+				c := config.DecodeCollection(d, e, config.InManifest)
 				m.Collections = append(m.Collections, c)
 				m.Errors = append(m.Errors, c.Errs...)
 			}
 		case "mcp-servers":
 			for _, e := range named(p, "MCP server") {
-				s := cfg.DecodeServer(d, e, cfg.InManifest)
+				s := config.DecodeServer(d, e, config.InManifest)
 				m.MCPServers = append(m.MCPServers, s)
 				m.Errors = append(m.Errors, s.Errs...)
 			}
 		case "repo-sets":
 			for _, e := range named(p, "repo set") {
-				s := cfg.DecodeRepoSet(d, e)
+				s := config.DecodeRepoSet(d, e)
 				m.RepoSets = append(m.RepoSets, s)
 				m.Errors = append(m.Errors, s.Errs...)
 			}
 		default:
-			m.Errors = append(m.Errors, cfg.UnknownKey(p, topKeys[1:]))
+			m.Errors = append(m.Errors, config.UnknownKey(p, topKeys[1:]))
 		}
 	}
-	cfg.SortErrors(m.Errors)
+	config.SortErrors(m.Errors)
 	return m
 }
 
 // Collection is the collection called name, nil when there is none.
-func (m *Manifest) Collection(name string) *cfg.Collection {
+func (m *Manifest) Collection(name string) *config.Collection {
 	for _, c := range m.Collections {
 		if c.Name == name {
 			return c
@@ -88,7 +88,7 @@ func (m *Manifest) Collection(name string) *cfg.Collection {
 }
 
 // MCPServer is the server called name, nil when there is none.
-func (m *Manifest) MCPServer(name string) *cfg.Server {
+func (m *Manifest) MCPServer(name string) *config.Server {
 	for _, s := range m.MCPServers {
 		if s.Name == name {
 			return s
@@ -98,7 +98,7 @@ func (m *Manifest) MCPServer(name string) *cfg.Server {
 }
 
 // RepoSet is the repo set called name, nil when there is none.
-func (m *Manifest) RepoSet(name string) *cfg.RepoSet {
+func (m *Manifest) RepoSet(name string) *config.RepoSet {
 	for _, s := range m.RepoSets {
 		if s.Name == name {
 			return s

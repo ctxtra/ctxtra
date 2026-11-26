@@ -1,4 +1,4 @@
-package cfg
+package config
 
 import (
 	"regexp"
@@ -7,7 +7,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -59,7 +58,7 @@ func DecodeServer(d *yamlx.Doc, p yamlx.Pair, owner Owner) *Server {
 	s := &Server{Name: p.Key, Pos: yamlx.At(p.K)}
 	r := yamlx.NewReader(d, yamlx.Part{Kind: "MCP server", Name: p.Key}, yamlx.BrokenServer, p.K, p.V)
 	defer func() { s.Errs = r.Errs }()
-	if err := config.CheckServerName(p.Key); err != nil {
+	if err := CheckServerName(p.Key); err != nil {
 		r.Fail(p.K, "%v", err)
 	}
 	if r.Broken() {
@@ -96,8 +95,8 @@ func decodeUse(r *yamlx.Reader, n *yaml.Node, s *Server) {
 		r.Fail(n, "use %s: write the source's server as SOURCE:SERVER", text)
 	case CheckName(source) != nil:
 		r.Fail(n, "use %s: %v", text, CheckName(source))
-	case config.CheckServerName(server) != nil:
-		r.Fail(n, "use %s: %v", text, config.CheckServerName(server))
+	case CheckServerName(server) != nil:
+		r.Fail(n, "use %s: %v", text, CheckServerName(server))
 	default:
 		s.UseSource, s.UseServer = source, server
 	}
@@ -116,7 +115,7 @@ func decodeDefinition(r *yamlx.Reader, n *yaml.Node, f map[string]*yaml.Node, s 
 	if f["url"] != nil {
 		other, kind = localKeys, "remote"
 		if s.URL, _ = r.Text(f["url"], "url"); s.URL != "" {
-			if err := config.CheckServerURL(s.URL); err != nil {
+			if err := CheckServerURL(s.URL); err != nil {
 				r.Fail(f["url"], "%v", err)
 			}
 		}
@@ -126,7 +125,7 @@ func decodeDefinition(r *yamlx.Reader, n *yaml.Node, f map[string]*yaml.Node, s 
 			r.Fail(f["command"], "command is empty")
 		}
 		if len(s.Command) > 0 {
-			if _, err := config.CheckProgram(s.Command[0]); err != nil {
+			if _, err := CheckProgram(s.Command[0]); err != nil {
 				r.Fail(f["command"], "%v", err)
 			}
 		}

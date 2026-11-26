@@ -12,7 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -42,7 +42,7 @@ type Lock struct {
 type Entry struct {
 	Name   string
 	Repo   string
-	Ref    cfg.Ref
+	Ref    config.Ref
 	Subdir string
 	Commit string
 	Pos    yamlx.Pos
@@ -84,7 +84,7 @@ func Parse(data []byte) *Lock {
 		switch p.Key {
 		case "schema":
 		case "sources":
-			entries, errs := cfg.NamedMap(d, p, "lock entry")
+			entries, errs := config.NamedMap(d, p, "lock entry")
 			l.Errors = append(l.Errors, errs...)
 			for _, e := range entries {
 				le := decodeEntry(d, e)
@@ -92,10 +92,10 @@ func Parse(data []byte) *Lock {
 				l.Errors = append(l.Errors, le.Errs...)
 			}
 		default:
-			l.Errors = append(l.Errors, cfg.UnknownKey(p, []string{"sources"}))
+			l.Errors = append(l.Errors, config.UnknownKey(p, []string{"sources"}))
 		}
 	}
-	cfg.SortErrors(l.Errors)
+	config.SortErrors(l.Errors)
 	return l
 }
 
@@ -105,7 +105,7 @@ func decodeEntry(d *yamlx.Doc, p yamlx.Pair) *Entry {
 	e := &Entry{Name: p.Key, Pos: yamlx.At(p.K)}
 	r := yamlx.NewReader(d, yamlx.Part{Kind: "lock entry", Name: p.Key}, yamlx.BrokenLockEntry, p.K, p.V)
 	defer func() { e.Errs = r.Errs }()
-	if err := cfg.CheckName(p.Key); err != nil {
+	if err := config.CheckName(p.Key); err != nil {
 		r.Fail(p.K, "%v", err)
 	}
 	if r.Broken() {
@@ -121,10 +121,10 @@ func decodeEntry(d *yamlx.Doc, p yamlx.Pair) *Entry {
 	}
 	e.Repo, e.Subdir, e.Commit = text("repo"), text("subdir"), text("commit")
 	var refs []string
-	for _, k := range []cfg.RefKind{cfg.Branch, cfg.Tag, cfg.Rev} {
+	for _, k := range []config.RefKind{config.Branch, config.Tag, config.Rev} {
 		if f[string(k)] != nil {
 			refs = append(refs, string(k))
-			e.Ref = cfg.Ref{Kind: k, Name: text(string(k))}
+			e.Ref = config.Ref{Kind: k, Name: text(string(k))}
 		}
 	}
 	if f == nil {
@@ -139,12 +139,12 @@ func decodeEntry(d *yamlx.Doc, p yamlx.Pair) *Entry {
 		r.Fail(p.V, "an entry has one of branch, tag and rev")
 	}
 	if e.Commit != "" {
-		if msg := cfg.CommitIDError("commit", e.Commit); msg != "" {
+		if msg := config.CommitIDError("commit", e.Commit); msg != "" {
 			r.Fail(f["commit"], "%s", msg)
 		}
 	}
-	if e.Ref.Kind == cfg.Rev && e.Ref.Name != "" {
-		if msg := cfg.CommitIDError("rev", e.Ref.Name); msg != "" {
+	if e.Ref.Kind == config.Rev && e.Ref.Name != "" {
+		if msg := config.CommitIDError("rev", e.Ref.Name); msg != "" {
 			r.Fail(f["rev"], "%s", msg)
 		}
 	}
@@ -171,13 +171,13 @@ func (c Changes) Same() bool { return !c.Repo && !c.Ref && !c.Subdir }
 func (c Changes) NewSource() bool { return c.Repo || c.Subdir }
 
 // Compare is what source s changed since entry e was accepted. Addresses
-// are compared as the same repository (cfg.RepoID), so another form of an
+// are compared as the same repository (config.RepoID), so another form of an
 // address is no change.
-func Compare(e *Entry, s *cfg.Source) Changes {
+func Compare(e *Entry, s *config.Source) Changes {
 	return Changes{
-		Repo:   cfg.RepoID(e.Repo) != cfg.RepoID(s.Repo),
+		Repo:   config.RepoID(e.Repo) != config.RepoID(s.Repo),
 		Ref:    e.Ref != s.Ref,
-		Subdir: cfg.CleanSubdir(e.Subdir) != cfg.CleanSubdir(s.Subdir),
+		Subdir: config.CleanSubdir(e.Subdir) != config.CleanSubdir(s.Subdir),
 	}
 }
 
@@ -187,7 +187,7 @@ func Compare(e *Entry, s *cfg.Source) Changes {
 // sources. An entry that isn't complete, or one read with errors, is an
 // error, and nothing is written: writing a broken entry back in a clean
 // form would make it used again. The caller replaces or removes it.
-func Format(entries []*Entry, c *cfg.Config) ([]byte, error) {
+func Format(entries []*Entry, c *config.Config) ([]byte, error) {
 	var keep []*Entry
 	for _, e := range entries {
 		if s := c.Source(e.Name); s != nil && s.Dir == "" {
@@ -223,16 +223,16 @@ func Format(entries []*Entry, c *cfg.Config) ([]byte, error) {
 // check says what makes e incomplete.
 func check(e *Entry) error {
 	switch {
-	case cfg.CheckName(e.Name) != nil:
-		return cfg.CheckName(e.Name)
+	case config.CheckName(e.Name) != nil:
+		return config.CheckName(e.Name)
 	case e.Repo == "":
 		return fmt.Errorf("repo is missing")
-	case !slices.Contains([]cfg.RefKind{cfg.Branch, cfg.Tag, cfg.Rev}, e.Ref.Kind) || e.Ref.Name == "":
+	case !slices.Contains([]config.RefKind{config.Branch, config.Tag, config.Rev}, e.Ref.Kind) || e.Ref.Name == "":
 		return fmt.Errorf("branch, tag or rev is missing")
-	case e.Ref.Kind == cfg.Rev && !cfg.IsFullCommitID(e.Ref.Name):
-		return errors.New(cfg.CommitIDError("rev", e.Ref.Name))
-	case !cfg.IsFullCommitID(e.Commit):
-		return errors.New(cfg.CommitIDError("commit", e.Commit))
+	case e.Ref.Kind == config.Rev && !config.IsFullCommitID(e.Ref.Name):
+		return errors.New(config.CommitIDError("rev", e.Ref.Name))
+	case !config.IsFullCommitID(e.Commit):
+		return errors.New(config.CommitIDError("commit", e.Commit))
 	case e.Broken():
 		return fmt.Errorf("it has errors (%v); replace or remove it before writing the lock", e.Errs[0])
 	}

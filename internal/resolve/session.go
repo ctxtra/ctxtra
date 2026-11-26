@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/caserule"
 	"github.com/ctxtra/ctxtra/internal/catalog"
-	"github.com/ctxtra/ctxtra/internal/cfg"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
@@ -92,7 +91,7 @@ func (env *Env) Resolve(in Input) *Result {
 
 // summary is the config's session-message settings as SummaryMessage. 0
 // leaves a list out.
-func summary(m cfg.SessionMessage) config.SummaryMessage {
+func summary(m config.SessionMessage) config.SummaryMessage {
 	s := config.DefaultSummaryMessage
 	if m.MaxInstructions != nil {
 		s.MaxInstructions, s.ShowInstructions = *m.MaxInstructions, *m.MaxInstructions > 0
@@ -148,13 +147,13 @@ func (r *session) caseRule() caserule.Rule {
 }
 
 // fail adds an error of binding b's entry at pos.
-func (r *session) fail(t *Trace, b *cfg.Binding, pos yamlx.Pos, m yamlx.Mistake, format string, args ...any) {
+func (r *session) fail(t *Trace, b *config.Binding, pos yamlx.Pos, m yamlx.Mistake, format string, args ...any) {
 	t.Errors = append(t.Errors, &catalog.Error{File: r.env.Path, Err: &yamlx.Error{
 		Pos: pos, Mistake: m, Part: yamlx.Part{Kind: "binding", Name: b.Name}, Msg: fmt.Sprintf(format, args...)}})
 }
 
 // conditions checks each condition that b has, the cheap ones first.
-func (r *session) conditions(b *cfg.Binding, t *Trace) []Condition {
+func (r *session) conditions(b *config.Binding, t *Trace) []Condition {
 	var out []Condition
 	if b.Agents != nil {
 		out = append(out, agents(b.Agents, r.in.Agent))
@@ -169,7 +168,7 @@ func (r *session) conditions(b *cfg.Binding, t *Trace) []Condition {
 }
 
 // split are the values of a condition's positive and ! entries.
-func split(list []cfg.Entry) (pos, not []cfg.Entry) {
+func split(list []config.Entry) (pos, not []config.Entry) {
 	for _, e := range list {
 		if e.Not {
 			not = append(not, e)
@@ -180,7 +179,7 @@ func split(list []cfg.Entry) (pos, not []cfg.Entry) {
 	return pos, not
 }
 
-func values(list []cfg.Entry) string {
+func values(list []config.Entry) string {
 	var out []string
 	for _, e := range list {
 		out = append(out, e.Value)
@@ -190,7 +189,7 @@ func values(list []cfg.Entry) string {
 
 // agents checks the agents condition: names compare without regard to
 // case. Without an agent, no binding with agents applies.
-func agents(list []cfg.Entry, agent string) Condition {
+func agents(list []config.Entry, agent string) Condition {
 	c := Condition{Key: "agents"}
 	pos, not := split(list)
 	switch {
@@ -207,7 +206,7 @@ func agents(list []cfg.Entry, agent string) Condition {
 			return c
 		}
 	}
-	if len(pos) > 0 && !slices.ContainsFunc(pos, func(e cfg.Entry) bool { return strings.EqualFold(e.Value, agent) }) {
+	if len(pos) > 0 && !slices.ContainsFunc(pos, func(e config.Entry) bool { return strings.EqualFold(e.Value, agent) }) {
 		c.Why = fmt.Sprintf("for %s, not %s", values(pos), agent)
 		return c
 	}
@@ -216,7 +215,7 @@ func agents(list []cfg.Entry, agent string) Condition {
 }
 
 // profiles checks the profiles condition; case counts.
-func profiles(list []cfg.Entry, active []string) Condition {
+func profiles(list []config.Entry, active []string) Condition {
 	c := Condition{Key: "profiles"}
 	pos, not := split(list)
 	act := "none active"
@@ -229,7 +228,7 @@ func profiles(list []cfg.Entry, active []string) Condition {
 			return c
 		}
 	}
-	if len(pos) > 0 && !slices.ContainsFunc(pos, func(e cfg.Entry) bool { return slices.Contains(active, e.Value) }) {
+	if len(pos) > 0 && !slices.ContainsFunc(pos, func(e config.Entry) bool { return slices.Contains(active, e.Value) }) {
 		c.Why = fmt.Sprintf("needs %s; %s", values(pos), act)
 		return c
 	}
@@ -251,7 +250,7 @@ func (c check) holds() bool { return c.present && (!c.positive || c.matched) && 
 // location checks where the session starts: the folder check (dirs) and
 // the repository check (repos and repo-sets), joined with OR. A ! entry
 // never crosses checks.
-func (r *session) location(b *cfg.Binding, t *Trace) Condition {
+func (r *session) location(b *config.Binding, t *Trace) Condition {
 	c := Condition{Key: "location"}
 	folders, left := r.dirs(b, t)
 	if left {
@@ -284,7 +283,7 @@ func (r *session) location(b *cfg.Binding, t *Trace) Condition {
 // entries without regard to case, so the binding never applies wider. left
 // is true when git can't tell the main checkout and a ! entry needs it,
 // which leaves out the binding.
-func (r *session) dirs(b *cfg.Binding, t *Trace) (k check, left bool) {
+func (r *session) dirs(b *config.Binding, t *Trace) (k check, left bool) {
 	list := b.Location.Dirs
 	if len(list) == 0 {
 		return k, false
@@ -329,7 +328,7 @@ func (r *session) dirs(b *cfg.Binding, t *Trace) (k check, left bool) {
 }
 
 // firstNot is the first ! entry of list that can be checked, nil if none.
-func firstNot(list []cfg.Entry) *cfg.Entry {
+func firstNot(list []config.Entry) *config.Entry {
 	for i, e := range list {
 		if e.Not && e.Err == nil {
 			return &list[i]
@@ -375,7 +374,7 @@ func globMatch(pattern, name string) bool {
 // true when a ! entry can't be checked, which leaves out the binding: a !
 // repo-sets entry, or any ! entry when git can't tell the repository. Then
 // positive entries match nothing.
-func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
+func (r *session) repos(b *config.Binding, t *Trace) (k check, left bool) {
 	l := b.Location
 	if len(l.Repos) == 0 && len(l.RepoSets) == 0 {
 		return k, false
@@ -457,11 +456,11 @@ func (r *session) repos(b *cfg.Binding, t *Trace) (k check, left bool) {
 // repoMatch reports whether e matches the session's repository, through
 // any of its remotes: the repository, and with subdirs the part of it the
 // session starts in. not is the subdirs ! entry that left out that part.
-func repoMatch(e cfg.RepoEntry, repo *gitrepo.Repo) (hit bool, not string) {
+func repoMatch(e config.RepoEntry, repo *gitrepo.Repo) (hit bool, not string) {
 	if repo == nil {
 		return false, ""
 	}
-	pat := cfg.RepoID(e.Repo)
+	pat := config.RepoID(e.Repo)
 	if !slices.ContainsFunc(repo.Remotes, func(remote string) bool { return globMatch(pat, remote) }) {
 		return false, ""
 	}
@@ -484,7 +483,7 @@ func repoMatch(e cfg.RepoEntry, repo *gitrepo.Repo) (hit bool, not string) {
 
 // add reads what binding b adds: its collections, then its instructions,
 // skills and servers, each in list order, minus what its ! entries remove.
-func (r *session) add(b *cfg.Binding, t *Trace) {
+func (r *session) add(b *config.Binding, t *Trace) {
 	cat := r.env.Catalog
 	for _, e := range b.Collections {
 		if e.Err != nil {
@@ -527,7 +526,7 @@ func (r *session) add(b *cfg.Binding, t *Trace) {
 
 // items are what the positive path entries of list add, minus what its !
 // entries match, each once.
-func (r *session) items(b *cfg.Binding, t *Trace, list []cfg.Entry, kind catalog.Kind) []catalog.Item {
+func (r *session) items(b *config.Binding, t *Trace, list []config.Entry, kind catalog.Kind) []catalog.Item {
 	var items []catalog.Item
 	for _, e := range list {
 		if e.Err != nil || e.Not {
@@ -553,7 +552,7 @@ func (r *session) items(b *cfg.Binding, t *Trace, list []cfg.Entry, kind catalog
 }
 
 // entryErrors records what errs say about entry e.
-func (r *session) entryErrors(b *cfg.Binding, t *Trace, e cfg.Entry, errs []error) {
+func (r *session) entryErrors(b *config.Binding, t *Trace, e config.Entry, errs []error) {
 	for _, err := range errs {
 		var u *catalog.Unavailable
 		switch {
@@ -573,7 +572,7 @@ func (r *session) entryErrors(b *cfg.Binding, t *Trace, e cfg.Entry, errs []erro
 
 // excludes reports whether ! entry e matches it: a SOURCE:PATH pattern by
 // its path in that source, a path on disk by where it is.
-func (r *session) excludes(e cfg.Entry, it catalog.Item) bool {
+func (r *session) excludes(e config.Entry, it catalog.Item) bool {
 	if e.InSource {
 		return it.Source == e.Source && globMatch(path.Clean(e.Value), it.Rel)
 	}
@@ -582,7 +581,7 @@ func (r *session) excludes(e cfg.Entry, it catalog.Item) bool {
 
 // read is the content of it and its real path, unless seen has it
 // already; it is then in seen.
-func (r *session) read(b *cfg.Binding, t *Trace, it catalog.Item, seen map[string]bool) ([]byte, string, bool) {
+func (r *session) read(b *config.Binding, t *Trace, it catalog.Item, seen map[string]bool) ([]byte, string, bool) {
 	real := it.Real()
 	if seen[real] {
 		return nil, "", false
@@ -600,7 +599,7 @@ func (r *session) read(b *cfg.Binding, t *Trace, it catalog.Item, seen map[strin
 	return content, real, true
 }
 
-func (r *session) hit(b *cfg.Binding, it catalog.Item, real string, content []byte) Hit {
+func (r *session) hit(b *config.Binding, it catalog.Item, real string, content []byte) Hit {
 	h := Hit{Path: real, Content: string(content), Origin: b.Name, Global: b.Location == nil,
 		Source: it.Source, SourcePath: it.Rel}
 	if it.Source != "" {
@@ -612,7 +611,7 @@ func (r *session) hit(b *cfg.Binding, it catalog.Item, real string, content []by
 // addServers adds b's MCP servers. A server is served once; of two servers
 // with one name, the first in config order is served, and the other is
 // recorded as a conflict.
-func (r *session) addServers(b *cfg.Binding, t *Trace) {
+func (r *session) addServers(b *config.Binding, t *Trace) {
 	var found []catalog.Server
 	for _, e := range b.MCPServers {
 		if e.Err != nil || e.Not {
@@ -643,7 +642,7 @@ func (r *session) addServers(b *cfg.Binding, t *Trace) {
 }
 
 // serverExcluded reports whether a ! entry of b matches one of s's names.
-func (r *session) serverExcluded(b *cfg.Binding, t *Trace, s catalog.Server) bool {
+func (r *session) serverExcluded(b *config.Binding, t *Trace, s catalog.Server) bool {
 	for _, e := range b.MCPServers {
 		if !e.Not || e.Err != nil {
 			continue

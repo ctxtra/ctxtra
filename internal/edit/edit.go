@@ -12,7 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ctxtra/ctxtra/internal/cfg"
+	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -37,12 +37,12 @@ type Files struct {
 	// Backups is the folder of old versions of both files.
 	Backups string
 	// Options are how the config is read to check a write.
-	Options cfg.Options
+	Options config.Options
 }
 
 // Default are the user's files: config.yaml in the config folder, and
 // config.lock in the state folder.
-func Default(opts cfg.Options) Files {
+func Default(opts config.Options) Files {
 	return Files{
 		Config:  paths.ConfigPath(),
 		Mutex:   filepath.Join(paths.StateDir(), "config.lock"),
@@ -55,8 +55,8 @@ func Default(opts cfg.Options) Files {
 // caller's changes to them.
 type Tx struct {
 	// Config is the config, with the changes the caller makes to it.
-	Config *cfg.Editor
-	before *cfg.Config
+	Config *config.Editor
+	before *config.Config
 	lock   *lock.Lock
 	// lockFile is false when the lock file doesn't exist.
 	lockFile bool
@@ -110,11 +110,11 @@ func (f Files) read() (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	ed, err := cfg.NewEditor(data)
+	ed, err := config.NewEditor(data)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", paths.Tilde(f.Config), err)
 	}
-	tx := &Tx{Config: ed, before: cfg.Parse(ed.Bytes(), f.Options), lock: &lock.Lock{}}
+	tx := &Tx{Config: ed, before: config.Parse(ed.Bytes(), f.Options), lock: &lock.Lock{}}
 	data, err = readFile(lock.Path(f.Config))
 	switch {
 	case err != nil:
@@ -135,7 +135,7 @@ func readFile(path string) ([]byte, error) {
 }
 
 func (f Files) write(tx *Tx) error {
-	c := cfg.Parse(tx.Config.Bytes(), f.Options)
+	c := config.Parse(tx.Config.Bytes(), f.Options)
 	if tx.Config.Changed() {
 		if err := tx.Config.Check(f.Options); err != nil {
 			return fmt.Errorf("the change would add a mistake to the config; nothing changed:\n%w", err)
@@ -162,7 +162,7 @@ func (f Files) write(tx *Tx) error {
 // when the caller changed an entry, and when the caller removed a repo
 // source that has an entry. Entries of sources that the config doesn't have
 // as repo sources are left out.
-func (f Files) lockData(tx *Tx, c *cfg.Config) ([]byte, error) {
+func (f Files) lockData(tx *Tx, c *config.Config) ([]byte, error) {
 	removed := slices.ContainsFunc(tx.lock.Entries, func(e *lock.Entry) bool {
 		return isRepo(tx.before.Source(e.Name)) && !isRepo(c.Source(e.Name))
 	})
@@ -202,7 +202,7 @@ func (f Files) lockData(tx *Tx, c *cfg.Config) ([]byte, error) {
 	return data, nil
 }
 
-func isRepo(s *cfg.Source) bool { return s != nil && s.Dir == "" }
+func isRepo(s *config.Source) bool { return s != nil && s.Dir == "" }
 
 // sameEntry reports whether a and b accept the same commit for the same
 // source, address, ref and folder, as written.
@@ -213,9 +213,9 @@ func sameEntry(a, b *lock.Entry) bool {
 	return a.Name == b.Name && a.Repo == b.Repo && a.Ref == b.Ref && a.Subdir == b.Subdir && a.Commit == b.Commit
 }
 
-// Add adds entry name to section s of the config; see cfg.Editor.Add.
+// Add adds entry name to section s of the config; see config.Editor.Add.
 // added is false when the same entry is already there.
-func (f Files) Add(s cfg.Section, name string, entry *yaml.Node, at cfg.Place) (added bool, err error) {
+func (f Files) Add(s config.Section, name string, entry *yaml.Node, at config.Place) (added bool, err error) {
 	err = f.Run(func(tx *Tx) error {
 		added, err = tx.Config.Add(s, name, entry, at)
 		return err
@@ -224,13 +224,13 @@ func (f Files) Add(s cfg.Section, name string, entry *yaml.Node, at cfg.Place) (
 }
 
 // Replace changes the entry name of section s of the config in its place.
-func (f Files) Replace(s cfg.Section, name string, entry *yaml.Node) error {
+func (f Files) Replace(s config.Section, name string, entry *yaml.Node) error {
 	return f.Run(func(tx *Tx) error { return tx.Config.Replace(s, name, entry) })
 }
 
 // Remove removes the entry name of section s of the config. A removed
 // source's lock entry goes with it.
-func (f Files) Remove(s cfg.Section, name string) error {
+func (f Files) Remove(s config.Section, name string) error {
 	return f.Run(func(tx *Tx) error { return tx.Config.Remove(s, name) })
 }
 
@@ -241,7 +241,7 @@ func (f Files) Remove(s cfg.Section, name string) error {
 // already in the config; then the lock stays as it is.
 func (f Files) AddSource(name string, entry *yaml.Node, accepted *lock.Entry) (added bool, err error) {
 	err = f.Run(func(tx *Tx) error {
-		added, err = tx.Config.Add(cfg.Sources, name, entry, cfg.Place{})
+		added, err = tx.Config.Add(config.Sources, name, entry, config.Place{})
 		if added && accepted != nil {
 			tx.SetLockEntry(accepted)
 		}
