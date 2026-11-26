@@ -53,14 +53,50 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 			u.dirs = append(u.dirs, it.Rel)
 		}
 		for _, e := range errs {
-			msg := e.Err.Error()
-			if e.File != env.Path {
-				msg = e.Error()
-			}
-			u.errors = append(u.errors, strings.ReplaceAll(msg, reviewTop(name)+string(filepath.Separator), name+":"))
+			u.errors = append(u.errors, reviewError(env, name, e))
 		}
 	}
 	return u
+}
+
+// reviewError is e in the review of source name: the config's own errors
+// without its file name, and paths in the source as SOURCE:PATH.
+func reviewError(env *resolve.Env, name string, e *catalog.Error) string {
+	msg := e.Err.Error()
+	if e.File != env.Path {
+		msg = e.Error()
+	}
+	return strings.ReplaceAll(msg, reviewTop(name)+string(filepath.Separator), name+":")
+}
+
+// addOffered adds what the collections of source name's manifest in cat
+// offer, each read by itself, and their errors.
+func (u *used) addOffered(env *resolve.Env, cat *catalog.Catalog, name string) {
+	m, _ := cat.Manifest(cat.Source(name))
+	if m == nil {
+		return
+	}
+	for _, c := range m.Collections {
+		x, ok := cat.Collection(name, c.Name)
+		if !ok {
+			continue
+		}
+		for _, it := range x.Files {
+			if it.Source == name {
+				u.files[it.Rel] = true
+			}
+		}
+		for _, it := range x.Skills {
+			if it.Source == name {
+				u.dirs = append(u.dirs, it.Rel)
+			}
+		}
+		for _, e := range x.Errors {
+			if msg := reviewError(env, name, e); !slices.Contains(u.errors, msg) {
+				u.errors = append(u.errors, msg)
+			}
+		}
+	}
 }
 
 // printErrors prints the errors of now that before doesn't have.

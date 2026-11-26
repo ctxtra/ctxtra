@@ -51,6 +51,7 @@
   `ctxtra-source.yaml` or the config. A binding adds `SOURCE:NAME` or the config's own by name, and its `!`
   entries remove what its collections add. Cycles, missing collections and paths that match nothing are errors.
 - `source validate DIR` checks the files that collections name, as a session reads them from a commit.
+- `source add --repo` shows content warnings for the files that the manifest's collections offer.
 - Repo sets are parsed but not implemented yet: they are errors.
 
 ## v0.6.0

@@ -250,11 +250,14 @@ func (c *contentCheck) printDiff(w io.Writer, d string, files fs.FS, check map[s
 	})
 }
 
-// checkAdded prints the content warnings of the files that the config's
-// bindings already use from new source name, whose files are in snap: the
-// first version of a source is accepted without a review.
+// checkAdded prints the content warnings of the files that new source
+// name offers, whose files are in snap: every file of its manifest's
+// collections, and the files that the config's bindings already use from
+// it. The first version of a source is accepted without a review.
 func (s *sources) checkAdded(env *resolve.Env, name string, snap *source.Snapshot) {
-	u := usedFrom(env, env.Catalog.WithFiles(name, snap, reviewTop(name)), name)
+	cat := env.Catalog.WithFiles(name, snap, reviewTop(name))
+	u := usedFrom(env, cat, name)
+	u.addOffered(env, cat, name)
 	c := s.contentCheck(name)
 	walkFiles(snap, func(rel string) {
 		if !u.has(rel) {

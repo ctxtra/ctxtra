@@ -309,8 +309,9 @@ for example.
 - `source update` checks only the lines that the files shown in full add, and shows each warning after its
   line: `warning: line 14: remote code: ...`. It reads the whole new file to know where a comment starts.
 - Files listed by name are not checked. `--full` shows and checks them.
-- `source add --repo` checks files already referenced under that source name by config bindings.
-  Add-time warnings for files offered by manifest collections are not implemented yet.
+- `source add --repo` checks the files the source offers: every file of its manifest's collections, nested
+  ones and the files of their skills included, and files that config bindings already reference under that
+  source name. Other files of the repository are not checked. It also shows errors in the collections.
 - A file that isn't UTF-8 text, or has a NUL byte, is not checked, and the review says so:
   `note: not checked for content warnings: binary or not UTF-8`.
 - At most 50 warnings about a file's text are shown. A file with more gets a note with their number. A URL
