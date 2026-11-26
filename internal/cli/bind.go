@@ -186,7 +186,11 @@ func checkBinding(file string, data []byte, name string) error {
 	wd, _ := os.Getwd()
 	res := env.Alone(b, resolve.Input{Dir: wd})
 	for _, e := range res.Errors {
-		problems = append(problems, e.Err.Error())
+		// Approval is this machine's state, not a mistake in the config:
+		// the session message and mcp status say how to approve.
+		if e.Err.Mistake != yamlx.NotApproved {
+			problems = append(problems, e.Err.Error())
+		}
 	}
 	for _, h := range res.Dropped {
 		limit := h.Over

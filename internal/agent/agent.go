@@ -414,15 +414,12 @@ func needSignIn(servers []resolve.MCPServer) []string {
 	store := creds.Open()
 	var out []string
 	for _, m := range servers {
-		if m.Pinned {
-			a, err := store.Approval(m.Server)
-			if err != nil || a.Version == 0 {
-				out = append(out, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
-				continue
-			}
-			if !a.Allowed {
-				continue
-			}
+		switch {
+		case m.Unapproved == creds.Declined:
+			continue
+		case m.Unapproved != "":
+			out = append(out, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
+			continue
 		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
 			out = append(out, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))

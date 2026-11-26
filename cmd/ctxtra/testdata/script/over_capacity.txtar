@@ -21,9 +21,15 @@ stdout '"severity": "error",\s+"message": "dropped \(over max-ctx-chars\): [^"]*
 ! exec ctxtra doctor dev/app
 stdout 'ERROR: the text is over max-ctx-chars; 3 files of bindings big are left out \(claude-code\)'
 
-exec ctxtra mcp status dev/app --agent claude-code
+! exec ctxtra mcp status dev/app --agent claude-code
 stdout '^error: the text is over max-ctx-chars; 3 files of bindings big are left out; see ctxtra doctor$'
 stdout 'linear'
+
+# With no server bound, mcp status still reports it, and exits 1.
+cp no-servers.yaml .config/ctxtra/config.yaml
+! exec ctxtra mcp status dev/app --agent claude-code
+stdout '^error: the text is over max-ctx-chars; 3 files of bindings big are left out; see ctxtra doctor$'
+stdout '^no MCP servers are bound to ~/dev/app$'
 
 -- me.md --
 CTXMARK-me
@@ -41,6 +47,14 @@ bindings:
   - name: me
     instructions: [~/me.md]
     mcp-servers: [linear]
+  - name: big
+    instructions: ['~/big/*.md']
+max-ctx-chars: 200
+-- no-servers.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/me.md]
   - name: big
     instructions: ['~/big/*.md']
 max-ctx-chars: 200

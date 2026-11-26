@@ -16,6 +16,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/manifest"
+	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -768,7 +769,13 @@ func (r *session) addServers(b *config.Binding, t *Trace, from []catalog.Server)
 			r.res.MCPConflicts = append(r.res.MCPConflicts, MCPConflict{Winner: r.res.MCPServers[i].ID, Loser: s.ID, Prefix: s.Name, Origin: b.Name})
 			continue
 		}
-		r.res.MCPServers = append(r.res.MCPServers, MCPServer{s.Server, b.Name})
+		m := MCPServer{Server: s.Server, Origin: b.Name}
+		if s.Pinned {
+			if m.Unapproved = creds.Open().Unapproved(s.Server); m.Unapproved != "" {
+				r.fail(t, b, yamlx.Pos{}, yamlx.NotApproved, "MCP server %s: %s; run `ctxtra mcp approve %s`", s.ID, m.Unapproved, s.ID)
+			}
+		}
+		r.res.MCPServers = append(r.res.MCPServers, m)
 	}
 }
 

@@ -367,6 +367,8 @@ func traces(res *resolve.Result) []traceInfo {
 		for _, id := range t.MCPServers {
 			i := slices.IndexFunc(res.MCPServers, func(m resolve.MCPServer) bool { return m.ID == id })
 			switch {
+			case i >= 0 && res.MCPServers[i].Unapproved != "":
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "not approved; run ctxtra mcp approve " + id})
 			case i >= 0 && res.MCPServers[i].Origin == t.Origin:
 				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "added"})
 			case i >= 0:

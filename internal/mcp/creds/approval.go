@@ -76,6 +76,28 @@ func (s *Store) readApproval(srv upstream.Server) (Approval, error) {
 	return a, nil
 }
 
+// Declined is what Unapproved says of a server whose approval the user
+// declined.
+const Declined = "its approval was declined on this machine"
+
+// Unapproved is why srv, a pinned server, may not start: "" when it is
+// approved on this machine. It reads local files only, never a key.
+func (s *Store) Unapproved(srv upstream.Server) string {
+	a, err := s.Approval(srv)
+	switch {
+	case err != nil:
+		return "its approval can't be read: " + err.Error()
+	case a.Allowed:
+		return ""
+	case a.Version != 0:
+		return Declined
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, "approval", fileID(srv.ID)+".json")); err == nil {
+		return "its definition changed since it was approved on this machine"
+	}
+	return "it isn't approved on this machine"
+}
+
 // DecideApproval durably records consent or decline under its approval
 // lock. It neither creates an encryption key nor contacts the server.
 func (s *Store) DecideApproval(srv upstream.Server, allowed bool) error {

@@ -60,12 +60,15 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	if ag, ok := registry.Get(agentName); ok {
 		ag.Delivery().Fit(res)
 	}
+	shown := 0
 	for _, e := range res.Errors {
 		if e.Err.Part.Kind == "MCP server" || e.Err.Mistake == yamlx.OverCapacity {
 			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
+			shown++
 		}
 	}
-	for _, e := range (report{IO: a.IO, agent: agentName}).capacityErrors(res) {
+	capacity := (report{IO: a.IO, agent: agentName}).capacityErrors(res)
+	for _, e := range capacity {
 		fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
 	}
 	for _, t := range res.Trace {
@@ -73,11 +76,20 @@ func (a *app) mcpStatus(dir, agentName string) int {
 			continue
 		}
 		for _, e := range t.Errors {
-			fmt.Fprintf(out, "error in binding %s: %s; see ctxtra doctor\n", t.Origin, e.Err)
+			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e.Err)
+			shown++
 		}
 		for _, u := range t.Unavailable {
 			fmt.Fprintf(out, "binding %s uses source %s, which can't be read; see ctxtra doctor\n", t.Origin, u)
 		}
+	}
+	if n := len(res.Errors) - shown; n > 0 {
+		fmt.Fprintf(out, "error: sessions here have %d more errors; see ctxtra doctor\n", n)
+	}
+	// 1 when a session here wouldn't get all it should.
+	exit := status(res)
+	if len(capacity) > 0 {
+		exit = 1
 	}
 	servers := res.MCPServers
 	for _, c := range res.MCPConflicts {
@@ -85,7 +97,7 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	}
 	if len(servers) == 0 {
 		fmt.Fprintf(out, "no MCP servers are bound to %s\n", paths.Tilde(dir))
-		return 0
+		return exit
 	}
 	rec, ok, err := sessionstatus.Read(dir)
 	if err != nil {
@@ -101,7 +113,7 @@ func (a *app) mcpStatus(dir, agentName string) int {
 	}
 	if !ok {
 		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP proxy yet")
-		return 0
+		return exit
 	}
 	fmt.Fprintf(out, "\nthe last session here (%s, %s):\n", rec.Agent, rec.Started.Local().Format(time.DateTime))
 	own := fmt.Sprintf("; ctxtra's own start took %.2f s", float64(rec.ResolveMs)/1000)
@@ -128,7 +140,7 @@ func (a *app) mcpStatus(dir, agentName string) int {
 			fmt.Fprintf(out, "  %s  missing: %s%s\n", s.Name, s.Reason, credTime(s))
 		}
 	}
-	return 0
+	return exit
 }
 
 // credTime is the part of a server's start that ctxtra spent reading its

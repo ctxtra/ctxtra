@@ -835,7 +835,11 @@ used only for MCP servers still participates in source-update notices.
 ### Pinned-server approval
 
 Every pinned-source server needs separate machine-local approval before any MCP request, OAuth discovery or local
-execution, even a remote endpoint needing no authentication. Accepting a source version is not this approval.
+execution, even a remote endpoint needing no authentication. Until then, and after its definition changes, the
+server is an error of the binding that selects it, with its `ctxtra mcp approve` command: in the session message,
+the log, `context explain`, `doctor` and `mcp status`, which exit 1. The session keeps its name, so a server with
+the same name is never served in its place, and the proxy doesn't start it. `binding add` doesn't refuse such a
+server: approval is this machine's state, not a mistake in the config. Accepting a source version is not this approval.
 Config and dir-source definitions need no extra approval. Agent-native tool permission remains separate and
 comes too late to authorize server startup.
 
@@ -1353,7 +1357,7 @@ A command that would write an error exits 1 and changes nothing.
 with its flags and examples. The commands that change the config are grouped by what they change:
 `source`, `binding` and `mcp`, each with `add`, `list` and `remove`.
 
-- Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor` or a `context`
+- Exit codes: 0 when the command did what it was asked; 1 when it failed, or when `doctor`, `mcp status` or a `context`
   command found that a session wouldn't get everything it should (for `doctor`, a session in any folder),
   `source validate` found an error, or a check of `check-updates` failed; 2 for a usage error (an unknown command
   or flag, a missing argument), with the command's usage hint on stderr.

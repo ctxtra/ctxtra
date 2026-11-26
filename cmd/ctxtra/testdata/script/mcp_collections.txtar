@@ -15,9 +15,18 @@ gitcommit srv/iam-team
 stdin yes.txt
 exec ctxtra-tty source update iam-team
 stdout 'accepted iam-team'
+# Not approved yet: an error in the session message, the log, explain,
+# doctor and mcp status, which exit 1.
 runhook claude-code SessionStart dev/app
+stdout '1 error \(run ctxtra doctor\)'
 stdout 'iam-team:deploy needs approval: run ctxtra mcp approve iam-team:deploy'
-exec ctxtra mcp status dev/app
+grep 'binding iam: MCP server iam-team:deploy: it isn''t approved on this machine; run `ctxtra mcp approve iam-team:deploy`; it is left out' .local/state/ctxtra/log.jsonl
+! exec ctxtra context explain dev/app
+stdout 'skip     mcp iam-team:deploy \(not approved; run ctxtra mcp approve iam-team:deploy\)'
+stdout 'MCP server iam-team:deploy: it isn''t approved on this machine; run `ctxtra mcp approve iam-team:deploy`'
+! exec ctxtra doctor dev/app
+stdout 'ERROR: .*MCP server iam-team:deploy: it isn''t approved on this machine; run `ctxtra mcp approve iam-team:deploy`; it is left out \(claude-code\)'
+! exec ctxtra mcp status dev/app
 stdout 'binding: iam; tool prefix: deploy; approval needed: run ctxtra mcp approve iam-team:deploy'
 mcp dev/app
 ! stdout 'deploy__'
@@ -27,6 +36,9 @@ exec ctxtra-tty mcp approve iam-team:deploy
 stdout 'approved iam-team:deploy'
 mcp dev/app
 stdout '^tool deploy__echo'
+exec ctxtra context explain dev/app
+stdout 'mcp      iam-team:deploy'
+exec ctxtra mcp status dev/app
 
 # A changed command: the server isn't started until the user approves it
 # again, and mcp approve shows the new command.
@@ -37,6 +49,13 @@ exec ctxtra-tty source update iam-team
 stdout 'iam-team:deploy changed its operational definition'
 mcp dev/app
 ! stdout 'deploy__'
+runhook claude-code SessionStart dev/app
+stdout '1 error \(run ctxtra doctor\)'
+! exec ctxtra context explain dev/app
+stdout 'MCP server iam-team:deploy: its definition changed since it was approved on this machine; run `ctxtra mcp approve iam-team:deploy`'
+! exec ctxtra doctor dev/app
+stdout 'ERROR: .*MCP server iam-team:deploy: its definition changed since it was approved on this machine'
+! exec ctxtra mcp status dev/app
 stdin no.txt
 ! exec ctxtra-tty mcp approve iam-team:deploy
 stderr '"mcptest",\s+"-tools",\s+"all"'

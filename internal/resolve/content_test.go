@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -249,17 +250,50 @@ func TestSameNames(t *testing.T) {
 		eq(t, "served", served(res), "wiki")
 	})
 
-	t.Run("a repo source's servers need approval", func(t *testing.T) {
+	// A repo source's server needs approval on this machine: until then it
+	// is an error, and the session keeps its name for it, so a same-named
+	// server isn't served in its place.
+	approval := func(t *testing.T) (*Env, *home) {
 		h := newHome(t)
 		entry := h.accept("iam-team", "git@github.com:acme/iam-ctx.git", "branch: main", "", commit("a"), map[string]string{
 			"ctxtra-source.yaml": strings.ReplaceAll(manifest, "%s", "iam"),
 		})
-		env := h.load("sources: {iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}}\nbindings:\n  - {name: x, mcp-servers: ['iam-team:jira']}\n", entry)
+		h.write("me/ctxtra-source.yaml", "schema: ctxtra/source/v1\nmcp-servers:\n  jira: {url: https://jira.me.example.com/mcp}\n")
+		return h.load("sources: {iam-team: {repo: 'git@github.com:acme/iam-ctx.git', branch: main}, me: {dir: ~/me}}\n"+
+			"bindings:\n  - {name: x, mcp-servers: ['iam-team:jira', 'me:jira']}\n", entry), h
+	}
+
+	t.Run("not approved yet", func(t *testing.T) {
+		env, h := approval(t)
 		res := start(env, h.dir, "")
-		noErrors(t, res)
-		if len(res.MCPServers) != 1 || !res.MCPServers[0].Pinned || res.MCPServers[0].Server.Origin != "repo:github.com/acme/iam-ctx" {
-			t.Errorf("servers %+v", res.MCPServers)
+		e := oneError(t, res, "binding x: MCP server iam-team:jira: it isn't approved on this machine; run `ctxtra mcp approve iam-team:jira`; it is left out")
+		if e.Err.Mistake != yamlx.NotApproved {
+			t.Errorf("mistake %v", e.Err.Mistake)
 		}
+		if len(res.MCPServers) != 1 || res.MCPServers[0].ID != "iam-team:jira" || res.MCPServers[0].Unapproved == "" ||
+			res.MCPServers[0].Server.Origin != "repo:github.com/acme/iam-ctx" || len(res.MCPConflicts) != 1 {
+			t.Errorf("servers %+v, conflicts %+v", res.MCPServers, res.MCPConflicts)
+		}
+
+		if err := creds.Open().DecideApproval(res.MCPServers[0].Server, true); err != nil {
+			t.Fatal(err)
+		}
+		res = start(env, h.dir, "")
+		noErrors(t, res)
+		if res.MCPServers[0].Unapproved != "" {
+			t.Errorf("approved server %+v", res.MCPServers[0])
+		}
+	})
+
+	t.Run("definition changed", func(t *testing.T) {
+		env, h := approval(t)
+		old := start(env, h.dir, "").MCPServers[0].Server
+		old.Command = []string{"jira-mcp"}
+		if err := creds.Open().DecideApproval(old, true); err != nil {
+			t.Fatal(err)
+		}
+		res := start(env, h.dir, "")
+		oneError(t, res, "MCP server iam-team:jira: its definition changed since it was approved on this machine; run `ctxtra mcp approve iam-team:jira`")
 	})
 
 	t.Run("a broken new name among servers a pattern matches", func(t *testing.T) {

@@ -72,6 +72,9 @@
   error names the agents that have it. `doctor --json` lists each agent's files and skills in `sessions`.
 - Over capacity and over `max-ctx-chars` are also reported by `mcp status`, and the session message names the
   bindings of the dropped files. In `--json`, a file dropped over `max-ctx-chars` is an error, not a warning.
+- A source's server that isn't approved on this machine, or whose definition changed since its approval, is an
+  error with its approve command in the session message, the log, `context explain`, `doctor` and `mcp status`.
+  `mcp status` exits 1 when a session in the folder wouldn't get everything it should.
 
 ## v0.6.0
 
