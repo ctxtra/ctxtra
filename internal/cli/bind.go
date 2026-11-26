@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -17,7 +20,6 @@ import (
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
-	"github.com/ctxtra/ctxtra/internal/risk"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -410,39 +412,52 @@ func appliesIn(b *config.Binding) string {
 	return where + " " + strings.Join(parts, ", ")
 }
 
-// warnNewFiles prints the content warnings of the files and skills of repo
-// sources that the binding adds and the config's bindings didn't use
-// before: a source's first version is accepted without a review, and these
-// files are new to the user's sessions.
+// warnNewFiles prints the content warnings of the files of repo sources
+// that the binding adds and the config's bindings didn't use before: each
+// file, and every regular file in the folder of each skill. A source's first
+// version is accepted without a review, and these files are new to the
+// user's sessions.
 func (s *sources) warnNewFiles(w written) {
 	before := resolve.LoadData(s.file, w.before, registry.Names())
 	uses := map[string]*used{}
-	for _, h := range slices.Concat(w.res.Files, w.res.Skills) {
-		src := before.Config.Source(h.Source)
-		if h.Source == "" || src == nil || src.Repo == "" {
-			continue
+	checks := map[string]*contentCheck{}
+	seen := map[string]bool{}
+	// check checks the file p of files, which is rel in source src.
+	check := func(src string, files fs.FS, p, rel string) {
+		ref := src + ":" + rel
+		if seen[ref] || uses[src].has(rel) {
+			return
 		}
-		u := uses[h.Source]
-		if u == nil {
-			u = usedFrom(before, before.Catalog, h.Source)
-			uses[h.Source] = u
-		}
-		if u.has(h.SourcePath) {
-			continue
-		}
-		data, err := fsutil.ReadBounded(h.Path, source.MaxFileBytes)
-		ref := h.Source + ":" + h.SourcePath
-		if err != nil || !risk.Text(data) {
+		seen[ref] = true
+		data, ok := read(files, p)
+		if !ok {
 			fmt.Fprintf(s.Out, "note: %s: %s\n", source.Sanitize(ref), notCheckedWhy)
-			continue
+			return
 		}
-		shown, n := s.contentCheck(h.Source).scan(h.SourcePath, data, nil)
+		shown, n := checks[src].scan(rel, data, nil)
 		for _, f := range shown {
 			fmt.Fprintf(s.Out, "warning: %s:%d: %s: %s\n", source.Sanitize(ref), f.Line, f.Check, source.Sanitize(f.Text))
 		}
 		if n > maxWarnings {
 			fmt.Fprintf(s.Out, "note: %s: %d content warnings; the first %d are shown\n", source.Sanitize(ref), n, maxWarnings)
 		}
+	}
+	for i, h := range slices.Concat(w.res.Files, w.res.Skills) {
+		src := before.Config.Source(h.Source)
+		if h.Source == "" || src == nil || src.Repo == "" {
+			continue
+		}
+		if uses[h.Source] == nil {
+			uses[h.Source] = usedFrom(before, before.Catalog, h.Source)
+			checks[h.Source] = s.contentCheck(h.Source)
+		}
+		files := os.DirFS(filepath.Dir(h.Path))
+		if i < len(w.res.Files) {
+			check(h.Source, files, filepath.Base(h.Path), h.SourcePath)
+			continue
+		}
+		dir := path.Dir(h.SourcePath)
+		walkFiles(files, func(p string) { check(h.Source, files, p, path.Join(dir, p)) })
 	}
 }
 

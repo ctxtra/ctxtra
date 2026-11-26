@@ -4,12 +4,13 @@
 
 - `binding add` writes every key of a binding: `--repo-set`, `--profile`, `--agent` and `--collection` next to
   `--dir`, `--repo`, `--instruction`, `--skill` and `--mcp-server`, and `--subdir` for the one `--repo` given.
-  `--source` takes a source name or a repository address (`URL//FOLDER` for a source's folder) and makes the
+  `--source` takes a source name or a repo source's address (`URL//FOLDER` for a source's folder) and makes the
   content and repo set values refer to that source, so a team's README works whatever you named it.
   `--file FILE|-` takes any binding in YAML, `--replace` changes one in its place or adds it, and `--before` and
   `--after` place a new one. The command shows the binding as written, where it applies, what a session there
-  gets, and content warnings for files of a repo source that it binds for the first time. It checks each
-  agent's capacity for the agents the binding applies to, by the same rule as sessions.
+  gets, and content warnings for files of a repo source that it binds for the first time, every file of a
+  skill's folder included. It checks each agent's capacity for the agents the binding applies to, by the
+  same rule as sessions.
 - `source add` lists the manifest's collections and repo sets, and prints one `binding add` line that uses them.
 - Commands that write the config refuse a config with lone carriage-return line breaks, and a name that YAML
   would write as an explicit key, instead of writing what they can't edit again.
