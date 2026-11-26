@@ -134,10 +134,5 @@ schema: ctxtra/config/v1
 bindings:
   - name: me
     instructions: [~/me.md]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: me
-    instructions: [~/me.md]
 -- me.md --
 CTXMARK-ME

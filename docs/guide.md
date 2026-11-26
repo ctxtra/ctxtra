@@ -96,7 +96,7 @@ asks once more after a hook changed, for example after an upgrade that changes t
 Hermes loads the plugin only after you enable it once (`hermes plugins enable ctxtra`).
 `ctxtra setup --remove` removes them.
 
-An upgrade never needs `ctxtra setup` unless the release notes say so, 0.x releases included: each release
+After setting up this release, an upgrade needs `ctxtra setup` only when the release notes say so, 0.x releases included: each release
 keeps serving what an earlier one set up ([setup compatibility](spec.md#setup-compatibility)). When the
 notes say so, Codex asks once to trust the changed hooks after setup, and Hermes needs the plugin reloaded, or
 Hermes restarted, if it is running. If the binary moves, run `ctxtra setup` again, and trust the hooks again

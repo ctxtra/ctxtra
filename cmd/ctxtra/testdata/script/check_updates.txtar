@@ -82,11 +82,6 @@ check-releases: false
 bindings:
   - name: me
     instructions: [~/notes/me.md]
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: me
-    instructions: [~/notes/me.md]
 -- off.yaml --
 schema: ctxtra/config/v1
 check-releases: false
@@ -98,10 +93,5 @@ y
 CTXMARK-NEW
 -- srv/team-ctx/services-overview.md --
 CTXMARK-OVERVIEW
--- srv/team-ctx/bindings/billing.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: billing
-    instructions: [../services-overview.md]
 -- srv/plain/README.md --
 plain

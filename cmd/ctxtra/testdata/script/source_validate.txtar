@@ -49,7 +49,7 @@ stdout '"collections": 2'
 stdout '"mcp_servers": 0'
 stdout '"repo_sets": 0'
 stdout '"errors": 0'
-stdout '"severity": "notice"'
+stdout '"diagnostics": \[\s+\{\s+"severity": "notice",\s+"message": "the files that collections name are not checked yet"\s+\}\s+\]'
 
 mkdir empty
 ! exec ctxtra source validate empty

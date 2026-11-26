@@ -51,8 +51,7 @@ runhook claude-code SessionStart dev/billing
 stdout 'ledger'
 ! stdout 'dismissed'
 
-# Bind one file yourself instead of the maintainer's binding: changes to
-# the rest are listed by name only.
+# Changes to an unused YAML file are listed by name only.
 cp v4/billing.yaml srv/team-ctx/bindings/billing.yaml
 gitcommit srv/team-ctx
 stdin no.txt

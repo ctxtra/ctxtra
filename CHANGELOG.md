@@ -26,6 +26,9 @@
   commits, for example on a new machine. A `dir` source in a repository with remotes is read only after
   `ctxtra source trust NAME`, and stops when the remotes change.
 - A source declares its MCP servers in `ctxtra-source.yaml`; `source validate DIR` checks it.
+- Source removal names leftover MCP credentials and their cleanup commands. Binding errors name files that
+  would exceed `max-ctx-chars`. Skill installation refuses a conflicting binding before writing the skill,
+  including in a dry run.
 - Renamed: `source add --repo|--dir`, `source update --dry-run`, `source validate`, `binding add --mcp-server`,
   `mcp add --pass-env`, `pass-env`, `max-ctx-chars`, `check-releases`, `session-message` (0 leaves a list out).
 - Mistakes are errors, reported in the session message, the log, `context explain` and `doctor`; the part

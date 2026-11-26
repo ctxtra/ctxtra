@@ -107,30 +107,6 @@ bindings:
     instructions: [~/ctx/other.md]
   - name: me
     instructions: [~/ctx/me.md]
--- .config/ctxtra/work.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: acme
-    location:
-      repos:
-        - github.com/acme/**
-    instructions: [~/ctx/work.md]
-    skills: [~/skills/deploy]
-  - name: svc
-    location:
-      dirs: [~/dev/svc]
-    instructions: [~/ctx/svc.md]
-  - name: not-here
-    location:
-      repos:
-        - repo: github.com/acme/svc
-          subdirs: [services/**]
-    instructions: [~/ctx/other.md]
--- .config/ctxtra/me.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: me
-    instructions: [~/ctx/me.md]
 -- ctx/work.md --
 CTXMARK-WORK
 -- ctx/svc.md --

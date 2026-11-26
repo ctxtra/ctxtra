@@ -68,7 +68,7 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestUntrustedHookAddsNothing` | Codex without hook trust: the session works and gets nothing from ctxtra |
 | `TestUserMessage` | Claude and Muse get the summary message for the user from the hook |
 | `TestMissingBinary` | Claude and Muse: with the binary that the hooks run gone, the session starts, and the hook command gives the message for the user that the binary is missing |
-| `TestOutsideGit` | Outside git, only `global` and `dirs` bindings apply |
+| `TestOutsideGit` | Outside git, repository conditions do not match; bindings without location or with matching dirs still apply |
 | `TestResume` | Copilot and Muse: a resumed session has the current version of the files, once |
 | `TestCapacity` | About 315K characters of bound files (a third for Copilot), Unicode and emoji included, reach the model at session start: every line once, in config order (parts that arrive out of order are put back by their labels). Agents that get the text from several hooks resolve the files once |
 | `TestCapacitySubagent` | The same text reaches a subagent in full, and the main agent still has it once after tool calls |

@@ -74,8 +74,9 @@ stdout '^team-ctx: up to date \(main at [0-9a-f]{7}\)$'
 grep '^# my comment$' .config/ctxtra/config.yaml
 grep '^  - name: me  # mine$' .config/ctxtra/config.yaml
 
-# A new laptop: the config is there, the store isn't. Restore fetches the
-# accepted commit, not the branch.
+# A new laptop downloads the accepted commit even when the branch moved.
+cp next.md srv/team-ctx/services-overview.md
+gitcommit srv/team-ctx
 cp .config/ctxtra/ctxtra.lock saved.lock
 rm .local/share/ctxtra .cache/ctxtra
 runhook claude-code SessionStart notes
@@ -86,12 +87,13 @@ exec ctxtra source download
 stdout '^team-ctx: downloaded [0-9a-f]{7} \(the commit in ctxtra.lock\)$'
 runhook claude-code SessionStart notes
 stdout 'CTXMARK-NEW'
+! stdout 'CTXMARK-UNACCEPTED'
 exec ctxtra source download
 stdout '^team-ctx: [0-9a-f]{7} is downloaded$'
 cmp .config/ctxtra/ctxtra.lock saved.lock
 
 # A force-push: the new commit doesn't continue the accepted one.
-exec git -C srv/team-ctx reset -q --hard HEAD~1
+exec git -C srv/team-ctx reset -q --hard HEAD~2
 cp other.md srv/team-ctx/other.md
 gitcommit srv/team-ctx
 stdin no.txt
@@ -104,11 +106,6 @@ schema: ctxtra/config/v1
 bindings:
   - name: me  # mine
     instructions: [~/notes/me.md]
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: me  # mine
-    instructions: [~/notes/me.md]
 -- notes/me.md --
 mine
 -- empty.txt --
@@ -118,6 +115,8 @@ n
 y
 -- new-overview.md --
 CTXMARK-NEW
+-- next.md --
+CTXMARK-UNACCEPTED
 -- other.md --
 other
 -- srv/team-ctx/services-overview.md --

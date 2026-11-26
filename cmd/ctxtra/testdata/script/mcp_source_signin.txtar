@@ -38,9 +38,4 @@ stdout 'work:linear needs sign-in: run ctxtra mcp login work:linear'
 
 -- yes.txt --
 y
--- pkg/bindings.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: work
-    location: {dirs: ['~/dev/**']}
-    mcp-servers: [linear]
+-- pkg/.keep --

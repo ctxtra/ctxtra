@@ -82,12 +82,6 @@ stderr 'no MCP server named gh in the config'
 
 # Config bindings select servers explicitly.
 mkdir dot
-cp dot.yaml dot/b.yaml
 exec ctxtra source add --dir dot
 exec ctxtra binding add dotb --dir '~/dot/**' --mcp-server linear_work
 stdout '^  MCP servers: linear_work$'
-
--- dot.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - {name: dotb, location: {dirs: ['~/dot/**']}, mcp-servers: [linear_work]}

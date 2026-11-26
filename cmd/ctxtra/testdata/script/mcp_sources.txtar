@@ -89,6 +89,14 @@ stderr 'approval needed'
 stdin yes.txt
 exec ctxtra-tty mcp approve work:build
 
+# A commit that leaves the definition unchanged keeps its approval.
+cp note.md pkg/README.md
+gitcommit pkg
+stdin yes.txt
+exec ctxtra-tty source update work
+exec ctxtra mcp list
+stdout 'work:build  local, none needed, approved'
+
 # Revoke and logout are different operations.
 exec ctxtra mcp revoke work:build
 ! exec ctxtra mcp show work:build
@@ -126,6 +134,8 @@ n
 -- login.txt --
 y
 CTXMARK-secret
+-- note.md --
+Source documentation.
 -- pkg/ctxtra-source.yaml --
 schema: ctxtra/source/v1
 mcp-servers:
@@ -147,14 +157,3 @@ mcp-servers:
     secret-env: [TOKEN]
   web:
     url: https://example.invalid/mcp
--- global.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: work
-    mcp-servers: [build]
--- pkg/bindings.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: work
-    location: {dirs: ['~/dev/**']}
-    mcp-servers: [build]

@@ -91,11 +91,6 @@ description: Deploy the service
 ---
 description: Experimental
 ---
--- srv/team/bindings.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: pinned
-    instructions: ['notes/**/*.md']
 -- srv/team/notes/old.md --
 OLD_MATCH
 -- srv/team/notes/a.md --

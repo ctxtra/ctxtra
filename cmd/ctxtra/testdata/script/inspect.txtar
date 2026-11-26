@@ -92,20 +92,6 @@ bindings:
       repos:
         - github.com/acme/other
     instructions: [~/ctx/other.md]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/config/v1
-bindings:
-  - name: svc
-    location:
-      repos:
-        - github.com/acme/svc
-    instructions: [~/ctx/svc.md]
-    skills: [~/skills/deploy]
-  - name: other
-    location:
-      repos:
-        - github.com/acme/other
-    instructions: [~/ctx/other.md]
 -- ctx/svc.md --
 CTXMARK-SVC
 -- ctx/other.md --
