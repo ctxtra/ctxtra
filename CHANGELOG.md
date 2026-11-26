@@ -25,7 +25,9 @@ What changed:
   one without `location` applies everywhere. Entries that start with `!` must be quoted.
 - Sources are `repo` (with `branch`, `tag` or `rev`) or `dir`. Accepted commits are in `ctxtra.lock`, not in
   the config: `commit:` is gone. Source servers move from `mcp-servers.yaml` to the source's
-  `ctxtra-source.yaml`. Files of a source are `SOURCE:PATH`.
+  `ctxtra-source.yaml`. Files of a source are `SOURCE:PATH`, which replaces `ctxtra://SOURCE/PATH`.
+- A local repo source (`repo: ~/dev/team-ctx`, formerly `local-git`) follows a named branch, by default the
+  clone's checked-out branch, not the clone's committed `HEAD`.
 - Agent IDs `claude`, `copilot` and `hermes` are now `claude-code`, `github-copilot` and `hermes-agent`, with
   no aliases.
 - Renamed config keys: `check-updates` at the top is `check-releases`, `budget.max-chars` is
@@ -33,8 +35,13 @@ What changed:
   0 leaves a list out), and a server's `env-pass` is `pass-env`.
 - Renamed commands: `source add git URL` and `source add trusted-path DIR` are `source add --repo URL` and
   `source add --dir DIR`, `source update --check` is `source update --dry-run`, `source check` is
-  `source validate`, `binding add --mcp` is `--mcp-server`, and `mcp add --env-pass` is `--pass-env`.
+  `source validate`, `source restore` is `source download`, `binding add --mcp` is `--mcp-server`, and
+  `mcp add --env-pass` is `--pass-env`. `source add local-git DIR` is `source add --repo DIR`.
+  `source add git DIR --remote REMOTE` is gone: give the remote's address, `source add --repo URL`.
   `binding add --global` is gone.
+- `source trust NAME` records the remotes of an existing `dir` source, so that it is read live. It no longer
+  turns a pinned source into a live one, and takes no DIR: to read a clone live, add it with
+  `source add --dir DIR`.
 - Every mistake is an error that `doctor` reports with exit 1, and the part with the mistake is left out.
   A YAML tag, an anchor, a duplicate key, or a number where text is expected (`tag: 1.10`) is an error.
 
