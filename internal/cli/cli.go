@@ -80,7 +80,7 @@ func Run(args []string, stdio IO, version string) int {
 		fmt.Fprintf(stdio.Err, "Run '%s --help' for more.\n", path)
 		n = 2
 	}
-	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) && !dryRun(a.ran) {
+	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) && !dryRun(a.ran) && (n == 0 || !sourceCommand(a.ran)) {
 		setupNotices(stdio.Err)
 	}
 	return n
@@ -91,6 +91,12 @@ func Run(args []string, stdio IO, version string) int {
 func dryRun(cmd *cobra.Command) bool {
 	f := cmd.Flags().Lookup("dry-run")
 	return f != nil && f.Value.String() == "true"
+}
+
+// sourceCommand reports whether cmd is a source command. One that fails
+// changed nothing, and its notices would not keep it so.
+func sourceCommand(cmd *cobra.Command) bool {
+	return cmd.Parent() != nil && cmd.Parent().Name() == "source" && cmd.Parent().Parent() == cmd.Root()
 }
 
 // run makes f a cobra RunE, and records that the command ran. f returns

@@ -1120,7 +1120,8 @@ non-interactive and prints pending commands plus a pointer to guided onboarding.
 
 After every command that runs, but `hook`, `setup`, `onboard`, `doctor`, `source validate`, `check-updates`, `help`, `version` and `completion`, ctxtra
 prints a line on stderr for each setup that needs you, with the command that repairs it. `--help`, usage
-errors and a command run with `--dry-run` print none. The lines never change the exit code; `doctor`
+errors, a command run with `--dry-run` and a `source` command that fails print none: they change nothing,
+and the notices would. The lines never change the exit code; `doctor`
 shows the same lines under each agent instead:
 
 | When | Notice |

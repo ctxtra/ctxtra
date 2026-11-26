@@ -176,21 +176,28 @@ func TestUpdateRefusesACommitOverTheLimits(t *testing.T) {
 		t.Errorf("dry run: exit %d\n%s%s", code, out, errOut)
 	}
 
+	// A real update, through the whole command: the accepted commit stays in
+	// the store, and an agent found since the last setup would be recorded
+	// by the notices after a command.
 	testenv.Write(t, filepath.Join(dir, "teams/billing/a.md"), "A2")
 	commitAll(t, dir)
-	if err := os.RemoveAll(source.StoreDir()); err != nil {
+	testenv.Write(t, filepath.Join(paths.StateDir(), "setup.json"), `{"installed": {}, "detected": []}`)
+	if err := os.MkdirAll(filepath.Join(h, ".cursor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	interactive := Interactive
+	Interactive = func(IO) bool { return true }
+	t.Cleanup(func() { Interactive = interactive })
 	folders := []string{paths.ConfigDir(), paths.DataDir(), paths.StateDir()}
 	before := map[string][]string{}
 	for _, f := range folders {
 		before[f] = folderState(t, f)
 	}
-	var o, e strings.Builder
-	s := newSources(IO{In: strings.NewReader(""), Out: &o, Err: &e})
-	s.prompt = true
-	if code := s.update([]string{"billing"}, false, false); code != 1 || !strings.Contains(e.String(), "outside.bin is larger than") {
-		t.Errorf("update: exit %d\n%s%s", code, o.String(), e.String())
+	if len(before[paths.DataDir()]) < 3 {
+		t.Fatalf("no accepted commit in the store: %q", before[paths.DataDir()])
+	}
+	if code, out, errOut := run("source", "update", "billing"); code != 1 || !strings.Contains(errOut, "outside.bin is larger than") {
+		t.Errorf("update: exit %d\n%s%s", code, out, errOut)
 	}
 	for _, f := range folders {
 		if got := folderState(t, f); !slices.Equal(got, before[f]) {
