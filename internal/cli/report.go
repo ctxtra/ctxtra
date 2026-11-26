@@ -329,6 +329,8 @@ type agentDrop struct {
 	// Still is set when what is left after dropping every file it can is
 	// still over: the skills of these bindings.
 	Still []string `json:"still_over,omitempty"`
+	// fitted is set when the result was fit to the agent already.
+	fitted bool
 }
 
 // traces is how each binding of res added its files, skills and servers.
@@ -391,9 +393,13 @@ func (r report) overCapacity(res *resolve.Result) int {
 }
 
 // capacityErrors are the errors of the agents that wouldn't get all of res.
+// A result fit to an agent has that agent's error already.
 func (r report) capacityErrors(res *resolve.Result) []string {
 	var out []string
 	for _, d := range r.agentDrops(res) {
+		if d.fitted {
+			continue
+		}
 		if len(d.Dropped) > 0 {
 			out = append(out, fmt.Sprintf("over %s, %s sessions don't get %s", d.Over, d.Agent, agent.Names(d.Dropped)))
 		}
@@ -426,14 +432,18 @@ func (r report) agentDrops(res *resolve.Result) []agentDrop {
 			continue
 		}
 		d := a.Delivery()
-		if d.Fits(res) {
-			continue
-		}
 		c := *res
-		c.Dropped = nil
-		d.Fit(&c)
+		fitted := r.agent != "" && slices.ContainsFunc(res.Dropped, func(h resolve.Hit) bool { return h.Over == d.Over() })
+		if !fitted {
+			if d.Fits(res) {
+				continue
+			}
+			c.Dropped = nil
+			d.Fit(&c)
+		}
+		c.Dropped = slices.DeleteFunc(slices.Clone(c.Dropped), func(h resolve.Hit) bool { return h.Over != d.Over() })
 		name := c.Namer()
-		drop := agentDrop{Agent: a.Name(), Over: d.Over(), Dropped: make([]string, len(c.Dropped))}
+		drop := agentDrop{Agent: a.Name(), Over: d.Over(), Dropped: make([]string, len(c.Dropped)), fitted: fitted}
 		for i, h := range c.Dropped {
 			drop.Dropped[i] = name(h)
 		}
