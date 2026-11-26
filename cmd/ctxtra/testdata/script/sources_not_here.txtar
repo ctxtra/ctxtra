@@ -33,12 +33,17 @@ stdout '^iam-dev: ~/dev/iam-ctx is not on this machine; skipped$'
 cmp .config/ctxtra/ctxtra.lock saved.lock
 exec ctxtra source update --dry-run
 stdout '^iam-dev: ~/dev/iam-ctx is not on this machine; skipped$'
+exec ctxtra check-updates
+! stdout 'iam-dev'
+! stderr .
 
 # A path that exists but isn't a folder, or isn't a git repository, is an
-# error.
+# error, also for the update check.
 mkdir dev/iam-ctx
 ! exec ctxtra doctor notes
 stdout 'repo ~/dev/iam-ctx is not a git repository'
+! exec ctxtra check-updates
+stdout '^iam-dev: can''t check: '
 
 # A live folder not cloned yet: once it is there, the next session reads it.
 rm dev/iam-ctx

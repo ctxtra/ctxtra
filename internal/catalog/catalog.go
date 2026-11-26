@@ -413,6 +413,20 @@ func commitDir(e *lock.Entry) string {
 
 const notHere = "is not on this machine"
 
+// NotOnThisMachine reports whether source s is not on this machine: a dir folder or
+// a local repo path that doesn't exist. That is not an error: entries that
+// use the source are left out, and nothing checks or downloads it.
+func NotOnThisMachine(s *config.Source) bool {
+	p := s.Dir
+	if p == "" {
+		if !config.IsLocalRepo(s.Repo) {
+			return false
+		}
+		p = s.Repo
+	}
+	return folder(filepath.Clean(paths.Expand(p))) == notHere
+}
+
 // folder says what keeps dir from being a folder, notHere when it doesn't
 // exist, "" when it is one.
 func folder(dir string) string {

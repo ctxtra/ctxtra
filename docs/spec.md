@@ -123,7 +123,8 @@ Otherwise the source is not read, `source trust` refuses it, and the error names
 A repo source leaves symlinks and submodules out. Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
-`doctor` and `context explain` list it as not on this machine; the session message says nothing about it.
+`doctor` and `context explain` list it as not on this machine; the session message says nothing about it,
+and update checks skip it.
 A path that exists but is not a folder, or a repo path that is not a repository, is an error.
 
 ## Pinned sources

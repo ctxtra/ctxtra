@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -179,7 +180,7 @@ func StateKey(s *config.Source) (id, remote, follows string) {
 // FromConfig is what the checks need from c and its lock l: the release
 // check unless check-releases is false, and every repo source that follows
 // a branch or a tag and doesn't have check-updates: false. A source at a
-// rev has nothing new to check. A config that can't be read checks
+// rev has nothing new to check, and one not on this machine isn't checked. A config that can't be read checks
 // nothing: its check-releases: false may be what failed.
 func FromConfig(c *config.Config, l *lock.Lock) Config {
 	if slices.ContainsFunc(c.Errors, func(e *yamlx.Error) bool { return e.Out() == yamlx.OutFile }) {
@@ -187,7 +188,7 @@ func FromConfig(c *config.Config, l *lock.Lock) Config {
 	}
 	out := Config{Releases: c.CheckReleases == nil || *c.CheckReleases}
 	for _, s := range c.Sources {
-		if s.Broken() || s.Repo == "" || s.Ref.Kind == config.Rev || s.CheckUpdates != nil && !*s.CheckUpdates {
+		if s.Broken() || s.Repo == "" || s.Ref.Kind == config.Rev || s.CheckUpdates != nil && !*s.CheckUpdates || catalog.NotOnThisMachine(s) {
 			continue
 		}
 		_, remote, _ := StateKey(s)
