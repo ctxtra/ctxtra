@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,10 +19,15 @@ func TestProfileClearStartsOver(t *testing.T) {
 		s, repo := profileSession(t, a)
 		s.Ctxtra("profile", "set", "iam")
 		m := mock.New(t)
-		x := startTUI(t, tmuxBin(t), tuiScript(t, s, a, repo, m.URL()))
+		script := tuiScript(t, s, a, repo, m.URL())
+		x := startTUI(t, tmuxBin(t), script)
 		t.Cleanup(func() {
 			if t.Failed() {
-				t.Logf("screen:\n%s", x.screen())
+				screen := x.screen()
+				t.Logf("screen:\n%s", screen)
+				cmd := exec.Command("/bin/sh", script)
+				cmd.Dir, cmd.Env = repo, s.Env()
+				s.saveEvidence(1, cmd, &Result{t: t, Requests: m.Requests(), Stdout: screen})
 			}
 		})
 		waitFor := func(what string, ready func(string) bool) {
@@ -42,6 +48,9 @@ func TestProfileClearStartsOver(t *testing.T) {
 		s.Ctxtra("profile", "set", "observability")
 		seen := len(m.Requests())
 		x.keys("-l", "/clear")
+		waitFor("clear command menu", func(sc string) bool {
+			return strings.Contains(sc, "/clear") && strings.Contains(sc, "Clear session")
+		})
 		x.keys("Enter")
 		waitFor("cleared prompt", func(sc string) bool {
 			return strings.Contains(sc, "Ask anything") && !strings.Contains(sc, mock.Prompt)
