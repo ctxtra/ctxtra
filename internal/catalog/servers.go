@@ -55,7 +55,7 @@ func (c *Catalog) Servers(e config.Entry) ([]Server, []error) {
 	switch {
 	case !matched:
 		return nil, []error{fmt.Errorf("the config has no MCP server %s", e.Value)}
-	case len(out) == 0 && len(errs) == 0:
+	case len(out) == 0 && len(errs) == 0 && !hasMeta(e.Value):
 		return nil, []error{fmt.Errorf("the config's MCP server %s has errors", e.Value)}
 	}
 	return out, errs
@@ -115,7 +115,7 @@ func (c *Catalog) sourceServers(name, pattern, text string) ([]Server, []error) 
 	switch {
 	case !matched:
 		return nil, []error{fmt.Errorf("%s: source %s declares no MCP server %s", text, name, pattern)}
-	case len(out) == 0:
+	case len(out) == 0 && !hasMeta(pattern):
 		return nil, []error{fmt.Errorf("%s: the MCP server of source %s has errors", text, name)}
 	}
 	return out, nil

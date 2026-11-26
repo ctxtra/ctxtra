@@ -447,15 +447,15 @@ func TestHead(t *testing.T) {
 	if Exists(r.dir) {
 		t.Error("Head created the source's repository")
 	}
-	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not on the remote") {
+	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not in ") {
 		t.Errorf("missing branch: %v", err)
 	}
 	if _, err := r.Head(context.Background(), "-x"); err == nil {
 		t.Error("an option as a branch")
 	}
-	// A local-git source: the clone's HEAD.
+	// A clone on this disk: its branch.
 	next := commit(t, dir, map[string]string{"b.md": "B"})
-	if got, err := Open(dir).Head(context.Background(), ""); err != nil || got != next {
+	if got, err := Open(dir).Head(context.Background(), "main"); err != nil || got != next {
 		t.Errorf("clone HEAD = %q, %v; want %q", got, err, next)
 	}
 	if _, err := Open("https://127.0.0.1:1/none").Head(context.Background(), "main"); err == nil {
