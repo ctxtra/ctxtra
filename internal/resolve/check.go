@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
@@ -91,7 +92,8 @@ func CheckCollections(cat *catalog.Catalog, name string) []*catalog.Error {
 				continue
 			}
 			skills[md.Path] = true
-			content, _, err := cat.Read(md, nil)
+			// As a session reads it: with the limit for one file.
+			content, _, err := cat.Read(md, fsutil.NewReader(config.MaxFileBytes, config.MaxFileBytes))
 			if err == nil {
 				_, _, _, err = parseSkill(string(content))
 			}

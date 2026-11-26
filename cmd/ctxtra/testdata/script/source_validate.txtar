@@ -59,6 +59,14 @@ exec sh -c 'i=0; while [ $i -lt 1200 ]; do printf "#%01023d\n" 0; i=$((i+1)); do
 stdout '^error: .*ctxtra-source.yaml is larger than 1048576 bytes'
 stdout '^1 error, 0 warnings$'
 
+# A skill larger than a manifest may be, but within the limit for one file.
+mkdir large/skills/large
+cp large.yaml large/ctxtra-source.yaml
+cp skill.md large/skills/large/SKILL.md
+exec sh -c 'i=0; while [ $i -lt 1100 ]; do printf "%01023d\n" 0; i=$((i+1)); done >> large/skills/large/SKILL.md'
+exec ctxtra source validate large
+stdout '^0 errors, 0 warnings$'
+
 mkdir empty
 ! exec ctxtra source validate empty
 stderr '^ctxtra source validate: ~/empty has no ctxtra-source.yaml$'
@@ -120,6 +128,10 @@ rm outside/x.md
 ! exec ctxtra source validate team-ctx
 stdout 'symlink'
 
+-- large.yaml --
+schema: ctxtra/source/v1
+collections:
+  kit: {skills: [skills/large]}
 -- big-head.yaml --
 schema: ctxtra/source/v1
 collections:
