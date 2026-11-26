@@ -143,6 +143,19 @@ func (r *Result) Fit(fits func(*Result) bool, over string) {
 	}
 	r.Files = files[:n:n]
 	r.Dropped = append(dropped, r.Dropped...)
-	r.Errors = append(r.Errors, &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.OverCapacity,
-		Msg: fmt.Sprintf("the text is over %s; %d files of bindings %s are left out", over, len(dropped), strings.Join(bindings, ", "))}})
+	msg := fmt.Sprintf("the text is over %s; %d files of bindings %s are left out", over, len(dropped), strings.Join(bindings, ", "))
+	if c.Files = r.Files; !fits(&c) {
+		var skills []string
+		for _, h := range r.Skills {
+			if !slices.Contains(skills, h.Origin) {
+				skills = append(skills, h.Origin)
+			}
+		}
+		msg = fmt.Sprintf("the text is over %s even without instruction files; the skills of bindings %s are too long", over, strings.Join(skills, ", "))
+		if len(dropped) > 0 {
+			msg = fmt.Sprintf("the text is over %s; %d files of bindings %s are left out, and the skills of bindings %s are still too long",
+				over, len(dropped), strings.Join(bindings, ", "), strings.Join(skills, ", "))
+		}
+	}
+	r.Errors = append(r.Errors, &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.OverCapacity, Msg: msg}})
 }

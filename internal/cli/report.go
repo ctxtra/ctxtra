@@ -325,6 +325,9 @@ type agentDrop struct {
 	Agent   string   `json:"agent"`
 	Over    string   `json:"over"`
 	Dropped []string `json:"dropped"`
+	// Still is set when what is left after dropping every file it can is
+	// still over: the skills of these bindings.
+	Still []string `json:"still_over,omitempty"`
 }
 
 // traces is how each binding of res added its files, skills and servers.
@@ -390,7 +393,25 @@ func (r report) overCapacity(res *resolve.Result) int {
 func (r report) capacityErrors(res *resolve.Result) []string {
 	var out []string
 	for _, d := range r.agentDrops(res) {
-		out = append(out, fmt.Sprintf("over %s, %s sessions don't get %s", d.Over, d.Agent, agent.Names(d.Dropped)))
+		if len(d.Dropped) > 0 {
+			out = append(out, fmt.Sprintf("over %s, %s sessions don't get %s", d.Over, d.Agent, agent.Names(d.Dropped)))
+		}
+		if len(d.Still) > 0 {
+			out = append(out, fmt.Sprintf("over %s even without instruction files: the skills of bindings %s are too long for %s sessions",
+				d.Over, strings.Join(d.Still, ", "), d.Agent))
+		}
+	}
+	return out
+}
+
+// stillOver are the bindings whose skills res has: what is left over
+// capacity when no file can be dropped.
+func stillOver(res *resolve.Result) []string {
+	var out []string
+	for _, h := range res.Skills {
+		if !slices.Contains(out, h.Origin) {
+			out = append(out, h.Origin)
+		}
 	}
 	return out
 }
@@ -404,18 +425,21 @@ func (r report) agentDrops(res *resolve.Result) []agentDrop {
 			continue
 		}
 		d := a.Delivery()
+		if d.Fits(res) {
+			continue
+		}
 		c := *res
 		c.Dropped = nil
 		d.Fit(&c)
-		if len(c.Dropped) == 0 {
-			continue
-		}
 		name := c.Namer()
-		names := make([]string, len(c.Dropped))
+		drop := agentDrop{Agent: a.Name(), Over: d.Over(), Dropped: make([]string, len(c.Dropped))}
 		for i, h := range c.Dropped {
-			names[i] = name(h)
+			drop.Dropped[i] = name(h)
 		}
-		out = append(out, agentDrop{a.Name(), d.Over(), names})
+		if !d.Fits(&c) {
+			drop.Still = stillOver(&c)
+		}
+		out = append(out, drop)
 	}
 	return out
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,5 +81,34 @@ func TestTraceUsesRealPaths(t *testing.T) {
 		if f.Status != c.status || c.status == "added" && f.Chars != 600 || filepath.Base(f.Path) != "real.md" {
 			t.Errorf("%q: %+v", c.max, f)
 		}
+	}
+}
+
+// Skills alone over an agent's capacity fail doctor and explain too,
+// although no instruction file can be dropped.
+func TestCapacityErrorsFromSkills(t *testing.T) {
+	h := testenv.Home(t)
+	for i := range 300 {
+		testenv.Skill(t, filepath.Join(h, "skills", fmt.Sprintf("s%03d", i)), fmt.Sprintf("name: s%03d\ndescription: %s", i, strings.Repeat("d", 2000)))
+	}
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - {name: many, skills: ['~/skills/*']}\n")
+	for _, args := range [][]string{{"doctor", h, "--json"}, {"context", "explain", h, "--json"}, {"context", "explain", h, "--agent", "claude-code", "--json"}} {
+		code, out, _ := run(args...)
+		var doc struct {
+			Diagnostics []struct{ Severity, Message string }
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		found := false
+		for _, d := range doc.Diagnostics {
+			found = found || d.Severity == "error" && strings.Contains(d.Message, "even without instruction files") && strings.Contains(d.Message, "bindings many")
+		}
+		if code != 1 || !found {
+			t.Errorf("%v: exit %d, diagnostics %+v", args, code, doc.Diagnostics)
+		}
+	}
+	if code, out, _ := run("doctor", h); code != 1 || !strings.Contains(out, "even without instruction files") {
+		t.Errorf("doctor: exit %d\n%s", code, out)
 	}
 }
