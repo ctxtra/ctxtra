@@ -1267,7 +1267,10 @@ a newer format fails that server's calls with an upgrade hint, and changes nothi
 ### Setup
 
 `ctxtra setup` always adds the entry to each MCP-supported agent it sets up, even with no servers in the
-config or sources. A server bound later reaches the next session without another setup. Setup never copies
+config or sources. A server bound later reaches the next session without another setup, with one exception:
+Codex passes the proxy only the variables in its entry's `env_vars`, so a local server with a new `pass-env`
+variable needs `ctxtra setup --agent codex` again. The Codex session message, the setup notices and `doctor` say
+so; the hook reads only Codex's config file for it. Setup never copies
 the user's servers into agent configs. `--remove` removes the entry.
 
 | Agent | File | Entry |
@@ -1333,7 +1336,7 @@ The setup notices and `doctor` report the entry:
 | A hook setup is missing its proxy | `claude-code: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude-code` |
 | The entry runs another binary | `claude-code: the ctxtra MCP proxy runs /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
 | The entry is gone from its file | `claude-code: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; ...` |
-| Codex's entry doesn't pass a local server's `pass-env` variable | `codex: the ctxtra MCP proxy doesn't pass DBHOST to local servers; run ctxtra setup --agent codex` |
+| Codex's entry doesn't pass a local server's `pass-env` variable | `codex: the ctxtra MCP entry doesn't pass DBHOST to the proxy; run ctxtra setup --agent codex` |
 | The entry has its old name | `claude-code: the ctxtra MCP proxy has its old name ctxtra; run ctxtra setup --agent claude-code` |
 | An entry named ctxtra-proxy isn't setup's | `~/.claude.json: the MCP server ctxtra-proxy doesn't run ctxtra mcp proxy; rename or delete it, then run ctxtra setup --agent claude-code` |
 

@@ -48,7 +48,12 @@ What changed:
 ### Changes
 
 - The session message names the first three errors, with their line in the config or the command that
-  fixes them, and counts the rest.
+  fixes them, and counts the rest. Each is one line of at most 240 characters, with control characters
+  escaped; a cut line keeps its command.
+- A source server that needs approval and is remote, or has `secret-env`, also says to sign in after
+  approving it: `ctxtra mcp approve ID, then ctxtra mcp login ID`.
+- In Codex, the session message says to run `ctxtra setup --agent codex` when a bound local server takes a
+  `pass-env` variable that Codex's MCP entry doesn't pass yet.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
 - Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
   including collection `--replace`. New and changed entries still validate their content.

@@ -739,6 +739,14 @@ type MCPCheck struct {
 	EnvPass []string
 }
 
+// EnvAllowList is an agent whose MCP entry names the variables that reach
+// the proxy (Codex).
+type EnvAllowList interface {
+	// MissingEnv are those of names that ctxtra's MCP entry doesn't pass, from
+	// the agent's config file alone; none when there is no entry of ctxtra's.
+	MissingEnv(names []string) []string
+}
+
 // MCPEntryName is the name of ctxtra's entry in every agent.
 const MCPEntryName = "ctxtra-proxy"
 

@@ -577,7 +577,9 @@ to run `ctxtra setup --agent claude-code` until you do.
 ctxtra gives your sessions MCP servers by folder, like instructions and skills, through one MCP server named
 `ctxtra-proxy`. Setup supports Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity.
 Setup adds the proxy even when you have no servers yet. Servers you bind later reach the next session
-without another setup.
+without another setup. In Codex, a local server with a new `pass-env` variable needs
+`ctxtra setup --agent codex` again: Codex passes the proxy only the variables setup listed. The session
+message and `doctor` say so.
 [spec.md](spec.md#mcp-servers) describes the format and limits.
 
 For a server you declare yourself:

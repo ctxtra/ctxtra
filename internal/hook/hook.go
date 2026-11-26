@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
@@ -216,6 +217,9 @@ func session(a agent.Agent, d agent.Delivery, version, ts, event string, p paylo
 	if n := update.ReleaseNotice(checks, state.Load(), version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
+	if n := passEnvNotice(a, res); n != "" {
+		res.Notices = append(res.Notices, n)
+	}
 	checkErr := update.StartDue(checks, version)
 	d.Fit(res)
 	e := newEntry(ts, a.Name(), event, p, res, resolve.Chars(res.Render()))
@@ -229,6 +233,25 @@ func session(a agent.Agent, d agent.Delivery, version, ts, event string, p paylo
 		e.Errors = append(slices.Clip(e.Errors), profileErr.Error())
 	}
 	return res, e
+}
+
+// passEnvNotice says to set up a again when its MCP entry doesn't pass a
+// variable that the session's servers take from the proxy's environment,
+// as for a server added after setup.
+func passEnvNotice(a agent.Agent, res *resolve.Result) string {
+	e, ok := a.(agent.EnvAllowList)
+	if !ok || len(res.MCPServers) == 0 {
+		return ""
+	}
+	names := []string{profile.Env}
+	for _, m := range res.MCPServers {
+		names = append(names, m.EnvPass...)
+	}
+	missing := e.MissingEnv(names)
+	if len(missing) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("the ctxtra MCP entry doesn't pass %s to the proxy; %s", strings.Join(missing, ", "), agent.Repair(a.Name()))
 }
 
 func write(out io.Writer, answer any) {

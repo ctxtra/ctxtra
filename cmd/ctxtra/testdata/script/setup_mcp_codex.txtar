@@ -32,8 +32,14 @@ exec ctxtra mcp add db --pass-env DBHOST -- mcptest
 stdout 'run ctxtra setup: ctxtra''s MCP proxy in codex needs it'
 ! exec ctxtra doctor
 stdout 'the ctxtra MCP entry doesn''t pass DBHOST to the proxy; run ctxtra setup --agent codex'
+exec ctxtra binding add db --mcp-server db
+runhook codex SessionStart .
+stdout '\\nℹ the ctxtra MCP entry doesn''t pass DBHOST to the proxy; run ctxtra setup --agent codex'
 exec ctxtra setup --agent codex
 grep '"DBHOST", "PGHOST"\]$' .codex/config.toml
+runhook codex SessionStart .
+stdout 'MCP server'
+! stdout 'doesn''t pass'
 
 # A key the user adds in ctxtra's table stays.
 exec sed -i.bak 's/^startup_timeout_sec = 30$/startup_timeout_sec = 30\ndefault_tools_approval_mode = "approve"/' .codex/config.toml
