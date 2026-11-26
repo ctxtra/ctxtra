@@ -275,7 +275,7 @@ func (p *proxy) instructions() string {
 	}
 	text := "This server gives the session the tools of the MCP servers that ctxtra binds to this folder (" +
 		strings.Join(names, ", ") + "). When an expected tool of theirs is missing or a call fails, run " +
-		"`ctxtra mcp status` in the session folder: it says why."
+		"`ctxtra mcp status --agent " + p.o.Agent + "` in the session folder: it says why."
 	if p.o.Notices != nil {
 		for _, notice := range p.o.Notices() {
 			text += "\n" + notice

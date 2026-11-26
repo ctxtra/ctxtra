@@ -102,3 +102,26 @@ func secretNotes(id string, s upstream.Server, owner string) []string {
 	}
 	return out
 }
+
+// findServer is the server that ref names: a config server, the config's
+// new name for a source's server, or SOURCE:SERVER.
+func findServer(ref string) (upstream.Server, bool) {
+	s, ok := loadEnv().Catalog.Server(ref)
+	return s.Server, ok
+}
+
+// checkServerRef says what is wrong with a server reference: a config
+// server's name, or SOURCE:SERVER.
+func checkServerRef(ref string) error {
+	source, name, qualified := strings.Cut(ref, ":")
+	if !qualified {
+		return config.CheckServerName(ref)
+	}
+	if err := config.CheckName(source); err != nil {
+		return fmt.Errorf("server %q: %v", ref, err)
+	}
+	return config.CheckServerName(name)
+}
+
+// withLock runs fn under the lock of config writes.
+func withLock(fn func() error) error { return configFiles().Locked(fn) }

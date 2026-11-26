@@ -82,9 +82,7 @@ func skillList(stdio IO, asJSON bool) int {
 		i := skillInfo{Name: name, Description: description(name)}
 		_, err := os.Stat(filepath.Join(paths.SkillDir(name), "SKILL.md"))
 		i.Installed = err == nil
-		if b := skillBound(name); b != nil {
-			i.Binding = b.ID()
-		}
+		i.Binding = skillBound(name)
 		out = append(out, i)
 	}
 	if asJSON {
