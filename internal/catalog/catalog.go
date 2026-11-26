@@ -41,6 +41,10 @@ type Catalog struct {
 	store *storeUse
 	// colls are the collections read, by their definition.
 	colls map[*config.Collection]*coll
+	// expansions counts the expansions of collections, up to
+	// maxExpansions; tooMany is the error of the ones past it.
+	expansions int
+	tooMany    *Error
 }
 
 // storeUse is what a catalog marked as used in ctxtra's store. All marks
@@ -329,7 +333,7 @@ func (c *Catalog) WithFiles(name string, fsys fs.FS, top string) *Catalog {
 	cp := *c
 	cp.sources = map[string]*Source{}
 	cp.order = nil
-	cp.colls = nil
+	cp.colls, cp.expansions, cp.tooMany = nil, 0, nil
 	for _, s := range c.order {
 		if s.Name == name {
 			s = &Source{Source: s.Source, State: Active, Top: top, fsys: fsys}

@@ -24,6 +24,9 @@ type Expansion struct {
 	// Entered are the sources' collections that the list or the config's
 	// own collections name, as SOURCE:NAME: where it enters each source.
 	Entered []string
+	// Used are every collection it went through, nested ones included,
+	// after ! entries, as NAME or SOURCE:NAME.
+	Used []string
 	// Manifests are the sources whose manifests it read.
 	Manifests []string
 	// Unavailable are the sources it names whose content can't be used:
@@ -34,18 +37,20 @@ type Expansion struct {
 }
 
 func (x *Expansion) merge(o *Expansion) {
-	for _, it := range o.Files {
-		x.Files = addItem(x.Files, it)
-	}
-	for _, it := range o.Skills {
-		x.Skills = addItem(x.Skills, it)
+	x.Files = addItems(x.Files, o.Files)
+	x.Skills = addItems(x.Skills, o.Skills)
+	ids := map[string]bool{}
+	for _, s := range x.Servers {
+		ids[s.ID] = true
 	}
 	for _, s := range o.Servers {
-		if !slices.ContainsFunc(x.Servers, func(h Server) bool { return h.ID == s.ID }) {
+		if !ids[s.ID] {
+			ids[s.ID] = true
 			x.Servers = append(x.Servers, s)
 		}
 	}
 	x.Entered = union(x.Entered, o.Entered...)
+	x.Used = union(x.Used, o.Used...)
 	x.Manifests = union(x.Manifests, o.Manifests...)
 	x.Unavailable = union(x.Unavailable, o.Unavailable...)
 	x.Errors = addErrors(x.Errors, o.Errors)
@@ -60,16 +65,31 @@ func addErrors(list, more []*Error) []*Error {
 	return list
 }
 
-func addItem(list []Item, it Item) []Item {
-	if slices.ContainsFunc(list, func(o Item) bool { return o.Path == it.Path }) {
-		return list
+func addItem(list []Item, it Item) []Item { return addItems(list, []Item{it}) }
+
+// addItems adds the items of more that list doesn't have, by path.
+func addItems(list, more []Item) []Item {
+	have := make(map[string]bool, len(list))
+	for _, it := range list {
+		have[it.Path] = true
 	}
-	return append(list, it)
+	for _, it := range more {
+		if !have[it.Path] {
+			have[it.Path] = true
+			list = append(list, it)
+		}
+	}
+	return list
 }
 
 func union(list []string, more ...string) []string {
+	have := make(map[string]bool, len(list))
+	for _, s := range list {
+		have[s] = true
+	}
 	for _, s := range more {
-		if !slices.Contains(list, s) {
+		if !have[s] {
+			have[s] = true
 			list = append(list, s)
 		}
 	}
@@ -103,10 +123,22 @@ type coll struct {
 	state      int // unvisited, onStack or done
 	index, low int
 	selfLoop   bool
-	memo       *Expansion
-	reach      []*coll
-	reachDone  bool
+	// memos are its expansions, by the set of ! entries of the
+	// collections that contain it that name a collection nested in it.
+	memos map[string]*Expansion
+	// reach are the collections nested in it, at any depth.
+	reach     []*coll
+	reachSet  map[*coll]bool
+	reachDone bool
+	// nests caches whether a ! entry names a collection in reach.
+	nests map[string]bool
 }
+
+// maxExpansions bounds the expansions of collections that one catalog
+// makes: one per collection and set of ! entries of the collections that
+// contain it. Scoped ! entries in many nested collections could make
+// their number grow with every level.
+var maxExpansions = 10000
 
 const (
 	unvisited = iota
@@ -451,12 +483,11 @@ func (k *coll) reached() []*coll {
 		return k.reach
 	}
 	k.reachDone = true
+	k.reachSet = map[*coll]bool{}
 	for _, n := range k.nested {
-		if !slices.Contains(k.reach, n) {
-			k.reach = append(k.reach, n)
-		}
-		for _, m := range n.reached() {
-			if !slices.Contains(k.reach, m) {
+		for _, m := range append([]*coll{n}, n.reached()...) {
+			if !k.reachSet[m] {
+				k.reachSet[m] = true
 				k.reach = append(k.reach, m)
 			}
 		}
@@ -464,27 +495,73 @@ func (k *coll) reached() []*coll {
 	return k.reach
 }
 
-// flat is what k adds when the ! entries not of the collections that
-// contain it, as the config would write them, leave out the collections
-// they name. Without such a collection in k, its own expansion is
-// reused; the first one records the errors of k's ! entries.
-func (c *Catalog) flat(k *coll, not []config.Entry) *Expansion {
-	if !slices.ContainsFunc(k.reached(), func(n *coll) bool {
-		return slices.ContainsFunc(not, func(e config.Entry) bool { return matches(e, n) })
-	}) {
-		if k.memo == nil {
-			k.memo = c.expand(k, nil, true)
-		}
-		return k.memo
+// exclusionKey identifies a ! entry of a collections list, as the config
+// would write it, by what it matches.
+func exclusionKey(e config.Entry) string {
+	if e.InSource {
+		return e.Source + ":" + e.Value
 	}
-	return c.expand(k, not, false)
+	return ":" + e.Value
+}
+
+// nestsMatch reports whether ! entry e names a collection nested in k.
+func (k *coll) nestsMatch(e config.Entry) bool {
+	key := exclusionKey(e)
+	if hit, ok := k.nests[key]; ok {
+		return hit
+	}
+	if k.nests == nil {
+		k.nests = map[string]bool{}
+	}
+	hit := slices.ContainsFunc(k.reached(), func(n *coll) bool { return matches(e, n) })
+	k.nests[key] = hit
+	return hit
+}
+
+// flat is what k adds when the ! entries not of the binding and of the
+// collections that contain k, as the config would write them, leave out
+// the collections they name. Only the entries that name a collection
+// nested in k count, and k is expanded once for each set of them: a
+// collection repeated in a graph, or reached by many paths, is reused. The
+// expansion without such entries records the errors of k's ! entries.
+func (c *Catalog) flat(k *coll, not []config.Entry) *Expansion {
+	var keys []string
+	var count []config.Entry
+	for _, e := range not {
+		if key := exclusionKey(e); !slices.Contains(keys, key) && k.nestsMatch(e) {
+			keys = append(keys, key)
+			count = append(count, e)
+		}
+	}
+	slices.Sort(keys)
+	key := strings.Join(keys, "\x00")
+	if x, ok := k.memos[key]; ok {
+		return x
+	}
+	if k.memos == nil {
+		k.memos = map[string]*Expansion{}
+	}
+	var x *Expansion
+	if c.expansions >= maxExpansions {
+		if c.tooMany == nil {
+			c.tooMany = &Error{File: k.file, Err: &yamlx.Error{Pos: k.def.Pos, Mistake: yamlx.BrokenGroup,
+				Part: yamlx.Part{Kind: "collection", Name: k.def.Name},
+				Msg:  fmt.Sprintf("its nested collections and their ! entries need more than %d expansions", maxExpansions)}}
+		}
+		x = &Expansion{Errors: []*Error{c.tooMany}}
+	} else {
+		c.expansions++
+		x = c.expand(k, count, key == "")
+	}
+	k.memos[key] = x
+	return x
 }
 
 // expand is flat without reuse: k's nested collections, in list order,
 // then its own entries, minus its ! entries. With record, ! entries that
 // remove nothing are errors of k.
 func (c *Catalog) expand(k *coll, not []config.Entry, record bool) *Expansion {
-	x := &Expansion{Errors: slices.Clone(k.errs)}
+	x := &Expansion{Errors: slices.Clone(k.errs), Used: []string{k.ref()}}
 	if k.cycle {
 		return x
 	}
@@ -526,7 +603,7 @@ func (c *Catalog) expand(k *coll, not []config.Entry, record bool) *Expansion {
 		}
 	}
 	for _, e := range k.notColls {
-		if !slices.ContainsFunc(k.reached(), func(n *coll) bool { return matches(e, n) }) {
+		if !k.nestsMatch(e) {
 			k.fail(e.Pos, yamlx.BrokenEntry, "%s excludes nothing", e.Text)
 		}
 	}
