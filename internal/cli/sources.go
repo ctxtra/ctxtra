@@ -629,15 +629,17 @@ func (s *sources) download(names []string) int {
 			n = 1
 			continue
 		}
-		remote := resolve.RemoteOf(&config.Source{Repo: e.Repo})
-		if source.Has(remote, e.Commit) {
+		// The lock's address names the commit's folder in the store; the
+		// config's equivalent address is the one that works for fetching.
+		stored := resolve.RemoteOf(&config.Source{Repo: e.Repo})
+		if source.Has(stored, e.Commit) {
 			fmt.Fprintf(s.Out, "%s: %s is downloaded\n", cs.Name, source.Short(e.Commit))
 			continue
 		}
-		r := source.Open(remote)
+		r := source.Open(resolve.RemoteOf(cs.Source))
 		err := r.FetchCommit(s.ctx, e.Commit)
 		if err == nil {
-			_, err = r.Materialize(s.ctx, e.Commit)
+			_, err = r.MaterializeAs(s.ctx, e.Commit, stored)
 		}
 		if err != nil {
 			fmt.Fprintf(s.Err, "%s: %v\n", cs.Name, err)

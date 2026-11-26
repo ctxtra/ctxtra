@@ -676,8 +676,14 @@ func CheckPath(p string) error {
 // generation's folder. The files are written into a new private folder,
 // which is renamed into place only when complete.
 func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
-	dst := GenDir(r.URL, commit)
-	if Has(r.URL, commit) {
+	return r.MaterializeAs(ctx, commit, r.URL)
+}
+
+// MaterializeAs is Materialize into the store folder of address store, an
+// equivalent spelling of the repository: where the lock's address has it.
+func (r *Repo) MaterializeAs(ctx context.Context, commit, store string) (string, error) {
+	dst := GenDir(store, commit)
+	if Has(store, commit) {
 		if err := Touch(dst, TouchWait); err != nil { // a fresh time keeps Clean away until the config names it
 			return "", err
 		}
@@ -701,7 +707,7 @@ func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
 	if err := r.writeFiles(ctx, tmp, entries); err != nil {
 		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
 	}
-	if err := os.Rename(tmp, dst); err != nil && !Has(r.URL, commit) {
+	if err := os.Rename(tmp, dst); err != nil && !Has(store, commit) {
 		return "", err
 	}
 	if err := Touch(dst, TouchWait); err != nil {

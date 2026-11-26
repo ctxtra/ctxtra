@@ -462,3 +462,23 @@ func TestHead(t *testing.T) {
 		t.Error("an unreachable remote")
 	}
 }
+
+// MaterializeAs writes the commit where the store has the other spelling
+// of the repository.
+func TestMaterializeAs(t *testing.T) {
+	dir, url := team(t)
+	first := commit(t, dir, map[string]string{"a.md": "A\n"})
+	ctx := context.Background()
+	r := Open(url)
+	if err := r.FetchCommit(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	other := url + "/."
+	gen, err := r.MaterializeAs(ctx, first, other)
+	if err != nil || gen != GenDir(other, first) || !Has(other, first) || Has(url, first) {
+		t.Fatalf("gen %s %v", gen, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(gen, "a.md")); string(b) != "A\n" {
+		t.Errorf("a.md: %q", b)
+	}
+}
