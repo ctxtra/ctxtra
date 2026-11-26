@@ -226,6 +226,7 @@ The session message, `doctor` and `context explain` give the command to trust th
 When a folder gets its first remote, they also show how to add a repo source for reviewed commits.
 `ctxtra source trust dotfiles --dry-run` explains the decision without recording trust.
 A symlink is followed only when every link and its destination pass the same trust check.
+Trust records include fetch and push URLs. Files are read and shown by the destination path that passed the check.
 A dir source's path can lead through a symlink in another repository with remotes only when that folder is a
 trusted dir source too. Otherwise name the folder the link leads to.
 Live patterns can follow links to your own files and folders. Repo sources leave all symlinks out,

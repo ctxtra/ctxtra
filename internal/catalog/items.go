@@ -37,6 +37,8 @@ const maxGlobEntries = 10000
 // session's files.
 const maxManifestBytes = 1 << 20
 
+var readBounded = fsutil.ReadBounded
+
 // Item is a file or a skill folder that an entry adds.
 type Item struct {
 	// Path is where it is: on disk, or in ctxtra's store for a repo source.
@@ -59,15 +61,6 @@ func (it Item) Child(name string) Item {
 		c.Rel = path.Join(it.Rel, name)
 	}
 	return c
-}
-
-// Real is where it is, without symlinks. The store has none, and a
-// source's top is real already.
-func (it Item) Real() string {
-	if it.stored {
-		return it.Path
-	}
-	return paths.Real(it.Path)
 }
 
 // Ref is how the config names it: SOURCE:PATH, or the path on disk.
@@ -153,12 +146,10 @@ func escapeMeta(s string) string {
 	return b.String()
 }
 
-// Read is the content of it, read with rd's limits; nil rd reads with a
-// manifest's limit. A file outside ctxtra's store is read only when the
-// trust rules allow it; when they don't, the error is *Untrusted.
-func (c *Catalog) Read(it Item, rd *fsutil.Reader) ([]byte, error) { return c.read(it, rd) }
-
-func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
+// Read returns the content and checked path of it, with rd's limits. A nil
+// rd uses a manifest's limit. A file outside ctxtra's store is read only
+// when the trust rules allow it; when they don't, the error is *Untrusted.
+func (c *Catalog) Read(it Item, rd *fsutil.Reader) ([]byte, string, error) {
 	limit := maxManifestBytes
 	if rd != nil {
 		limit = math.MaxInt // rd's own limit
@@ -167,22 +158,31 @@ func (c *Catalog) read(it Item, rd *fsutil.Reader) ([]byte, error) {
 }
 
 // readMax is read with at most limit bytes for this file.
-func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, error) {
+func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, string, error) {
 	p := it.Path
 	if it.fsys != nil {
-		return readFS(it, rd, limit)
+		data, err := readFS(it, rd, limit)
+		return data, p, err
 	}
+	var err error
 	if !it.stored {
-		if err := c.trust.Check(p); err != nil {
-			return nil, &Untrusted{err}
+		p, err = c.trust.Resolve(p)
+		if err != nil {
+			return nil, "", &Untrusted{err}
 		}
-	} else if err := trust.Stored(c.sources[it.Source].Top, p); err != nil {
-		return nil, err
+	} else {
+		p, err = trust.Stored(c.sources[it.Source].Top, p)
+		if err != nil {
+			return nil, "", err
+		}
 	}
+	var data []byte
 	if rd == nil {
-		return fsutil.ReadBounded(p, limit)
+		data, err = readBounded(p, limit)
+	} else {
+		data, err = rd.ReadMax(p, limit)
 	}
-	return rd.ReadMax(p, limit)
+	return data, p, err
 }
 
 // readFS reads it from its source's files in git, with at most limit bytes
@@ -368,7 +368,7 @@ func (t *tree) statStored(full string) (fs.FileInfo, error) {
 	if full != t.root {
 		parent = filepath.Dir(full)
 	}
-	if err := trust.Stored(t.root, parent); err != nil {
+	if _, err := trust.Stored(t.root, parent); err != nil {
 		return nil, err
 	}
 	return os.Lstat(full)
@@ -465,7 +465,7 @@ func (t *tree) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	full := filepath.Join(t.root, filepath.FromSlash(name))
 	if !t.live && !t.virtual {
-		if err := trust.Stored(t.root, full); err != nil {
+		if _, err := trust.Stored(t.root, full); err != nil {
 			t.skip(full, err)
 			return nil, nil
 		}

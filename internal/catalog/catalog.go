@@ -425,7 +425,7 @@ func (c *Catalog) ManifestWithin(s *Source, rd *fsutil.Reader) (*manifest.Manife
 	}
 	it := Item{Path: path, Source: s.Name, Rel: manifest.FileName, stored: !s.Live(), fsys: s.fsys}
 	file := s.Name + ":" + manifest.FileName
-	data, err := c.readMax(it, rd, maxManifestBytes)
+	data, _, err := c.readMax(it, rd, maxManifestBytes)
 	if errors.Is(err, fsutil.ErrTotalLimit) {
 		return nil, nil, err
 	}

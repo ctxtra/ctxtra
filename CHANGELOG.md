@@ -46,6 +46,8 @@
 - Live-folder trust notices give the trust command and the option to use reviewed commits. `source trust`
   explains that files, servers and repo sets apply without review. Trust checks include every URL of a
   remote. Repo sources refuse symlinks in explicit paths and manifests as well as in patterns.
+- Trust records include push URLs as well as fetch URLs. File reads and displayed paths use the destination
+  that passed the trust check.
 
 ## v0.6.0
 

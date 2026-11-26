@@ -112,7 +112,7 @@ them on this machine. A change to the remotes stops live reading until the user 
 The command says that the folder's files, servers and repo sets apply as they are, without review.
 If a folder gets a remote later, the session message, `doctor` and `context explain` name
 `ctxtra source trust NAME` and the alternative of adding a repo source for reviewed commits.
-If trusted remotes change, those reports say to trust the source again. Every URL of every remote counts;
+If trusted remotes change, those reports say to trust the source again. Every fetch and push URL of every remote counts;
 equivalent SSH and HTTPS addresses count as the same repository.
 
 A disk file is read only when it is outside git, in a repository without remotes, or under a trusted dir source.
@@ -121,6 +121,7 @@ and the commands for reviewed commits or live trust. A nested repository needs i
 remote. A source covers its folder, not another clone or a worktree elsewhere.
 
 Symlinks in live paths are followed only when every link and the destination pass the same trust check.
+Reads open the destination path that passed the check. The displayed path and read cache use that path too.
 A link in a trusted folder cannot make an untrusted file readable. Each symlink on the way to a `dir` passes
 the check at its own location: outside git, in a repository without remotes, or in another dir source that is
 trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository.

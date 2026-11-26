@@ -41,6 +41,59 @@ exec git -C dotfiles remote set-url --add origin git@github.com:third/dotfiles.g
 runhook claude-code SessionStart notes
 ! stdout CTXMARK-LIVE
 stdout 'remotes of ~/dotfiles changed.*github.com/third/dotfiles.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+# Push URLs are part of the trusted set, including additional push URLs.
+exec git -C dotfiles remote set-url --add --push origin git@github.com:push/dotfiles.git
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*github.com/push/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push/dotfiles.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+exec git -C dotfiles remote set-url --add --push origin git@github.com:push-two/dotfiles.git
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*github.com/push-two/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push-two/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push-two/dotfiles.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+# Replacing and removing push URLs also need trust again.
+exec git -C dotfiles remote set-url --push origin git@github.com:push-new/dotfiles.git 'git@github.com:push/dotfiles.git'
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*github.com/push-new/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push-new/dotfiles.*ctxtra source trust dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes of ~/dotfiles changed.*github.com/push-new/dotfiles.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
+
+exec git -C dotfiles remote set-url --delete --push origin 'git@github.com:push-new/dotfiles.git'
+runhook claude-code SessionStart notes
+! stdout CTXMARK-LIVE
+stdout 'remotes of ~/dotfiles changed.*ctxtra source trust dotfiles'
+! exec ctxtra doctor notes
+stdout 'remotes of ~/dotfiles changed.*ctxtra source trust dotfiles'
+! exec ctxtra context explain notes
+stdout 'remotes of ~/dotfiles changed.*ctxtra source trust dotfiles'
+exec ctxtra source trust dotfiles
+runhook claude-code SessionStart notes
+stdout CTXMARK-LIVE
 
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/config/v1

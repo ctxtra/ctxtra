@@ -161,6 +161,7 @@ func TestParseRemotes(t *testing.T) {
 		{"[core]\n\tbare = false\n", "", false, false},
 		{"[remote \"origin\"]\n\turl = https://GitHub.com/a/b.git\n", "github.com/a/b", true, false},
 		{"[Remote \"x\"]\nURL=\"git@h:a/b\"\n", "h/a/b", true, false},
+		{"[remote \"x\"]\nPushURL=\"git@h:a/push\"\n", "h/a/push", true, false},
 		{"[remote \"x\"]\nurl = \"https://github.com/me/\"other.git\n", "github.com/me/other", true, false},
 		{"[remote \"x\"]\nurl = https://github.com/me/\"other.git\"\n", "github.com/me/other", true, false},
 		{"[remote.old]\n", "(unknown)", true, false},
