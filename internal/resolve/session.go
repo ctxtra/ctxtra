@@ -524,7 +524,7 @@ func (r *session) repoSets(b *config.Binding, t *Trace) (sets []repoSet, left st
 		case u != nil && u.Source.State == catalog.NotHere:
 			left = fmt.Sprintf("repo-sets %s can't be read: %v", e.Text, err)
 		default:
-			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be read: %v; the binding is left out", e.Text, err)
+			r.fail(t, b, e.Pos, yamlx.BrokenExclusion, "repo-sets %s can't be read: %v", e.Text, err)
 			left = fmt.Sprintf("repo-sets %s can't be read", e.Text)
 		}
 	}

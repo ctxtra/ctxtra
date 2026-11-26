@@ -296,6 +296,9 @@ is left out`. An added entry of the form `HOST/**`, such as `github.com/**`, get
 every repository on that host. Errors in those sets are reviewed like other new errors. `--json` lists a
 changed set as a `notice`, and a removed set and a `HOST/**` entry as a `warning`.
 
+Each new error in the review names the bindings it affects when the error doesn't name them itself, and
+`--json` lists it in `diagnostics` as an `error`.
+
 The review reads both commits from ctxtra's copy of the repository in the cache. The new commit reaches the
 store only when you accept it. The question goes to stderr. Nonterminal use and `--no-input` fail before
 fetching; `--dry-run` reviews without asking, and writes only to the cache: not the config, the lock, the

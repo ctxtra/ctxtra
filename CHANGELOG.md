@@ -61,6 +61,7 @@
 - `source validate DIR` reports set entries that aren't repositories.
 - `source update` shows the entries a commit adds to or removes from the repo sets in use, the sets it
   removes and their errors, with the bindings that use or exclude them, and warns about `HOST/**` entries.
+- `source update --json` lists the review's new errors in `diagnostics`, with the bindings they affect.
 
 ## v0.6.0
 

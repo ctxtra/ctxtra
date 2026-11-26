@@ -27,16 +27,28 @@ exec ctxtra source update --dry-run iam-team
 stdout '^repo set services adds ~/work/\*\*; binding iam-repos uses it$'
 stdout 'error: .*repo set services: ~/work/\*\* is a folder; a set lists repositories only'
 ! stdout 'matches every repository'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "error",\s+"message": "iam-team: iam-team:ctxtra-source.yaml: line 3: repo set services: ~/work/\*\* is a folder; a set lists repositories only; the entry is left out \(binding iam-repos\)"'
 stdin yes.txt
 exec ctxtra-tty source update iam-team
 stdout 'accepted iam-team'
+
+# A set in use that its errors leave out.
+cp broken-clients.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout 'error: .*repo set clients: unknown key "wrong".* \(binding work\)$'
+stdout 'error: .*binding work: repo-sets !iam-team:clients can''t be read: the repo set clients of source iam-team has errors; binding work is left out$'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "error",\s+"message": "iam-team: iam-team:ctxtra-source.yaml: line 4: repo set clients: unknown key \\"wrong\\".* \(binding work\)"'
+stdout '"severity": "error",\s+"message": "iam-team: line \d+: binding work: repo-sets !iam-team:clients can''t be read: the repo set clients of source iam-team has errors; binding work is left out"'
 
 # An excluded set disappears.
 cp no-clients.yaml srv/iam-team/ctxtra-source.yaml
 gitcommit srv/iam-team
 exec ctxtra source update --dry-run iam-team
 stdout '^repo set clients is removed; binding work excludes it; once the commit is accepted, work is left out$'
-stdout 'error: .*binding work: repo-sets !iam-team:clients can''t be read: source iam-team has no repo set clients; the binding is left out'
+stdout 'error: .*binding work: repo-sets !iam-team:clients can''t be read: source iam-team has no repo set clients; binding work is left out'
 ! stdout 'repo set services'
 exec ctxtra source update --dry-run --json iam-team
 stdout '"severity": "warning",\s+"message": "iam-team: repo set clients is removed; binding work excludes it; once the commit is accepted, work is left out"'
@@ -84,3 +96,8 @@ repo-sets:
 schema: ctxtra/source/v1
 repo-sets:
   clients: [github.com/acme/client-*]
+-- broken-clients.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**, ~/work/**]
+  clients: [{repo: github.com/acme/client-*, wrong: x}]

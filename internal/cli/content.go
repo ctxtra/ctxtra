@@ -277,5 +277,5 @@ func (s *sources) checkAdded(env *resolve.Env, name string, snap *source.Snapsho
 			fmt.Fprintf(s.Out, "note: %s: %d content warnings; the first %d are shown\n", source.Sanitize(rel), n, maxWarnings)
 		}
 	})
-	s.printErrors(u.errors, nil)
+	s.printErrors(name, u, &used{})
 }

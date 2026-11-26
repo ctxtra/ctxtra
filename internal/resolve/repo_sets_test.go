@@ -163,7 +163,7 @@ func TestUnreadableRepoSets(t *testing.T) {
 		env := h.load("sources: {corp: {dir: ~/corp}}\nbindings:\n  - {name: b, location: {repo-sets: ['!corp:clients']}, instructions: [~/me.md]}\n")
 		res := start(env, h.dir, "")
 		eq(t, "applied", applied(res))
-		e := oneError(t, res, "repo-sets !corp:clients can't be read", "source corp has no repo set clients", "the binding is left out")
+		e := oneError(t, res, "repo-sets !corp:clients can't be read", "source corp has no repo set clients; binding b is left out")
 		if e.Err.Mistake != yamlx.BrokenExclusion {
 			t.Errorf("mistake %v", e.Err.Mistake)
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/source"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // used is what the config takes from one commit of a source: files and
@@ -19,8 +20,10 @@ import (
 type used struct {
 	files map[string]bool
 	dirs  []string
-	// errors are the errors of the entries that read the source.
+	// errors are the errors of the entries that read the source, each
+	// once; by are the bindings whose entries have each.
 	errors []string
+	by     map[string][]string
 	// named are the bindings that name each of the source's collections,
 	// directly or in the config's own collections, and using those that
 	// use each, nested ones included; by the collection's name.
@@ -87,10 +90,28 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 			u.dirs = append(u.dirs, it.Rel)
 		}
 		for _, e := range ref.Errors {
-			u.errors = append(u.errors, reviewError(env, name, e))
+			who := b.Name
+			if e.File != env.Path && !partUsed(b, ref, name, e.Err.Part) {
+				who = ""
+			}
+			u.addError(reviewError(env, name, e), who)
 		}
 	}
 	return u
+}
+
+// partUsed reports whether binding b, which takes ref from source name,
+// uses part of the source's manifest: a collection or a repo set.
+func partUsed(b *config.Binding, ref resolve.Reference, name string, part yamlx.Part) bool {
+	switch part.Kind {
+	case "collection":
+		return slices.Contains(ref.Used, part.Name) || slices.Contains(ref.Named, part.Name)
+	case "repo set":
+		return b.Location != nil && slices.ContainsFunc(b.Location.RepoSets, func(e config.Entry) bool {
+			return e.InSource && e.Source == name && e.Value == part.Name
+		})
+	}
+	return false
 }
 
 // reviewError is e in the review of source name: the config's own errors
@@ -126,19 +147,42 @@ func (u *used) addOffered(env *resolve.Env, cat *catalog.Catalog, name string) {
 			}
 		}
 		for _, e := range x.Errors {
-			if msg := reviewError(env, name, e); !slices.Contains(u.errors, msg) {
-				u.errors = append(u.errors, msg)
-			}
+			u.addError(reviewError(env, name, e), "")
 		}
 	}
 }
 
-// printErrors prints the errors of now that before doesn't have.
-func (s *sources) printErrors(now, before []string) {
-	for _, e := range now {
-		if !slices.Contains(before, e) {
-			fmt.Fprintf(s.Out, "  error: %s\n", source.Sanitize(e))
+// addError records error msg of binding, "" for none.
+func (u *used) addError(msg, binding string) {
+	if !slices.Contains(u.errors, msg) {
+		u.errors = append(u.errors, msg)
+	}
+	if binding == "" {
+		return
+	}
+	if u.by == nil {
+		u.by = map[string][]string{}
+	}
+	if !slices.Contains(u.by[msg], binding) {
+		u.by[msg] = append(u.by[msg], binding)
+	}
+}
+
+// printErrors reports the errors of now that before doesn't have, of
+// source name, with the bindings they affect when the error doesn't name
+// them.
+func (s *sources) printErrors(name string, now, before *used) {
+	for _, e := range now.errors {
+		if slices.Contains(before.errors, e) {
+			continue
 		}
+		bs := now.by[e]
+		if len(bs) > 0 && !slices.ContainsFunc(bs, func(b string) bool { return strings.Contains(e, "binding "+b+":") }) {
+			e += " (" + bindingNames(bs) + ")"
+		}
+		e = source.Sanitize(e)
+		fmt.Fprintf(s.Out, "  error: %s\n", e)
+		s.diags = append(s.diags, diagnostic{"error", source.Sanitize(name+": ") + e})
 	}
 }
 
@@ -185,7 +229,7 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 		}
 	}
 	u.dirs = append(u.dirs, bu.dirs...)
-	s.printErrors(u.errors, bu.errors)
+	s.printErrors(name, u, bu)
 	if before != nil {
 		s.collectionChanges(name, u, before, after)
 	}
