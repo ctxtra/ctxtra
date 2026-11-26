@@ -423,3 +423,23 @@ func TestRepositoryCantBeTold(t *testing.T) {
 		eq(t, "applied", applied(res), "not-clients", "not-client-dirs", "work", "everywhere")
 	})
 }
+
+// A dirs entry that names a symlink to a folder matches a session in the
+// folder it leads to, as the exact folder and with /**.
+func TestExactDirThroughSymlink(t *testing.T) {
+	h := newHome(t)
+	h.write("me.md", "me")
+	real := h.mkdir("real")
+	h.mkdir("real/sub")
+	symlink(t, real, h.path("link"))
+	for _, c := range []struct{ entry, dir string }{
+		{"~/link", real},
+		{"~/link/**", real},
+		{"~/link/**", filepath.Join(real, "sub")},
+	} {
+		env := h.load("bindings:\n  - {name: b, location: {dirs: ['" + c.entry + "']}, instructions: [~/me.md]}\n")
+		eq(t, c.entry+" in "+c.dir, applied(start(env, c.dir, "")), "b")
+	}
+	env := h.load("bindings:\n  - {name: b, location: {dirs: ['~/link']}, instructions: [~/me.md]}\n")
+	eq(t, "~/link in a folder below", applied(start(env, filepath.Join(real, "sub"), "")))
+}
