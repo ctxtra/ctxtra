@@ -25,6 +25,10 @@ type used struct {
 	// directly or in the config's own collections, and using those that
 	// use each, nested ones included; by the collection's name.
 	named, using useMap
+	// sets are the bindings that use each of the source's repo sets in
+	// location, by the set's name; excluding those that use it in a !
+	// entry.
+	sets, excluding useMap
 }
 
 // useMap is the bindings that use each collection, by its name.
@@ -55,7 +59,7 @@ func reviewTop(name string) string {
 // reads and limits filter them, with the errors a session would report for
 // those entries.
 func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
-	u := &used{files: map[string]bool{manifest.FileName: true}, named: useMap{}, using: useMap{}}
+	u := &used{files: map[string]bool{manifest.FileName: true}, named: useMap{}, using: useMap{}, sets: useMap{}, excluding: useMap{}}
 	alone := *env
 	alone.Catalog = cat
 	for _, b := range env.Config.Bindings {
@@ -63,6 +67,17 @@ func usedFrom(env *resolve.Env, cat *catalog.Catalog, name string) *used {
 			continue
 		}
 		ref := alone.Referenced(b, name)
+		if b.Location != nil {
+			for _, e := range b.Location.RepoSets {
+				switch {
+				case e.Err != nil || !e.InSource || e.Source != name:
+				case e.Not:
+					u.excluding.add([]string{e.Value}, b.Name)
+				default:
+					u.sets.add([]string{e.Value}, b.Name)
+				}
+			}
+		}
 		u.named.add(ref.Named, b.Name)
 		u.using.add(ref.Used, b.Name)
 		for _, it := range ref.Files {
@@ -174,6 +189,7 @@ func (s *sources) review(env *resolve.Env, r *source.Repo, cs *catalog.Source, o
 	if before != nil {
 		s.collectionChanges(name, u, before, after)
 	}
+	s.setChanges(name, u, before, after)
 	s.mcpDefinitionWarnings(name, before, after)
 
 	var shown, other []source.Change
@@ -284,6 +300,146 @@ func (s *sources) collectionChanges(name string, u *used, before, after *catalog
 			s.diags = append(s.diags, diagnostic{"notice", source.Sanitize(name + ": " + msg)})
 		}
 	}
+}
+
+// setChanges reports, for each repo set of source name that the bindings
+// use in location, whether the new commit removes it, or the entries it
+// adds to or removes from it, and warns about added entries that match
+// every repository of a host. before is nil for a review from nothing.
+func (s *sources) setChanges(name string, u *used, before, after *catalog.Catalog) {
+	sets := func(cat *catalog.Catalog) map[string]*config.RepoSet {
+		out := map[string]*config.RepoSet{}
+		if cat == nil {
+			return out
+		}
+		if m, _ := cat.Manifest(cat.Source(name)); m != nil {
+			for _, set := range m.RepoSets {
+				out[set.Name] = set
+			}
+		}
+		return out
+	}
+	was, now := sets(before), sets(after)
+	report := func(severity, msg string) {
+		fmt.Fprintf(s.Out, "%s\n", source.Sanitize(msg))
+		s.diags = append(s.diags, diagnostic{severity, source.Sanitize(name + ": " + msg)})
+	}
+	names := slices.Sorted(maps.Keys(u.sets))
+	for c := range u.excluding {
+		if !slices.Contains(names, c) {
+			names = append(names, c)
+		}
+	}
+	slices.Sort(names)
+	for _, c := range names {
+		users := setUsers(u.sets[c], u.excluding[c])
+		set := now[c]
+		if set == nil {
+			var after []string
+			if len(u.sets[c]) > 0 {
+				after = append(after, "it matches nothing for "+strings.Join(u.sets[c], ", "))
+			}
+			if len(u.excluding[c]) > 0 {
+				after = append(after, strings.Join(u.excluding[c], ", ")+" "+verb(u.excluding[c], "is", "are")+" left out")
+			}
+			report("warning", fmt.Sprintf("repo set %s is removed; %s; once the commit is accepted, %s", c, users, strings.Join(after, " and ")))
+			continue
+		}
+		// A set with errors that leave it out is reported by the review's
+		// errors.
+		if set.Broken() {
+			continue
+		}
+		old := setEntryTexts(was[c])
+		var added, removed []string
+		for _, e := range set.Entries {
+			if t := repoEntryText(e); !slices.Contains(old, t) {
+				added = append(added, t)
+			}
+		}
+		for _, t := range old {
+			if !slices.Contains(setEntryTexts(set), t) {
+				removed = append(removed, t)
+			}
+		}
+		var change []string
+		if len(added) > 0 {
+			change = append(change, "adds "+strings.Join(added, ", "))
+		}
+		if len(removed) > 0 {
+			change = append(change, "removes "+strings.Join(removed, ", "))
+		}
+		if len(change) > 0 {
+			report("notice", fmt.Sprintf("repo set %s %s; %s", c, strings.Join(change, " and "), users))
+		}
+		for _, e := range set.Entries {
+			if host, ok := wholeHost(e); ok && slices.Contains(added, repoEntryText(e)) {
+				report("warning", fmt.Sprintf("repo set %s: %s matches every repository on %s; %s", c, e.Text, host, users))
+			}
+		}
+	}
+}
+
+// setUsers names the bindings that use a set and those that exclude it.
+func setUsers(using, excluding []string) string {
+	var parts []string
+	if len(using) > 0 {
+		parts = append(parts, bindingNames(using)+" "+verb(using, "uses", "use")+" it")
+	}
+	if len(excluding) > 0 {
+		parts = append(parts, bindingNames(excluding)+" "+verb(excluding, "excludes", "exclude")+" it")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func bindingNames(bindings []string) string {
+	if len(bindings) > 1 {
+		return "bindings " + strings.Join(bindings, ", ")
+	}
+	return "binding " + bindings[0]
+}
+
+func verb(subjects []string, one, many string) string {
+	if len(subjects) > 1 {
+		return many
+	}
+	return one
+}
+
+// setEntryTexts are the entries of set as repoEntryText writes them; none for
+// a nil set.
+func setEntryTexts(set *config.RepoSet) []string {
+	if set == nil {
+		return nil
+	}
+	var out []string
+	for _, e := range set.Entries {
+		out = append(out, repoEntryText(e))
+	}
+	return out
+}
+
+// repoEntryText is a set's entry as one line: the repository, with its
+// subdirs when it has any.
+func repoEntryText(e config.RepoEntry) string {
+	if e.Subdirs == nil {
+		return e.Text
+	}
+	var subs []string
+	for _, sub := range e.Subdirs {
+		subs = append(subs, sub.Text)
+	}
+	return e.Text + " (subdirs " + strings.Join(subs, ", ") + ")"
+}
+
+// wholeHost reports whether e is a positive entry of the form HOST/**,
+// which matches every repository of HOST.
+func wholeHost(e config.RepoEntry) (string, bool) {
+	if e.Err != nil || e.Not {
+		return "", false
+	}
+	host, rest, ok := strings.Cut(config.RepoID(e.Repo), "/")
+	return host, ok && rest == "**"
 }
 
 // regular reports whether a git mode is a regular file's.

@@ -354,7 +354,9 @@ bindings:
 
 If ctxtra can't read an excluded set, for example on a new machine before `ctxtra source download`, it
 leaves out the binding, so it never reaches the repositories you excluded. `context explain` shows which
-set and which of its entries matched.
+set and which of its entries matched. `source update` shows what a commit changes in a set you use, tells
+you when it removes one, and warns about an entry such as `github.com/**`, which matches every repository on
+the host.
 
 ### Profiles and agents
 

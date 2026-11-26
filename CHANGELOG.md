@@ -59,6 +59,8 @@
   after each accepted commit. `!` entries in `repos` and `repo-sets` leave out repositories of a set. A set
   that can't be read matches nothing, and in a `!` entry leaves out the binding.
 - `source validate DIR` reports set entries that aren't repositories.
+- `source update` shows the entries a commit adds to or removes from the repo sets in use, the sets it
+  removes and their errors, with the bindings that use or exclude them, and warns about `HOST/**` entries.
 
 ## v0.6.0
 
