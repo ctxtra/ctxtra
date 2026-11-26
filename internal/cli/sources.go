@@ -646,6 +646,7 @@ func (s *sources) sync(env *resolve.Env, cs *catalog.Source, dryRun bool) (strin
 		case unchanged != "":
 			fmt.Fprintf(s.Out, "%s: up to date: %s at %s changes nothing under %s since %s\n",
 				src.Name, src.Ref.Name, source.Short(commit), source.Sanitize(subdir), source.Short(old))
+			s.forcePushed(r, old, commit)
 			return commit, false, nil
 		}
 	}
