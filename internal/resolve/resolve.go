@@ -144,7 +144,9 @@ func (r *Result) Fit(fits func(*Result) bool, over string) {
 	r.Files = files[:n:n]
 	r.Dropped = append(dropped, r.Dropped...)
 	msg := fmt.Sprintf("the text is over %s; %d files of bindings %s are left out", over, len(dropped), strings.Join(bindings, ", "))
-	if c.Files = r.Files; !fits(&c) {
+	// With files left, the search found that they fit; with none, the
+	// skills alone may be over.
+	if c.Files = r.Files; n == 0 && !fits(&c) {
 		var skills []string
 		for _, h := range r.Skills {
 			if !slices.Contains(skills, h.Origin) {
