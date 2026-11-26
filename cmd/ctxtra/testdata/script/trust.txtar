@@ -12,7 +12,7 @@ stdout 'CTXMARK-NOTES'
 stdout 'CTXMARK-OWN'
 ! stdout 'CTXMARK-TEAM'
 ! stdout 'CTXMARK-DOT'
-stdout '"systemMessage":"✓ ctxtra added 2 instructions; 3 errors \(run ctxtra doctor\)\\nInstructions:\\n  local\\n  - ~/ctx/me.md\\n  - ~/own/own.md"'
+stdout '"systemMessage":"✓ ctxtra added 2 instructions; 3 errors \(run ctxtra doctor\)\\nInstructions:\\n  local\\n  - ~/ctx/me.md\\n  - ~/own/own.md\\n\\n⚠ ~/.config/ctxtra/config.yaml: binding me: ~/dev/team/team.md is in ~/dev/team, which has the remote github.com/acme/team[^"]*; it is left out\\n'
 
 ! exec ctxtra context files notes
 stderr 'error: .*~/dev/team/team.md is in ~/dev/team, which has the remote github.com/acme/team and is not a trusted source; skipped. To read it live, add the folder as a dir source and trust it: ctxtra source add --dir ~/dev/team, then ctxtra source trust NAME; to read reviewed commits: ctxtra source add --repo ~/dev/team'

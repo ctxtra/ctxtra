@@ -175,19 +175,34 @@ func (e *Error) Error() string {
 	if e.Pos.Line > 0 {
 		s = fmt.Sprintf("line %d: %s", e.Pos.Line, s)
 	}
+	return s + e.Effect()
+}
+
+// Effect is the end of Error that says what is left out: "; the entry is
+// left out", or "" for nothing.
+func (e *Error) Effect() string {
 	switch e.Out() {
 	case OutFile:
-		s += "; nothing in the file is used"
+		return "; nothing in the file is used"
 	case OutPart:
 		if e.Part.Kind != "" {
-			s += "; " + e.Part.String() + " is left out"
+			return "; " + e.Part.String() + " is left out"
 		}
 	case OutEntry:
-		s += "; the entry is left out"
+		return "; the entry is left out"
 	case OutItem:
-		s += "; it is left out"
+		return "; it is left out"
 	}
-	return s
+	return ""
+}
+
+// ShortEffect is Effect without the part's name, for a name too long to
+// repeat: "; the binding is left out".
+func (e *Error) ShortEffect() string {
+	if e.Out() == OutPart && e.Part.Name != "" {
+		return "; the " + e.Part.Kind + " is left out"
+	}
+	return e.Effect()
 }
 
 // Errorf is an error at n, in part p.

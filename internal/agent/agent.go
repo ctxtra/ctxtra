@@ -15,14 +15,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/chunk"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
+	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/resolve"
+	"github.com/ctxtra/ctxtra/internal/term"
 	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
@@ -335,7 +338,17 @@ func Summary(res *resolve.Result) string {
 		issues = append(issues, plural(n, "error"))
 	}
 	issues = append(issues, dropped(res.Dropped, res.Namer())...)
-	signIn := slices.Concat(profileErrors(res.Errors), inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), needSignIn(res.MCPServers))
+	approval, signIn := needSignIn(res.MCPServers)
+	named := slices.Concat(profileErrors(res.Errors), inactiveSources(res.Errors), unreadableSets(res.UnreadableSets), approval)
+	named = append(named, otherErrors(res.Errors, res.UnreadableSets)...)
+	if len(named) > summaryNames {
+		more := "errors"
+		if len(named)-summaryNames == 1 {
+			more = "error"
+		}
+		named = append(named[:summaryNames], fmt.Sprintf("%d more %s (run ctxtra doctor)", len(named)-summaryNames, more))
+	}
+	signIn = append(named, signIn...)
 	if len(added) == 0 && len(issues) == 0 && len(res.Notices) == 0 && len(signIn) == 0 && !res.Profiles.Shown() {
 		return ""
 	}
@@ -378,7 +391,7 @@ func profileErrors(errs []*catalog.Error) []string {
 	for _, e := range errs {
 		switch e.Err.Mistake {
 		case yamlx.BadProfileName, yamlx.SelectionUnreadable, yamlx.UnusedProfile:
-			out = append(out, e.Error())
+			out = append(out, errorLine(e))
 		}
 	}
 	return out
@@ -386,63 +399,155 @@ func profileErrors(errs []*catalog.Error) []string {
 
 // inactiveSources are the sources that can't be read, each with what
 // makes it readable again: source update, source download or source
-// trust. The first summaryNames are named.
+// trust. A line that is cut keeps its end from that command on.
 func inactiveSources(errs []*catalog.Error) []string {
 	var out []string
-	n := 0
 	for _, e := range errs {
 		if e.Err.Mistake != yamlx.Inactive || e.Err.Part.Kind != "source" {
 			continue
 		}
-		if n++; n <= summaryNames {
-			out = append(out, "source "+e.Err.Part.Name+": "+strings.ReplaceAll(e.Err.Msg, "`", ""))
+		text := "source " + e.Err.Part.Name + ": " + e.Err.Msg
+		if utf8.RuneCountInString(displayText(text)) <= maxErrorLine {
+			out = append(out, Diagnostic(text, ""))
+			continue
 		}
-	}
-	if n > summaryNames {
-		out = append(out, fmt.Sprintf("%d more sources can't be read (run ctxtra doctor)", n-summaryNames))
+		msg, tail := repair(e.Err.Part.Name, e.Err.Msg)
+		out = append(out, Diagnostic("source "+e.Err.Part.Name+": "+msg, tail))
 	}
 	return out
+}
+
+// repair splits the message of source name that can't be read at the
+// command that makes it readable again: msg is the text before it, and tail
+// from it to the end, or the command alone when that end is long.
+func repair(name, why string) (msg, tail string) {
+	for _, cmd := range []string{"ctxtra source trust " + name, "ctxtra source update " + name, "ctxtra source download"} {
+		i := strings.Index(why, "run `"+cmd+"`")
+		switch {
+		case i >= 0 && utf8.RuneCountInString(displayText(why[i:])) <= maxErrorLine/2:
+			return strings.TrimSpace(why[:i]), " " + why[i:]
+		case i >= 0 || strings.Contains(why, "`"+cmd+"`"):
+			return why, " (run " + cmd + ")"
+		}
+	}
+	return why, ""
 }
 
 // unreadableSets names the repo sets that can't be read, with their
-// bindings and what that does to them. The first summaryNames are named.
+// bindings and what that does to them.
 func unreadableSets(sets []resolve.UnreadableSet) []string {
 	var out []string
-	for i, u := range sets {
-		if i == summaryNames {
-			out = append(out, fmt.Sprintf("%d more repo sets can't be read (run ctxtra doctor)", len(sets)-summaryNames))
-			break
-		}
-		effect := "the entry matches nothing"
+	for _, u := range sets {
+		effect := "; the entry matches nothing"
 		if strings.HasPrefix(u.Entry, "!") {
-			effect = "the binding is left out"
+			effect = "; the binding is left out"
 		}
-		out = append(out, fmt.Sprintf("binding %s: repo set %s can't be read (%s); %s", u.Binding, u.Entry, strings.ReplaceAll(u.Why, "`", ""), effect))
+		out = append(out, Diagnostic(fmt.Sprintf("binding %s: repo set %s can't be read (%s)", u.Binding, u.Entry, u.Why), effect))
 	}
 	return out
 }
 
-// needSignIn reads approval and sign-in state locally, never the keychain.
-// An explicit decline suppresses its repeated approval summary line.
-func needSignIn(servers []resolve.MCPServer) []string {
+// maxErrorLine is the most characters of an error in the session message;
+// doctor and the log have the whole text. minText is the least of the text
+// that a line keeps before its tail, when a shorter tail can leave more.
+const (
+	maxErrorLine = 240
+	minText      = 40
+)
+
+// Diagnostic is an error line of the session message: text followed by a
+// tail, which says what to do or what is left out. tails go from the
+// longest to the shortest: the line ends with the first that leaves minText
+// characters of text, or else the last. Control characters are escaped and
+// line breaks become spaces, so that the line stays one line of the
+// message, and text is cut so that the line has at most maxErrorLine
+// characters. A tail too long for that is cut too.
+func Diagnostic(text string, tails ...string) string {
+	text = displayText(text)
+	tail := ""
+	for _, t := range tails {
+		tail = displayText(t)
+		if utf8.RuneCountInString(text)+utf8.RuneCountInString(tail) <= maxErrorLine || maxErrorLine-utf8.RuneCountInString(tail) >= minText {
+			break
+		}
+	}
+	return cut(cut(text, maxErrorLine-utf8.RuneCountInString(tail))+tail, maxErrorLine)
+}
+
+// cut is s in at most n characters, with … for what is cut.
+func cut(s string, n int) string {
+	r := []rune(s)
+	switch {
+	case len(r) <= n:
+		return s
+	case n <= 0:
+		return ""
+	}
+	return string(r[:n-1]) + "…"
+}
+
+// displayText is s on one line, without control characters or the
+// backticks around commands.
+func displayText(s string) string {
+	s = strings.NewReplacer("`", "", "\r\n", " ", "\n", " ", "\r", " ", "\t", " ").Replace(s)
+	return term.Sanitize(s)
+}
+
+// errorLine is e as doctor writes it, as an error line of the session
+// message that keeps what e leaves out at its end.
+func errorLine(e *catalog.Error) string {
+	effect := e.Err.Effect()
+	return Diagnostic(strings.TrimSuffix(e.Error(), effect), effect, e.Err.ShortEffect())
+}
+
+// otherErrors are the errors that the lines with a command to run don't
+// name, as doctor writes them: with their file and line.
+func otherErrors(errs []*catalog.Error, sets []resolve.UnreadableSet) []string {
+	var out []string
+	for _, e := range errs {
+		switch {
+		case e.Err.Mistake == yamlx.BadProfileName, e.Err.Mistake == yamlx.SelectionUnreadable, e.Err.Mistake == yamlx.UnusedProfile,
+			e.Err.Mistake == yamlx.NotApproved, e.Err.Mistake == yamlx.Inactive && e.Err.Part.Kind == "source",
+			slices.ContainsFunc(sets, func(u resolve.UnreadableSet) bool { return u.Err == e }):
+			continue
+		}
+		out = append(out, errorLine(e))
+	}
+	return out
+}
+
+// needSignIn reads approval and sign-in state locally, never the keychain:
+// the servers that need approval, and those that need sign-in. An explicit
+// decline suppresses its repeated approval line.
+func needSignIn(servers []resolve.MCPServer) (approval, signIn []string) {
 	if len(servers) == 0 {
-		return nil
+		return nil, nil
 	}
 	store := creds.Open()
-	var out []string
 	for _, m := range servers {
 		switch {
 		case m.Unapproved == creds.Declined:
 			continue
+		case m.Unapproved != "" && mayNeedSignIn(m.Server):
+			// mcp login asks for approval first.
+			approval = append(approval, Diagnostic(m.ID, " needs approval and may need sign-in: run ctxtra mcp login "+m.ID))
+			continue
 		case m.Unapproved != "":
-			out = append(out, fmt.Sprintf("%s needs approval: run ctxtra mcp approve %s", m.ID, m.ID))
+			approval = append(approval, Diagnostic(m.ID, " needs approval: run ctxtra mcp approve "+m.ID))
 			continue
 		}
 		if st, err := store.State(m.Server); err == nil && st.NeedsLogin {
-			out = append(out, fmt.Sprintf("%s needs sign-in: run ctxtra mcp login %s", m.ID, m.ID))
+			signIn = append(signIn, Diagnostic(m.ID, " needs sign-in: run ctxtra mcp login "+m.ID))
 		}
 	}
-	return out
+	return approval, signIn
+}
+
+// mayNeedSignIn reports whether s may need sign-in or secret values once
+// approved, from its definition alone: a remote server may answer with an
+// OAuth challenge, which only a request tells.
+func mayNeedSignIn(s upstream.Server) bool {
+	return !s.Local() || len(s.SecretEnv) > 0
 }
 
 // Summary lines: a group per source under each list title, its entries
@@ -654,6 +759,14 @@ type MCPCheck struct {
 	// EnvPass are the pass-env names of every local server, which the
 	// entry must pass in Codex.
 	EnvPass []string
+}
+
+// EnvAllowList is an agent whose MCP entry names the variables that reach
+// the proxy (Codex).
+type EnvAllowList interface {
+	// MissingEnv are those of names that ctxtra's MCP entry doesn't pass, from
+	// the agent's config file alone; none when there is no entry of ctxtra's.
+	MissingEnv(names []string) []string
 }
 
 // MCPEntryName is the name of ctxtra's entry in every agent.

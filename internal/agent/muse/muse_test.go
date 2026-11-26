@@ -55,7 +55,7 @@ func TestLongPathsKeepErrors(t *testing.T) {
 		h.Over = ""
 		res.Files = append(res.Files, h)
 	}
-	if got := clip(agent.Summary(res)); !strings.Contains(got, "1 error (run ctxtra doctor)") || !strings.Contains(got, "\n\nℹ source needs checking") {
+	if got := clip(agent.Summary(res)); !strings.Contains(got, "1 error (run ctxtra doctor)") || !strings.Contains(got, "\n\n⚠ p\nℹ source needs checking") {
 		t.Errorf("long list: %q", got)
 	}
 	res.Dropped = []resolve.Hit{long(20), long(21), long(22)}
@@ -104,7 +104,7 @@ func TestManyLongGroups(t *testing.T) {
 		got := clip(agent.Summary(res))
 		b, _ := jsonorder.Marshal(got)
 		if len(b)-2 > maxSummary || strings.HasSuffix(got, "…") || !strings.Contains(got, "; 1 error (run ctxtra doctor)\n") ||
-			!strings.HasSuffix(got, "\n"+agent.FullList+"\n\nℹ team has new commits on main") {
+			!strings.HasSuffix(got, "\n"+agent.FullList+"\n\n⚠ p\nℹ team has new commits on main") {
 			t.Fatalf("%+v: lost summary information (%d JSON bytes): %q", s, len(b)-2, got)
 		}
 		// Every entry is still counted, in its list.

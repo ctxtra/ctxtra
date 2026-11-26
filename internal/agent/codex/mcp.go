@@ -485,6 +485,17 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 	return out
 }
 
+func (a Agent) MissingEnv(names []string) []string {
+	f, err := readTOML(a.MCPPath())
+	if err != nil || f.begin < 0 {
+		return nil
+	}
+	if _, ours := mcpBinary(f.entry()); !ours {
+		return nil
+	}
+	return missingVars(f.entry(), names)
+}
+
 func (a Agent) MCP() agent.MCPHost { return a }
 
 func (a Agent) MCPCommand() ([]string, bool) {

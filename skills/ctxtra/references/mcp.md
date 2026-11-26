@@ -1,6 +1,6 @@
 # MCP servers
 
-MCP needs no experimental opt-in. Read `ctxtra help config` before editing its definitions.
+Read `ctxtra help config` before editing server definitions.
 Use `ctxtra mcp list --json` for the catalog and `ctxtra mcp status DIR` for a folder's selection and
 missing tools, and for how long the last session's first tool list took. "waits up to" in its output is the
 agent's deadline, not the time it took. Status reads only local files and has no JSON flag.
@@ -8,8 +8,11 @@ agent's deadline, not the time it took. Status reads only local files and has no
 Config servers use bare identities; source servers use full references such as `work:linear`. Recovery hints and
 login/logout use that full reference. Tools retain the short prefix `linear__`. A same-prefix conflict keeps the
 first binding and never falls back to the other account. Check explain and status; do not guess from tool names.
+To get both, give one a new name: `ctxtra mcp add jira_iam --use iam-team:jira` (shown first, rule 1). The new
+name applies wherever the server comes from, and keeps its approval and sign-in. For a binding with `agents`,
+pass `--agent ID` to `mcp status`.
 
-Pinned definitions need the user's separate connection approval, even for no-auth endpoints. Ask the user to run
+A server that a repo source declares needs the user's separate approval, even for a no-auth endpoint. Ask the user to run
 `ctxtra mcp approve REF` or `ctxtra mcp login REF` in their own terminal. Never answer approval consent, pipe yes,
 simulate a terminal or perform provider authorization for them. Source acceptance and agent tool permissions do not
 grant connection approval. Show can connect or execute a server; list, status and explain do not.
