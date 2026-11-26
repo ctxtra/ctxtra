@@ -336,7 +336,8 @@ func (s *sources) addDir(o addOptions) error {
 		fmt.Fprintf(s.Out, "its repository has the remotes %s, which others can push to; to read it live, run ctxtra source trust %s\n",
 			strings.Join(remotes, ", "), name)
 	}
-	s.listFiles(dir)
+	// The folder a symlinked dir leads to; links inside it stay unlisted.
+	s.listFiles(paths.Real(dir))
 	fmt.Fprintf(s.Out, "use its files in a binding as %s:PATH\n", name)
 	return nil
 }

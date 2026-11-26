@@ -56,4 +56,15 @@ func TestSourceAddListsFiles(t *testing.T) {
 	if _, out, _ := run("source", "add", "--dir", "declared"); strings.Contains(out, "a.md") {
 		t.Errorf("declared:\n%s", out)
 	}
+	// A symlinked folder lists the files it leads to, not the links in it.
+	testenv.Write(t, filepath.Join(h, "notes", "rules.md"), "x")
+	if err := os.Symlink(filepath.Join(h, "many", "f00.md"), filepath.Join(h, "notes", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(h, "notes"), filepath.Join(h, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if _, out, errOut := run("source", "add", "--dir", "alias", "--name", "notes"); !strings.Contains(out, "its files:\n  rules.md\n") || strings.Contains(out, "link.md") {
+		t.Errorf("alias:\n%s%s", out, errOut)
+	}
 }
