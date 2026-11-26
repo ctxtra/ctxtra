@@ -293,7 +293,9 @@ For each of the source's repo sets that a binding uses in `location.repo-sets`, 
 the new commit adds to or removes from it, and says when the commit removes the set, with the bindings that
 use or exclude it: `repo set clients is removed; binding work excludes it; once the commit is accepted, work
 is left out`. An added entry of the form `HOST/**`, such as `github.com/**`, gets a warning that it matches
-every repository on that host. Errors in those sets are reviewed like other new errors. `--json` lists a
+every repository on that host. A set that errors left out of the accepted commit matched nothing, so when
+the new commit fixes it, the review says it can be read now and shows all its entries as added. Errors in
+those sets are reviewed like other new errors. `--json` lists a
 changed set as a `notice`, and a removed set and a `HOST/**` entry as a `warning`.
 
 Each new error in the review names the bindings it affects when the error doesn't name them itself, and

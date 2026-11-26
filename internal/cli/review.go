@@ -349,7 +349,8 @@ func (s *sources) collectionChanges(name string, u *used, before, after *catalog
 // setChanges reports, for each repo set of source name that the bindings
 // use in location, whether the new commit removes it, or the entries it
 // adds to or removes from it, and warns about added entries that match
-// every repository of a host. before is nil for a review from nothing.
+// every repository of a host. A set that the accepted commit's errors
+// left out adds all its entries. before is nil for a review from nothing.
 func (s *sources) setChanges(name string, u *used, before, after *catalog.Catalog) {
 	sets := func(cat *catalog.Catalog) map[string]*config.RepoSet {
 		out := map[string]*config.RepoSet{}
@@ -394,7 +395,12 @@ func (s *sources) setChanges(name string, u *used, before, after *catalog.Catalo
 		if set.Broken() {
 			continue
 		}
-		old := setEntryTexts(was[c])
+		// An accepted set with errors that leave it out matched nothing:
+		// each of its entries is new now.
+		old, readable := setEntryTexts(was[c]), ""
+		if was[c] != nil && was[c].Broken() {
+			old, readable = nil, "can be read now and "
+		}
 		var added, removed []string
 		for _, e := range set.Entries {
 			if t := repoEntryText(e); !slices.Contains(old, t) {
@@ -414,7 +420,7 @@ func (s *sources) setChanges(name string, u *used, before, after *catalog.Catalo
 			change = append(change, "removes "+strings.Join(removed, ", "))
 		}
 		if len(change) > 0 {
-			report("notice", fmt.Sprintf("repo set %s %s; %s", c, strings.Join(change, " and "), users))
+			report("notice", fmt.Sprintf("repo set %s %s%s; %s", c, readable, strings.Join(change, " and "), users))
 		}
 		for _, e := range set.Entries {
 			if host, ok := wholeHost(e); ok && slices.Contains(added, repoEntryText(e)) {
