@@ -2,6 +2,9 @@ package config
 
 import (
 	"os"
+	"path"
+	"slices"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -90,6 +93,67 @@ func FuzzEditor(f *testing.F) {
 		if len(added) > 0 {
 			if _, err := yamlx.Parse(e.Bytes(), yamlx.ConfigKind); err != nil {
 				t.Fatalf("after removing: %v\n%s", err, e.Bytes())
+			}
+		}
+	})
+}
+
+// Parse never fails on any input, and what it keeps holds the model's
+// rules: a file it can't read has nothing else, numbers are not negative,
+// usable sources and bindings have valid names, a source has one of repo
+// and dir, and a usable SOURCE:PATH entry stays in its source.
+func FuzzConfig(f *testing.F) {
+	demo, err := os.ReadFile("testdata/demo.yaml")
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range []string{
+		string(demo), "", NewFile, NewFile + "max-ctx-chars: -1\n",
+		NewFile + "session-message: {max-skills: -2}\n",
+		NewFile + "sources: {team: {repo: 'https://example.com/team.git', branch: main}}\n",
+		NewFile + "sources: {team: {repo: x, dir: ~/x}}\n",
+		NewFile + "bindings: [{name: x, instructions: ['team:../x.md', 'team:/etc/passwd', 'team:a/../../b']}]\n",
+		NewFile + "bindings: &a [{name: x}]\nsources: *a\n",
+		NewFile + "---\n" + NewFile,
+		"schema: ctxtra/v1\n",
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		c := Parse(data, Options{Agents: []string{"claude-code", "codex"}})
+		for _, e := range c.Errors {
+			if e.Out() == yamlx.OutFile && (len(c.Sources)+len(c.Bindings)+len(c.MCPServers) > 0 || len(c.Errors) != 1) {
+				t.Fatalf("a file that can't be read kept parts: %v", c.Errors)
+			}
+		}
+		for _, n := range []*int{c.MaxCtxChars, c.SessionMessage.MaxSkills, c.SessionMessage.MaxInstructions} {
+			if n != nil && *n < 0 {
+				t.Fatalf("negative number accepted: %d", *n)
+			}
+		}
+		for _, s := range c.Sources {
+			if s.Broken() {
+				continue
+			}
+			if CheckName(s.Name) != nil || (s.Repo == "") == (s.Dir == "") {
+				t.Fatalf("source %q accepted: repo %q dir %q", s.Name, s.Repo, s.Dir)
+			}
+		}
+		for _, b := range c.Bindings {
+			if b.Broken() {
+				continue
+			}
+			if CheckName(b.Name) != nil {
+				t.Fatalf("binding name %q accepted", b.Name)
+			}
+			for _, e := range slices.Concat(b.Instructions, b.Skills) {
+				if e.Err != nil || !e.InSource {
+					continue
+				}
+				p := path.Clean(e.Value)
+				if CheckName(e.Source) != nil || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+					t.Fatalf("entry %q accepted: source %q, path %q", e.Text, e.Source, p)
+				}
 			}
 		}
 	})
