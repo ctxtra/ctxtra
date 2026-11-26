@@ -215,6 +215,17 @@ func TestSameNames(t *testing.T) {
 		}
 	})
 
+	t.Run("a new name in a config collection", func(t *testing.T) {
+		h := newHome(t)
+		h.write("iam/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "iam"))
+		env := h.load("sources: {iam-team: {dir: ~/iam}}\nmcp-servers: {jira_iam: {use: 'iam-team:jira'}}\n" +
+			"collections:\n  work: {mcp-servers: ['iam-team:jira']}\n  more: {mcp-servers: [jira_iam]}\n" +
+			"bindings:\n  - {name: a, collections: [work, more]}\n")
+		res := start(env, h.dir, "")
+		noErrors(t, res)
+		eq(t, "served", served(res), "jira_iam")
+	})
+
 	t.Run("two names for one server", func(t *testing.T) {
 		h := newHome(t)
 		h.write("iam/ctxtra-source.yaml", strings.ReplaceAll(manifest, "%s", "iam"))
@@ -222,7 +233,8 @@ func TestSameNames(t *testing.T) {
 			"bindings:\n  - {name: x, mcp-servers: ['iam-team:jira']}\n")
 		res := start(env, h.dir, "")
 		eq(t, "served", served(res), "jira")
-		if len(res.Errors) != 2 {
+		if len(res.Errors) != 2 || !strings.Contains(res.Errors[0].Error(), "MCP server a: uses iam-team:jira, as b does") ||
+			!strings.Contains(res.Errors[1].Error(), "MCP server b: uses iam-team:jira, as a does") {
 			t.Errorf("errors %v", res.Errors)
 		}
 	})
