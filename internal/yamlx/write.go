@@ -191,3 +191,14 @@ func lookup(m, k *yaml.Node) *yaml.Node {
 	}
 	return nil
 }
+
+// Plain is a copy of n without comments.
+func Plain(n *yaml.Node) *yaml.Node {
+	c := *n
+	c.HeadComment, c.LineComment, c.FootComment = "", "", ""
+	c.Content = make([]*yaml.Node, len(n.Content))
+	for i, x := range n.Content {
+		c.Content[i] = Plain(x)
+	}
+	return &c
+}

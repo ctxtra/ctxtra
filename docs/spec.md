@@ -787,6 +787,13 @@ Where a session's profiles can differ from what you expect:
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
   and their frontmatter has no effect. Setup leaves a folder there that isn't ctxtra's alone, with a warning.
 
+`ctxtra skill install NAME` writes one of ctxtra's own skills to `~/.local/share/ctxtra/skills/NAME` and adds
+that folder to the skills of the binding `ctxtra-system`. When the config has no such binding, it adds one
+without conditions, with a comment above it that says to keep it. A `ctxtra-system` binding that the user
+changed keeps its shape: its conditions and comments above it stay, and the folder is added to its skills.
+One with errors, or one that would still leave the skill out, is refused. When a binding adds the folder
+already, nothing changes. Commands find ctxtra's skills by their folders, not by a binding's name.
+
 ## Collections
 
 A collection is a named set of what a binding adds: `instructions`, `skills`, `mcp-servers` and nested

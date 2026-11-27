@@ -1,7 +1,7 @@
 # help shows commands and topics of the docs of this version; skill show
-# prints one of ctxtra's skills, and skill install writes it and binds it to
-# every session, once. The hook keeps the installed skills at the version of
-# its binary.
+# prints one of ctxtra's skills, and skill install writes it and adds it,
+# once, to the binding ctxtra-system, which applies to every session. The hook
+# keeps the installed skills at the version of its binary.
 
 exec ctxtra help
 stdout '^  config  *the config format'
@@ -32,16 +32,17 @@ stdout '^  ctxtra skill install ctxtra-follow '
 
 exec ctxtra skill install ctxtra --dry-run
 stdout '^would write the ctxtra skill to ~/.local/share/ctxtra/skills/ctxtra$'
+stdout '^would add the binding ctxtra-system, which adds it to every session$'
 ! exists .local/share/ctxtra/skills
 exec ctxtra skill install ctxtra
 stdout '^Installed to ~/.local/share/ctxtra/skills/ctxtra$'
-stdout '^Added to ~/.config/ctxtra/config.yaml$'
+stdout '^Added the binding ctxtra-system to ~/.config/ctxtra/config.yaml$'
 stdout '^The skill is ready for new agent sessions in any folder\. Ask your agent to help you get started with ctxtra\.$'
 cmp .config/ctxtra/config.yaml want.yaml
 exists .local/share/ctxtra/skills/ctxtra/SKILL.md
 exists .local/share/ctxtra/skills/ctxtra/references/tasks.md
 exec ctxtra skill list --json
-stdout '"binding": "ctxtra"'
+stdout '"binding": "ctxtra-system"'
 
 exec ctxtra context files notes
 stdout '/.local/share/ctxtra/skills/ctxtra/SKILL.md$'
@@ -52,7 +53,7 @@ stdout 'ctxtra skill install ctxtra-follow'
 # Again: nothing changes.
 exec ctxtra skill install ctxtra
 stdout '^The ctxtra skill in ~/.local/share/ctxtra/skills/ctxtra is up to date\.$'
-stdout '^Binding ctxtra adds the skill to sessions\.$'
+stdout '^Binding ctxtra-system adds the skill to sessions\.$'
 cmp .config/ctxtra/config.yaml want.yaml
 
 # A skill from another version: the hook writes this binary's before it
@@ -65,7 +66,13 @@ stdout 'Set up and change ctxtra'
 ! grep 'An older ctxtra skill' .local/share/ctxtra/skills/ctxtra/SKILL.md
 grep '^## First setup$' .local/share/ctxtra/skills/ctxtra/references/tasks.md
 
-# ctxtra's other skills: the same, with a binding of the skill's name.
+# ctxtra's other skills go into the same binding. Its comment stays when
+# other bindings are added and removed around it.
+exec ctxtra binding add before --before ctxtra-system --instruction ctx/me.md
+exec ctxtra binding add after --instruction ctx/me.md
+exec ctxtra binding remove before
+exec ctxtra binding remove after
+cmp .config/ctxtra/config.yaml want.yaml
 exec ctxtra skill show ctxtra-follow
 stdout '^name: ctxtra-follow$'
 ! exec ctxtra skill show nope
@@ -76,8 +83,7 @@ stderr 'expected NAME'
 stderr 'unexpected argument "ctxtra-follow"'
 exec ctxtra skill install ctxtra-follow
 stdout '^Installed to ~/.local/share/ctxtra/skills/ctxtra-follow$'
-stdout '^Added to ~/.config/ctxtra/config.yaml$'
-stdout '^The skill is ready for new agent sessions in any folder\.$'
+stdout '^Added to the binding ctxtra-system in ~/.config/ctxtra/config.yaml$'
 cmp .config/ctxtra/config.yaml want-follow.yaml
 exec ctxtra setup --agent claude-code
 ! stdout 'ctxtra skill install'
@@ -86,6 +92,32 @@ runhook claude-code SessionStart notes
 stdout 'instructions and skills for a folder your work moves to'
 ! stdout 'An older ctxtra skill'
 grep '^name: ctxtra-follow$' .local/share/ctxtra/skills/ctxtra-follow/SKILL.md
+
+# A ctxtra-system binding of the user's own shape keeps it, comments and
+# conditions included; the skill is added to its skills.
+cp shaped.yaml .config/ctxtra/config.yaml
+exec ctxtra skill install ctxtra-follow --dry-run
+stdout '^would add it to the skills of the binding ctxtra-system$'
+cmp .config/ctxtra/config.yaml shaped.yaml
+exec ctxtra skill install ctxtra-follow
+stdout '^Added to the binding ctxtra-system in ~/.config/ctxtra/config.yaml$'
+stdout '^The skill is ready for new agent sessions that the binding ctxtra-system applies to\.$'
+cmp .config/ctxtra/config.yaml want-shaped.yaml
+
+# One without skills gets them; one with errors is refused.
+cp noskills.yaml .config/ctxtra/config.yaml
+exec ctxtra skill install ctxtra
+cmp .config/ctxtra/config.yaml want-noskills.yaml
+cp broken.yaml .config/ctxtra/config.yaml
+! exec ctxtra skill install ctxtra-follow
+stderr '^ctxtra skill install: the binding ctxtra-system has errors, so it can''t add the skill; fix it first \(see ctxtra doctor\); nothing changed$'
+cmp .config/ctxtra/config.yaml broken.yaml
+
+# One that leaves the skill out is refused.
+cp excludes.yaml .config/ctxtra/config.yaml
+! exec ctxtra skill install ctxtra-follow
+stderr 'the binding ctxtra-system leaves out ~/.local/share/ctxtra/skills/ctxtra-follow; add it to that binding by hand'
+cmp .config/ctxtra/config.yaml excludes.yaml
 
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/config/v1
@@ -99,7 +131,8 @@ bindings:
   - name: me          # mine
     instructions:
       - ~/ctx/me.md
-  - name: ctxtra
+  # ctxtra's own skills (ctxtra skill install). Agents use them to work with ctxtra; keep this binding.
+  - name: ctxtra-system
     skills:
       - ~/.local/share/ctxtra/skills/ctxtra
 -- want-follow.yaml --
@@ -108,12 +141,54 @@ bindings:
   - name: me          # mine
     instructions:
       - ~/ctx/me.md
-  - name: ctxtra
+  # ctxtra's own skills (ctxtra skill install). Agents use them to work with ctxtra; keep this binding.
+  - name: ctxtra-system
     skills:
       - ~/.local/share/ctxtra/skills/ctxtra
-  - name: ctxtra-follow
-    skills:
       - ~/.local/share/ctxtra/skills/ctxtra-follow
+-- shaped.yaml --
+schema: ctxtra/config/v1
+bindings:
+  # mine, for codex only
+  - name: ctxtra-system # here
+    agents: [codex]
+    skills: [~/.local/share/ctxtra/skills/ctxtra]
+  # after
+  - name: me
+    instructions: [~/ctx/me.md]
+-- want-shaped.yaml --
+schema: ctxtra/config/v1
+bindings:
+  # mine, for codex only
+  - name: ctxtra-system # here
+    agents: [codex]
+    skills: [~/.local/share/ctxtra/skills/ctxtra, ~/.local/share/ctxtra/skills/ctxtra-follow]
+  # after
+  - name: me
+    instructions: [~/ctx/me.md]
+-- noskills.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    instructions: [~/ctx/me.md]
+-- want-noskills.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    instructions: [~/ctx/me.md]
+    skills:
+      - ~/.local/share/ctxtra/skills/ctxtra
+-- broken.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    skills: [~/.local/share/ctxtra/skills/ctxtra]
+    nope: 1
+-- excludes.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    skills: ['~/.local/share/ctxtra/skills/*', '!~/.local/share/ctxtra/skills/ctxtra-follow']
 -- old.md --
 ---
 description: An older ctxtra skill.

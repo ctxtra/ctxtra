@@ -187,6 +187,9 @@ What changed:
   such a server and gives the approve command to run first.
 - A file's header says `for every session` only for a binding without conditions. For a binding with
   `profiles` or `agents`, it names them, for example `for sessions with the profile iam`.
+- `skill install` adds ctxtra's skills to one binding, `ctxtra-system`, instead of a binding per skill. It
+  adds the binding, with a comment that says to keep it, when the config has none, and keeps the shape of one
+  the user changed.
 
 ## v0.6.0
 

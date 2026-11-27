@@ -19,6 +19,13 @@ import (
 // Base is the ctxtra skill, which lets agents set up and change ctxtra.
 const Base = "ctxtra"
 
+// Binding is the binding of the config that skill install adds ctxtra's
+// skills to.
+const Binding = "ctxtra-system"
+
+// Comment is the comment above the binding that skill install adds.
+const Comment = "# ctxtra's own skills (ctxtra skill install). Agents use them to work with ctxtra; keep this binding."
+
 // Write writes every file of the skill name that differs from this
 // binary's, and reports whether it changed any. The folder is ctxtra's:
 // changed files get no backup. A link in place of the folder is refused, so

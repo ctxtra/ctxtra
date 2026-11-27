@@ -128,11 +128,11 @@ risks of source repositories that other people push to. `ctxtra setup` prints th
 
 ```bash
 ctxtra skill show ctxtra      # the skill's files, exactly as the agents get them
-ctxtra skill install ctxtra   # writes it to ~/.local/share/ctxtra/skills/ctxtra, and adds a binding for it to your config
+ctxtra skill install ctxtra   # writes it to ~/.local/share/ctxtra/skills/ctxtra, and binds it in your config
 ```
 
-The binding is an ordinary one, named `ctxtra`, without conditions: `ctxtra binding remove ctxtra`
-stops adding the skill. Then ask any agent, for example "add my instructions to every session in my work
+ctxtra's skills go into one ordinary binding, `ctxtra-system`, without conditions. To stop adding a skill,
+remove its folder from that binding's `skills`; `ctxtra binding remove ctxtra-system` stops adding all of them. Then ask any agent, for example "add my instructions to every session in my work
 repositories". The skill tells the agent to ask you before every change, and never to trust a repository or
 accept a new commit for you. Before setup, you can paste the output of `ctxtra skill show ctxtra` into an
 agent to start.
@@ -534,8 +534,8 @@ Before the agent works in a folder outside the session folder, the skill tells i
 once for each folder: the top of another repository, or a
 project folder in a repository with several. That prints only the files and skills the folder adds, not
 what the session has already (a file the session has from another folder is listed by name, so the agent
-knows it applies here too), and the agent follows them for its work there. Each file's header names the
-repository or folder it is for. A long text comes in outputs of at most 8,000 bytes, each saying how to get
+knows it applies here too), and the agent follows them for its work there. Each file's header says which
+sessions it is for, such as a repository or folder. A long text comes in outputs of at most 8,000 bytes, each saying how to get
 the next, because agents cut long command output.
 
 Unlike session start, this depends on the model: it decides when to use the skill, and it can miss it. The

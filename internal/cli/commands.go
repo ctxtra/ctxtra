@@ -483,8 +483,9 @@ func (a *app) skillCmd() *cobra.Command {
 	install := &cobra.Command{
 		Use:   "install NAME",
 		Short: "Install a skill and add it to every session",
-		Long: `Write the skill to ~/.local/share/ctxtra/skills/NAME and add a binding of the same name
-that adds it to every session, unless a binding has it already.`,
+		Long: `Write the skill to ~/.local/share/ctxtra/skills/NAME and add it to the binding
+ctxtra-system, which adds ctxtra's skills to every session, unless a binding has it already.
+The binding is added when the config has none.`,
 		Example: `  ctxtra skill install ctxtra
   ctxtra skill install ctxtra-follow`,
 		Args: exactly("NAME"),
