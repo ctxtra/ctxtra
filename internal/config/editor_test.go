@@ -658,3 +658,90 @@ func TestEditorLastLineWithoutBreak(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// AppendTo adds to a list inside an entry and keeps every other byte:
+// comments in and around the entry, quoting and spacing.
+func TestEditorAppendTo(t *testing.T) {
+	const head = "schema: ctxtra/config/v1\nbindings:\n  # above\n  - name: sys   # on the name\n"
+	const tail = "  # after\n  - name: me\n    instructions: [\"~/me.md\"]\n"
+	for _, c := range []struct{ name, entry, want string }{
+		{"block list", "" +
+			"    # above agents\n" +
+			"    agents:   [codex]  # keep this limit\n" +
+			"    instructions: [\"~/notes/me.md\",   'x.md']\n" +
+			"    skills:     # on the key\n" +
+			"      - ~/a    # why\n" +
+			"\n" +
+			"      - '~/b'\n" +
+			"      # after the entries\n",
+			"" +
+				"    # above agents\n" +
+				"    agents:   [codex]  # keep this limit\n" +
+				"    instructions: [\"~/notes/me.md\",   'x.md']\n" +
+				"    skills:     # on the key\n" +
+				"      - ~/a    # why\n" +
+				"\n" +
+				"      - '~/b'\n" +
+				"      - ~/new\n" +
+				"      # after the entries\n"},
+		{"block list before another key", "" +
+			"    skills:\n" +
+			"    - ~/a\n" +
+			"    # above agents\n" +
+			"    agents: [codex]\n",
+			"" +
+				"    skills:\n" +
+				"    - ~/a\n" +
+				"    - ~/new\n" +
+				"    # above agents\n" +
+				"    agents: [codex]\n"},
+		{"flow list", "" +
+			"    skills: [ ~/a ,  \"~/b\" ]   # why\n" +
+			"    agents: [codex]\n",
+			"" +
+				"    skills: [ ~/a ,  \"~/b\", ~/new ]   # why\n" +
+				"    agents: [codex]\n"},
+		{"empty flow list", "    instructions: [~/me.md]\n    skills: []\n",
+			"    instructions: [~/me.md]\n    skills: [~/new]\n"},
+		{"no list", "" +
+			"    agents: [codex]  # keep\n" +
+			"    instructions: ['~/me.md']\n" +
+			"    # last\n",
+			"" +
+				"    agents: [codex]  # keep\n" +
+				"    instructions: ['~/me.md']\n" +
+				"    skills:\n" +
+				"      - ~/new\n" +
+				"    # last\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := editor(t, head+c.entry+tail)
+			if changed, err := e.AppendTo(Bindings, "sys", "skills", "~/new"); err != nil || !changed {
+				t.Fatalf("%v %v", changed, err)
+			}
+			if got := string(e.Bytes()); got != head+c.want+tail {
+				t.Errorf("got:\n%s\nwant:\n%s", got, head+c.want+tail)
+			}
+			check(t, e)
+			if changed, err := e.AppendTo(Bindings, "sys", "skills", "~/new"); err != nil || changed {
+				t.Errorf("again: %v %v", changed, err)
+			}
+		})
+	}
+	for _, c := range []struct{ name, data, want string }{
+		{"flow map", "  - {name: sys, skills: [~/a]}\n", "isn't written as a block map"},
+		{"flow list over lines", "  - name: sys\n    skills: [~/a,\n      ~/b]\n", "flow list over several lines"},
+		{"not a list", "  - name: sys\n    skills: ~/a\n", "skills of the binding sys isn't a list"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			data := "schema: ctxtra/config/v1\nbindings:\n" + c.data
+			e := editor(t, data)
+			if _, err := e.AppendTo(Bindings, "sys", "skills", "~/new"); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("%v", err)
+			}
+			if string(e.Bytes()) != data {
+				t.Errorf("changed:\n%s", e.Bytes())
+			}
+		})
+	}
+}

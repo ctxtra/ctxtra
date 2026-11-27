@@ -222,6 +222,109 @@ func (e *Editor) replace(s Section, name string, entry *yaml.Node, same func(*ya
 	return nil
 }
 
+// AppendTo adds value at the end of the list key of the entry name of
+// section s, or adds key with that list at the end of an entry without it.
+// It edits the text: every other byte stays as it is. A layout it can't edit
+// that way, such as a flow map or a flow list over several lines, is an
+// error, and the text stays as it was. With value in the list already, it
+// changes nothing and reports false.
+func (e *Editor) AppendTo(s Section, name, key, value string) (bool, error) {
+	c, i, err := e.find(s, name)
+	switch {
+	case err != nil:
+		return false, err
+	case i < 0:
+		return false, &NotFoundError{s, name}
+	}
+	entry := entryNode(c, s, i)
+	if entry.Kind != yaml.MappingNode || entry.Style&yaml.FlowStyle != 0 || len(entry.Content) == 0 {
+		return false, fmt.Errorf("the %s %s isn't written as a block map, one key per line", s.Kind(), name)
+	}
+	keyAt := -1
+	for j := 0; j+1 < len(entry.Content); j += 2 {
+		if entry.Content[j].Value == key {
+			keyAt = j
+		}
+	}
+	var list *yaml.Node
+	if keyAt >= 0 {
+		list = entry.Content[keyAt+1]
+		if list.Kind != yaml.SequenceNode {
+			return false, fmt.Errorf("%s of the %s %s isn't a list", key, s.Kind(), name)
+		}
+		if slices.ContainsFunc(list.Content, func(n *yaml.Node) bool { return n.Kind == yaml.ScalarNode && n.Value == value }) {
+			return false, nil
+		}
+	}
+	flow := list != nil && list.Style&yaml.FlowStyle != 0
+	v := yamlx.Text(value)
+	if err := yamlx.Prepare(v, flow); err != nil {
+		return false, err
+	}
+	err = e.change(s, func(c *yaml.Node) {
+		n := entryNode(c, s, i)
+		if keyAt < 0 {
+			n.Content = append(n.Content, yamlx.Text(key), &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{v}})
+			return
+		}
+		l := n.Content[keyAt+1]
+		l.Content = append(l.Content, v)
+	}, func(sp []span, _ int) (int, int, string, error) {
+		lines := e.lines()
+		switch {
+		case list == nil:
+			text, err := renderPair(yamlx.Text(key), &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{v}},
+				entry.Content[0].Column-1, "")
+			return sp[i].end, sp[i].end, text, err
+		case flow:
+			return appendFlow(lines, list, v)
+		}
+		hi := sp[i].end
+		if keyAt+2 < len(entry.Content) {
+			hi = entry.Content[keyAt+2].Line - 1
+		}
+		items, ok := e.entrySpans(lines, list, true, entry.Content[keyAt].Line, hi)
+		if !ok {
+			return 0, 0, "", fmt.Errorf("the entries of %s can't be told apart; start each on a line of its own", key)
+		}
+		last := items[len(items)-1]
+		text, err := renderNode(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{v}}, items[0].indent, "")
+		return last.end, last.end, text, err
+	})
+	if err != nil {
+		return false, err
+	}
+	e.changed = append(e.changed, yamlx.Part{Kind: s.Kind(), Name: name})
+	return true, nil
+}
+
+// appendFlow adds v at the end of list, a flow list on one line.
+func appendFlow(lines []string, list, v *yaml.Node) (int, int, string, error) {
+	at := list.Line - 1
+	for _, n := range list.Content {
+		if n.Line != list.Line {
+			return 0, 0, "", errors.New("it is a flow list over several lines")
+		}
+	}
+	line := lines[at]
+	content := strings.TrimRight(line, "\r\n")
+	body := strings.TrimRight(strings.TrimSuffix(content, lineComment(content)), " \t")
+	if !strings.HasSuffix(body, "]") {
+		return 0, 0, "", errors.New("it is a flow list over several lines")
+	}
+	out, err := yamlx.Encode(v)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	val := strings.TrimSuffix(string(out), "\n")
+	inner := strings.TrimRight(body[:len(body)-1], " \t")
+	if len(list.Content) > 0 {
+		val = ", " + val
+	}
+	text := inner + val + body[len(inner):] + content[len(body):] + line[len(content):]
+	return at, at + 1, text, nil
+}
+
 // PlaceError is a place given for an entry that Put replaces: a replaced
 // entry keeps its place.
 type PlaceError struct {
