@@ -390,11 +390,11 @@ func TestSystemMessage(t *testing.T) {
 func TestSummaryMCPList(t *testing.T) {
 	testenv.Home(t)
 	res := &resolve.Result{MCPServers: []resolve.MCPServer{
-		{Server: upstream.Server{ID: "team/one", Source: "team"}},
+		{Server: upstream.Server{ID: "team:one", Source: "team"}},
 		{Server: upstream.Server{ID: "local_one"}},
-		{Server: upstream.Server{ID: "team/two", Source: "team"}},
+		{Server: upstream.Server{ID: "team:two", Source: "team"}},
 	}}
-	want := "✓ ctxtra added 3 MCP servers\nMCP servers:\n  - team/one\n  - local_one\n  - team/two"
+	want := "✓ ctxtra added 3 MCP servers\nMCP servers:\n  - team:one\n  - local_one\n  - team:two"
 	if got := agent.Summary(res); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

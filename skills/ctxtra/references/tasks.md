@@ -102,6 +102,8 @@ Read and follow `import.md` in this folder.
 - `ctxtra binding remove NAME`, `ctxtra collection remove NAME`, `ctxtra repo-set remove NAME` and
   `ctxtra mcp remove NAME` remove one entry of the config. `ctxtra profile clear` empties the stored
   profile selection.
+- The binding `ctxtra-system` adds ctxtra's own skills, this one included. Remove it, or a skill from it,
+  only when the user asks for that.
 - To stop ctxtra in all agents: `ctxtra setup --remove`.
 
 ## Write an instruction file or a skill for the user

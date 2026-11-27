@@ -146,7 +146,7 @@ func inside(h, path string) bool {
 // TestContractMCP: ctxtra's MCP entry, as setup writes it with a config
 // that declares a local server with pass-env, is part of the contract
 // too: testdata/contract/mcp/<agent> has the entry's file, and
-// testdata/clients/mcp-preview the same for the client test.
+// testdata/clients/current-mcp the same for the client test.
 func TestContractMCP(t *testing.T) {
 	t.Setenv("CTXTRA_NO_UPDATE_CHECK", "")
 	clients := testenv.Clients(t)

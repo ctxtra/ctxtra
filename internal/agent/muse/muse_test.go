@@ -47,7 +47,7 @@ func TestLongSummaryLists(t *testing.T) {
 // are omitted first, and dropped ones come after the count of problems.
 func TestLongPathsKeepErrors(t *testing.T) {
 	long := func(i int) resolve.Hit {
-		return resolve.Hit{Path: fmt.Sprintf("/%d/%s/style.md", i, strings.Repeat("é", 400)), Over: "budget.max-chars"}
+		return resolve.Hit{Path: fmt.Sprintf("/%d/%s/style.md", i, strings.Repeat("é", 400)), Over: "max-ctx-chars"}
 	}
 	res := &resolve.Result{Errors: []*catalog.Error{{Err: &yamlx.Error{Msg: "p"}}}, Notices: []string{"source needs checking"}, Summary: resolve.DefaultSessionMessage}
 	for i := range 15 {

@@ -61,7 +61,8 @@ func (r *Result) fileBlocks() []chunk.Block {
 	}
 	if len(r.Known) > 0 {
 		var b strings.Builder
-		fmt.Fprintf(&b, "Files that ctxtra also adds %s, which this session already has:", r.scope(false))
+		repo := !slices.ContainsFunc(r.Known, func(h Hit) bool { return !h.Conds.Repo })
+		fmt.Fprintf(&b, "Files that ctxtra also adds for %s, which this session already has:", r.place(repo))
 		for _, h := range r.Known {
 			fmt.Fprintf(&b, "\n- %s (binding: %s)", h.Path, h.Origin)
 		}
@@ -90,18 +91,45 @@ func (r *Result) followBlock() string {
 
 func (r *Result) block(h Hit) string {
 	return fmt.Sprintf("Contents of %s (instructions added by ctxtra %s; binding: %s):\n\n%s",
-		h.Path, r.scope(h.Global), h.Origin, strings.TrimRight(h.Content, " \t\r\n"))
+		h.Path, r.scope(h), h.Origin, strings.TrimRight(h.Content, " \t\r\n"))
 }
 
-// scope says which sessions get a file, of a global binding or not.
-func (r *Result) scope(global bool) string {
+// scope says which sessions get h: all, or those of the agent, location and
+// profiles of this session that its binding's conditions name.
+func (r *Result) scope(h Hit) string {
+	c := h.Conds
 	switch {
-	case global:
+	case h.Global:
 		return "for every session"
-	case r.Repo != nil:
-		return fmt.Sprintf("for this repository, %s, and all its worktrees", paths.Tilde(r.Repo.Root))
+	case !c.Agents && len(c.Profiles) == 0 && len(c.NotProfiles) == 0:
+		return "for " + r.place(c.Repo)
 	}
-	return "for sessions in " + paths.Tilde(r.Dir)
+	s := "for sessions"
+	if c.Agents && r.Agent != "" {
+		s = "for " + r.Agent + " sessions"
+	}
+	if c.Location {
+		s += " in " + strings.TrimPrefix(r.place(c.Repo), "sessions in ")
+		if c.Repo && r.Repo != nil {
+			s += ","
+		}
+	}
+	if len(c.Profiles) > 0 {
+		s += " with the profile " + strings.Join(c.Profiles, " or ")
+	}
+	if len(c.NotProfiles) > 0 {
+		s += " without the profile " + strings.Join(c.NotProfiles, " or ")
+	}
+	return strings.TrimSuffix(s, ",")
+}
+
+// place is where a session gets a file of a binding with a location: the
+// repository when the location holds in all of it, else the session folder.
+func (r *Result) place(repo bool) string {
+	if repo && r.Repo != nil {
+		return fmt.Sprintf("this repository, %s, and all its worktrees", paths.Tilde(r.Repo.Root))
+	}
+	return "sessions in " + paths.Tilde(r.Dir)
 }
 
 // skillBlock lists the skills in the format Pi uses for its own skills, which

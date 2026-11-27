@@ -11,7 +11,7 @@ import (
 
 func TestApprovalIsSeparateAndLocal(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
-	srv := upstream.Server{ID: "work/linear", Name: "linear", Source: "work", Origin: "git:repo", Pinned: true, URL: "https://example.com/mcp"}
+	srv := upstream.Server{ID: "work:linear", Name: "linear", Source: "work", Origin: "repo:github.com/acme/repo", Pinned: true, URL: "https://example.com/mcp"}
 	var needed *ApprovalError
 	if err := s.RequireApproval(srv); !errors.As(err, &needed) || needed.ID != srv.ID {
 		t.Fatalf("missing approval: %v", err)
@@ -44,12 +44,12 @@ func TestApprovalIsSeparateAndLocal(t *testing.T) {
 }
 
 func TestApprovalFingerprint(t *testing.T) {
-	base := upstream.Server{ID: "work/linear", Name: "linear", Source: "work", Origin: "git:repo", Pinned: true,
+	base := upstream.Server{ID: "work:linear", Name: "linear", Source: "work", Origin: "repo:github.com/acme/repo", Pinned: true,
 		URL: "https://example.com/mcp", Headers: map[string]string{"X-Tenant": "one", "X-Mode": "read"},
 		ClientID: "app", Scopes: []string{"read"}, SecretHeaders: []string{"Authorization"}}
 	for name, change := range map[string]func(*upstream.Server){
 		"ID":      func(s *upstream.Server) { s.ID = "personal/linear" },
-		"origin":  func(s *upstream.Server) { s.Origin = "git:other" },
+		"origin":  func(s *upstream.Server) { s.Origin = "repo:github.com/acme/other" },
 		"url":     func(s *upstream.Server) { s.URL += "/other" },
 		"headers": func(s *upstream.Server) { s.Headers = map[string]string{"X-Tenant": "two"} },
 		"client":  func(s *upstream.Server) { s.ClientID = "other" },
@@ -75,7 +75,7 @@ func TestApprovalFingerprint(t *testing.T) {
 	if Fingerprint(renamed) != Fingerprint(base) {
 		t.Fatal("a new name in the config changed the approval of SOURCE:SERVER")
 	}
-	local := upstream.Server{ID: "work/build", Name: "build", Origin: "git:repo", Pinned: true, Command: []string{"tools", "--read"}}
+	local := upstream.Server{ID: "work:build", Name: "build", Origin: "repo:github.com/acme/repo", Pinned: true, Command: []string{"tools", "--read"}}
 	for name, change := range map[string]func(*upstream.Server){
 		"argv":       func(s *upstream.Server) { s.Command = []string{"tools", "--write"} },
 		"env":        func(s *upstream.Server) { s.Env = map[string]string{"MODE": "write"} },
@@ -94,7 +94,7 @@ func TestApprovalFingerprint(t *testing.T) {
 
 func TestFailedApprovalSaveDoesNotGrant(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
-	srv := upstream.Server{ID: "work/tools", Name: "tools", Pinned: true, Command: []string{"tools"}}
+	srv := upstream.Server{ID: "work:tools", Name: "tools", Pinned: true, Command: []string{"tools"}}
 	old := syncDir
 	t.Cleanup(func() { syncDir = old })
 	syncDir = func(string) error { return errors.New("I/O failure") }
@@ -108,7 +108,7 @@ func TestFailedApprovalSaveDoesNotGrant(t *testing.T) {
 
 func TestNewerApprovalIsNotOverwritten(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
-	srv := upstream.Server{ID: "work/tools", Name: "tools", Pinned: true, Command: []string{"tools"}}
+	srv := upstream.Server{ID: "work:tools", Name: "tools", Pinned: true, Command: []string{"tools"}}
 	path := filepath.Join(s.Dir, "approval", fileID(srv.ID)+".json")
 	if err := writeDurable(path, []byte(`{"version":2,"allowed":true}`)); err != nil {
 		t.Fatal(err)

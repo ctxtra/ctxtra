@@ -46,6 +46,37 @@ type Catalog struct {
 	// past it.
 	expansions int
 	tooMany    *Error
+	// over is a folder on disk that is read from from instead; see
+	// WithOverlay.
+	over struct{ dir, real, from string }
+}
+
+// WithOverlay is the catalog with the folder dir on disk, as items name it,
+// read from the folder from: what the config gets once from's files are in
+// dir. Items keep dir's path, so they are matched, deduplicated and shown as
+// dir's.
+func (c *Catalog) WithOverlay(dir, from string) *Catalog {
+	cp := *c
+	cp.colls, cp.expansions, cp.tooMany = nil, 0, nil
+	cp.over.dir, cp.over.from = filepath.Clean(dir), from
+	cp.over.real = filepath.Join(paths.Real(filepath.Dir(cp.over.dir)), filepath.Base(cp.over.dir))
+	return &cp
+}
+
+// overlaid is where path p on disk is read from, and its real path: under
+// the overlay's folder, in its other folder; ok is false elsewhere.
+func (c *Catalog) overlaid(p string) (from, real string, ok bool) {
+	if c.over.dir == "" {
+		return "", "", false
+	}
+	if p == c.over.dir {
+		return c.over.from, c.over.real, true
+	}
+	rest, ok := strings.CutPrefix(p, c.over.dir+string(filepath.Separator))
+	if !ok {
+		return "", "", false
+	}
+	return filepath.Join(c.over.from, rest), filepath.Join(c.over.real, rest), true
 }
 
 // storeUse is what a catalog marked as used in ctxtra's store. All marks

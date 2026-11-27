@@ -300,16 +300,16 @@ func TestLargeCommit(t *testing.T) {
 	}
 }
 
-// A local-git source takes the clone's committed HEAD, detached too,
-// never the working tree.
-func TestFetchHead(t *testing.T) {
+// A local repo source takes the committed branch of the clone, whatever is
+// checked out, never the working tree.
+func TestFetchLocal(t *testing.T) {
 	h := testenv.Home(t)
 	clone := testenv.Repo(t, filepath.Join(h, "clone"), "https://github.com/acme/team")
 	first := head(t, clone)
 	testenv.Write(t, filepath.Join(clone, "AGENTS.md"), "uncommitted\n")
 	ctx := context.Background()
 	r := Open(clone)
-	got, err := r.FetchHead(ctx, clone)
+	got, err := r.FetchBranch(ctx, "main")
 	if err != nil || got != first {
 		t.Fatalf("%s %v, want %s", got, err, first)
 	}
@@ -321,9 +321,9 @@ func TestFetchHead(t *testing.T) {
 		t.Errorf("AGENTS.md %q", b)
 	}
 	second := commit(t, clone, map[string]string{"b.md": "b"})
-	testenv.Run(t, clone, "git", "checkout", "-q", "--detach", second)
-	if got, err := r.FetchHead(ctx, clone); err != nil || got != second {
-		t.Errorf("detached: %s %v", got, err)
+	testenv.Run(t, clone, "git", "checkout", "-q", "--detach", first)
+	if got, err := r.FetchBranch(ctx, "main"); err != nil || got != second {
+		t.Errorf("detached at the first commit: %s %v, want %s", got, err, second)
 	}
 	// Restore from the clone by commit ID.
 	os.RemoveAll(StoreDir())
@@ -338,7 +338,7 @@ func TestFetchHead(t *testing.T) {
 }
 
 func TestInspectClone(t *testing.T) {
-	dir, url := team(t)
+	_, url := team(t)
 	h := os.Getenv("HOME")
 	clone := filepath.Join(h, "dev", "team")
 	testenv.Run(t, h, "git", "clone", "-q", url, clone)
@@ -347,17 +347,20 @@ func TestInspectClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Top != clone || c.Head != head(t, dir) || c.Remotes["origin"] != url || c.Upstream != "origin" || c.Branch != "main" {
+	if c.Top != clone || c.Current != "main" {
 		t.Errorf("%+v", c)
 	}
-	testenv.Run(t, clone, "git", "remote", "add", "fork", "git@github.com:me/team.git")
-	testenv.Run(t, clone, "git", "checkout", "-q", "-b", "local")
-	c, _ = InspectClone(context.Background(), clone)
-	if len(c.Remotes) != 2 || c.Upstream != "" {
-		t.Errorf("no upstream, two remotes: %+v", c)
+	testenv.Run(t, clone, "git", "checkout", "-q", "--detach")
+	if c, _ = InspectClone(context.Background(), clone); c.Current != "" {
+		t.Errorf("detached: %+v", c)
 	}
 	if _, err := InspectClone(context.Background(), h); err == nil {
 		t.Error("a folder outside git")
+	}
+	empty := filepath.Join(h, "empty")
+	testenv.Run(t, h, "git", "init", "-q", empty)
+	if _, err := InspectClone(context.Background(), empty); err == nil {
+		t.Error("a clone without a commit")
 	}
 }
 

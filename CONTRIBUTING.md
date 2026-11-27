@@ -8,7 +8,7 @@ issue. The maintainer reviews pull requests before merging; address review comme
 checks pass. Add automated tests for major new functionality and regression tests for bug fixes.
 Update the docs when behavior changes.
 
-Build and test (Go 1.27.3+, macOS or Linux):
+Build and test (Go 1.27.4+, macOS or Linux):
 
 ```bash
 go install ./cmd/ctxtra        # into $(go env GOPATH)/bin
@@ -43,7 +43,7 @@ steps must use the same version. The dependency-audit workflow checks the
 e2e agents' npm lockfile on PRs, pushes to `main` and a weekly schedule. The lint job runs `govulncheck`
 for both Go modules.
 
-Go fuzz tests check config parsing, source path containment and invalid hook input. Ordinary `go test`
+Go fuzz tests check config and manifest parsing, source path containment and invalid hook input. Ordinary `go test`
 runs their seed cases. The fuzz workflow explores each target for 10 seconds on PRs and pushes, and two
 minutes each night. Run a longer check locally with:
 
@@ -59,8 +59,12 @@ uploads new failing cases as artifacts.
 - `cmd/ctxtra`: the binary.
 - `skills/`: ctxtra's skills, a folder each, named like the skill. `embed.go` embeds them and the docs into
   the binary (`ctxtra skill show`, `ctxtra help`).
-- `internal/config`: loads and validates the config and binding files, and matches `match` blocks.
-- `internal/resolve`: decides what a session gets and renders the text.
+- `internal/config`: parses the config, `config.yaml`, entry by entry, with each entry's errors.
+- `internal/manifest` and `internal/lock`: parse a source's `ctxtra-source.yaml` and `ctxtra.lock`.
+- `internal/edit`: writes the config and the lock for the commands.
+- `internal/catalog`: what bindings can reference: files, skills and MCP servers on disk and in sources.
+- `internal/profile`: decides which profiles are active.
+- `internal/resolve`: matches the bindings' conditions, decides what a session gets and renders the text.
 - `internal/chunk`: splits the text into labeled parts for agents that cut a large hook output.
 - `internal/agent`: the `Agent` interface. One package per agent (`antigravity`, `claude`, `codex`, `copilot`,
   `cursor`, `devin`, `dsh`, `hermes`, `muse`, `opencode`, `pi`) with its hook setup and answer format; `hookjson`

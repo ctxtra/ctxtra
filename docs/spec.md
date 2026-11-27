@@ -766,6 +766,13 @@ Where a session's profiles can differ from what you expect:
   the same name both reach the session and produce a notice.
 - `SKILL.md` must start with YAML frontmatter that has a `description`. `name` is optional (default: the
   folder name). Other keys are ignored.
+- Each file's text starts with a header that names the file, its binding and which sessions get it. A
+  binding without conditions says `for every session`. Others name what their conditions hold in this
+  session: the agent, the place and the profiles, for example `for sessions with the profile iam` or
+  `for codex sessions in ~/dev/svc/cmd`. The place is the repository, `this repository, ~/dev/svc, and all
+  its worktrees`, when the location holds in all of it: a `repos` or repo-set entry without `subdirs`, or a
+  `dirs` entry that matches the main checkout, and no `!` entry that can leave out a part of it. Otherwise
+  it is the session folder.
 - Claude Code, Codex, Muse, Cursor, Copilot, Antigravity, Hermes, DSH and Devin get the file contents and a list of the skills (name, description, path),
   and read a `SKILL.md` when a task needs it. The list says that these skills are not the agent's own: its skill
   tool and slash commands can't load them. Pi gets instruction files as context files and skills as native skills.
@@ -782,6 +789,17 @@ Where a session's profiles can differ from what you expect:
   replaced by `ARGS` (or `ARGS` added at the end), and starts a turn. A session without a surface (`claude -p`,
   the Agent SDK) gets no commands. The commands are not Claude's own skills: its `Skill` tool can't load them,
   and their frontmatter has no effect. Setup leaves a folder there that isn't ctxtra's alone, with a warning.
+
+`ctxtra skill install NAME` writes one of ctxtra's own skills to `~/.local/share/ctxtra/skills/NAME` and adds
+that folder to the skills of the binding `ctxtra-system`. When the config has no such binding, it adds one
+without conditions, with a comment above it that says to keep it. A `ctxtra-system` binding that the user
+changed stays as written: the folder is added at the end of its `skills`, or in a new `skills` key at its end,
+and like any writer, the command keeps all other text. One with errors, one whose `skills` it can't edit that
+way, or one that would still leave the skill out, is refused. The command checks the change as a session would
+read it with the new skill files in place, from a temporary folder, in `--dry-run` too. It then replaces the
+skill's folder as a whole and writes the config; when either fails, or the check refuses, the config and the
+installed skills stay as they were. When a binding adds the folder already, the config doesn't
+change. Commands find ctxtra's skills by their folders, not by a binding's name.
 
 ## Collections
 

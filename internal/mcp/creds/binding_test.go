@@ -17,7 +17,7 @@ func TestSourceOriginBindsCredentials(t *testing.T) {
 	fake := oauthtest.New(t, oauthtest.Options{Lifetime: time.Hour})
 	s, root, tok := signedInStore(t, fake, t.TempDir())
 	srv := root
-	srv.ID, srv.Name, srv.Source, srv.Origin = "work/linear", "linear", "work", "git:one"
+	srv.ID, srv.Name, srv.Source, srv.Origin = "work:linear", "linear", "work", "repo:github.com/acme/one"
 	saveSignIn(t, s, srv, fake, tok)
 	if err := s.SetSecrets(srv, nil, map[string]string{"Authorization": "secret"}); err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestSourceOriginBindsCredentials(t *testing.T) {
 	if token, err := s.Token(context.Background(), srv); err != nil || token != tok.AccessToken {
 		t.Fatalf("same source binding: %q %v", token, err)
 	}
-	for _, origin := range []string{"git:two", "trusted-path:/context", "local-git:/clone", ""} {
+	for _, origin := range []string{"repo:github.com/acme/two", "dir:/context", "repo:/clone", ""} {
 		other := srv
 		other.Origin = origin
 		if token, err := s.Token(context.Background(), other); err == nil || token != "" {
@@ -64,7 +64,7 @@ func TestLegacyConfigOrigin(t *testing.T) {
 	if !r.Matches(root) {
 		t.Fatal("old config record requires migration")
 	}
-	root.Origin = "git:one"
+	root.Origin = "repo:github.com/acme/one"
 	if r.Matches(root) {
 		t.Fatal("source inherited a config record")
 	}
@@ -81,7 +81,7 @@ func TestRevokeDuringAuthorizationPreventsSave(t *testing.T) {
 	fake := oauthtest.New(t, oauthtest.Options{Lifetime: time.Hour})
 	s, root, tok := signedInStore(t, fake, t.TempDir())
 	srv := root
-	srv.ID, srv.Name, srv.Source, srv.Origin, srv.Pinned = "work/linear", "linear", "work", "git:one", true
+	srv.ID, srv.Name, srv.Source, srv.Origin, srv.Pinned = "work:linear", "linear", "work", "repo:github.com/acme/one", true
 	if err := s.DecideApproval(srv, true); err != nil {
 		t.Fatal(err)
 	}

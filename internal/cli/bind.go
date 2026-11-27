@@ -492,7 +492,11 @@ func (s *sources) warnNewFiles(w written) {
 // or when a session it applies to wouldn't get all it names. It returns the
 // config and what a session gets from the binding.
 func checkBinding(file string, data []byte, name string) (*resolve.Env, *resolve.Result, error) {
-	env := resolve.LoadData(file, data, registry.Names())
+	return checkIn(resolve.LoadData(file, data, registry.Names()), name)
+}
+
+// checkIn is checkBinding of the config of env.
+func checkIn(env *resolve.Env, name string) (*resolve.Env, *resolve.Result, error) {
 	b := env.Config.Binding(name)
 	if b == nil {
 		return nil, nil, fmt.Errorf("the binding %s isn't in the changed config; nothing changed", name)

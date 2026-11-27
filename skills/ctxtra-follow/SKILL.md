@@ -50,7 +50,7 @@ ctxtra context show FOLDER --agent claude-code --profile iam --exclude-session S
 The output is the user's own instruction files and skills, which the user bound to that repository or folder
 in their ctxtra config. It is the same text that ctxtra adds at session start for a session there. Follow it
 like the instructions you got at session start, with one difference: each file's header says which
-repository or folder it is for. Apply it to your work there, not to the session's own repository. The files
+sessions it is for, such as the other repository or folder. Apply it to your work there, not to the session's own repository. The files
 in the list "Files that ctxtra also adds ..." apply there too, as well as where you got them first. When a
 file from the other repository and one from the session's repository disagree, follow the one for the
 folder the work is in. When that isn't clear, ask the user.
@@ -64,10 +64,10 @@ Resolve relative paths in a `SKILL.md` against that skill's folder.
 
 ## When it doesn't work
 
-- `problem:`, `missing:` or `dropped` lines on stderr (the command then exits with 1): tell the user in one line, and
-  go on with what was added. Don't fix the config yourself. If the user wants it fixed, the `ctxtra` skill has the steps.
+- `error:` or `dropped (over ...)` lines on stderr (the command then exits with 1): tell the user in one line,
+  and go on with what was added. Don't fix the config yourself. If the user wants it fixed, the `ctxtra` skill has the steps.
 - The command isn't found, the sandbox blocks it, or the user declines the permission prompt: don't go on
   silently. Tell the user that you couldn't get their instructions for `FOLDER`, with the error, and ask
   whether to go on without them.
-- Lines about `ctxtra setup` on stderr are about the user's agent setup, not about this task. Mention them
-  once at the end of your reply at most.
+- A `profiles:` line on stderr names the profiles the command used. Lines about `ctxtra setup` on stderr
+  are about the user's agent setup, not about this task. Mention them once at the end of your reply at most.

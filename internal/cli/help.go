@@ -12,8 +12,11 @@ import (
 	"strings"
 
 	"github.com/ctxtra/ctxtra"
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/edit"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/skill"
 	"github.com/ctxtra/ctxtra/internal/term"
 )
@@ -165,70 +168,142 @@ func printSkill(w io.Writer, name string) error {
 }
 
 // skillInstall is skill install: it writes the skill name to
-// paths.SkillDir, and adds a binding of the same name that adds it to every
-// session, unless a binding has it already.
+// paths.SkillDir, and adds it to the skills of the binding skill.Binding,
+// unless a binding has it already. It adds that binding, with a comment,
+// when the config has none, and otherwise keeps every byte of it but the
+// new entry. The change is checked first, with the skill's files staged in
+// a temporary folder, and again under the write lock. Then the skill's
+// folder is replaced as a whole and the config written; when either fails,
+// both stay as they were.
 func skillInstall(stdio IO, name string, dryRun bool) int {
 	if !checkSkill(stdio, "skill install", name) {
 		return 1
 	}
 	dir := paths.Tilde(paths.SkillDir(name))
-	b := skillBound(name)
-	s := newSources(stdio)
-	n := newBinding{Name: name, Skills: []string{dir}}.node()
-	if b == "" {
-		if old := loadEnv().Config.Binding(name); old != nil && old.Broken() {
-			fmt.Fprintf(stdio.Err, "ctxtra skill install: the binding %s has errors, so it can't add the skill; fix it first (see ctxtra doctor); nothing changed\n", name)
-			return 1
+	fail := func(err error) int {
+		fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
+		return 1
+	}
+	installed := func(changed bool) {
+		if changed {
+			term.Fprintf(stdio.Out, term.Green, "Installed to %s\n", dir)
+		} else {
+			fmt.Fprintf(stdio.Out, "The %s skill in %s is up to date.\n", name, dir)
 		}
-		data, err := readConfig(s.file)
-		if err == nil {
-			var ed *config.Editor
-			ed, err = config.NewEditor(data)
-			if err == nil {
-				_, err = ed.Add(config.Bindings, name, n, config.Place{})
-			}
+	}
+	if b := skillBound(name); b != "" {
+		if dryRun {
+			fmt.Fprintf(stdio.Out, "would write the %s skill to %s\nnothing changed (--dry-run)\n", name, dir)
+			return 0
 		}
+		changed, err := skill.Install(name, func() error { return nil })
 		if err != nil {
-			fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
-			return 1
+			return fail(err)
 		}
+		installed(changed)
+		fmt.Fprintf(stdio.Out, "Binding %s adds the skill to sessions.\n", b)
+		return 0
+	}
+	staged, remove, err := skill.Stage(name)
+	if err != nil {
+		return fail(err)
+	}
+	defer remove()
+	s := newSources(stdio)
+	data, err := readConfig(s.file)
+	if err != nil {
+		return fail(err)
+	}
+	ed, err := config.NewEditor(data)
+	if err != nil {
+		return fail(err)
+	}
+	exists := config.Parse(data, config.Options{Agents: registry.Names()}).Binding(skill.Binding) != nil
+	if err := planSkill(s.file, ed, dir, staged); err != nil {
+		return fail(err)
 	}
 	if dryRun {
 		fmt.Fprintf(stdio.Out, "would write the %s skill to %s\n", name, dir)
-		if b == "" {
-			fmt.Fprintf(stdio.Out, "would add the binding %s, which adds it to every session\n", name)
+		if exists {
+			fmt.Fprintf(stdio.Out, "would add it to the skills of the binding %s\n", skill.Binding)
+		} else {
+			fmt.Fprintf(stdio.Out, "would add the binding %s, which adds it to every session\n", skill.Binding)
 		}
 		fmt.Fprintln(stdio.Out, "nothing changed (--dry-run)")
 		return 0
 	}
-	changed, err := skill.Write(name)
-	if err != nil {
-		fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
-		return 1
-	}
-	if changed {
-		term.Fprintf(stdio.Out, term.Green, "Installed to %s\n", dir)
-	} else {
-		fmt.Fprintf(stdio.Out, "The %s skill in %s is up to date.\n", name, dir)
-	}
-	if b != "" {
-		fmt.Fprintf(stdio.Out, "Binding %s adds the skill to sessions.\n", b)
-		return 0
-	}
 	created := s.files.Created()
-	if _, err := s.addBinding(newBinding{Name: name}, n, addFlags{}); err != nil {
-		fmt.Fprintf(stdio.Err, "ctxtra skill install: %v\n", err)
-		return 1
+	var changed bool
+	if err := s.writeCommit(func(tx *edit.Tx) error {
+		exists = config.Parse(tx.Config.Bytes(), config.Options{Agents: registry.Names()}).Binding(skill.Binding) != nil
+		return planSkill(s.file, tx.Config, dir, staged)
+	}, func(write func() error) (err error) {
+		changed, err = skill.Install(name, write)
+		return err
+	}); err != nil {
+		return fail(err)
 	}
-	if !created {
-		term.Fprintf(stdio.Out, term.Green, "Added to %s\n", paths.Tilde(s.file))
+	installed(changed)
+	switch {
+	case exists:
+		term.Fprintf(stdio.Out, term.Green, "Added to the binding %s in %s\n", skill.Binding, paths.Tilde(s.file))
+	case !created:
+		term.Fprintf(stdio.Out, term.Green, "Added the binding %s to %s\n", skill.Binding, paths.Tilde(s.file))
 	}
 	ready := "The skill is ready for new agent sessions in any folder."
+	if exists {
+		ready = "The skill is ready for new agent sessions that the binding " + skill.Binding + " applies to."
+	}
 	if name == skill.Base {
 		ready += " Ask your agent to help you get started with ctxtra."
 	}
 	fmt.Fprintln(stdio.Out, ready)
 	return 0
+}
+
+// planSkill adds dir, a skill's folder as the config writes it, to the
+// binding skill.Binding in ed, and checks the result as a session reads it
+// once the skill's files, staged now, are in dir: the binding has no
+// errors, fits the limits, and adds the skill.
+func planSkill(file string, ed *config.Editor, dir, staged string) error {
+	if old := config.Parse(ed.Bytes(), config.Options{Agents: registry.Names()}).Binding(skill.Binding); old != nil && old.Broken() {
+		return fmt.Errorf("the binding %s has errors, so it can't add the skill; fix it first (see ctxtra doctor); nothing changed", skill.Binding)
+	}
+	if err := putSkill(ed, dir); err != nil {
+		return err
+	}
+	env := resolve.LoadData(file, ed.Bytes(), registry.Names())
+	env.Catalog = env.Catalog.WithOverlay(paths.Expand(dir), staged)
+	_, res, err := checkIn(env, skill.Binding)
+	if err != nil {
+		return err
+	}
+	d := paths.Expand(dir)
+	want := filepath.Join(paths.Real(filepath.Dir(d)), filepath.Base(d))
+	if !slices.ContainsFunc(res.Skills, func(h resolve.Hit) bool { return filepath.Dir(h.Path) == want }) {
+		return fmt.Errorf("the binding %s leaves out %s; add it to that binding by hand; nothing changed", skill.Binding, dir)
+	}
+	return nil
+}
+
+// putSkill adds dir to the skills of the binding skill.Binding in ed, and
+// adds that binding, with skill.Comment above it, when ed has none.
+func putSkill(ed *config.Editor, dir string) error {
+	old, err := ed.Entry(config.Bindings, skill.Binding)
+	if err != nil {
+		return err
+	}
+	if old == nil {
+		n := newBinding{Skills: []string{dir}}.node()
+		n.HeadComment = skill.Comment
+		_, err := ed.Add(config.Bindings, skill.Binding, n, config.Place{})
+		return err
+	}
+	if _, err := ed.AppendTo(config.Bindings, skill.Binding, "skills", dir); err != nil {
+		return fmt.Errorf("can't add %s to the skills of the binding %s: %s; add it by hand; nothing changed",
+			dir, skill.Binding, strings.TrimSuffix(err.Error(), "; nothing changed"))
+	}
+	return nil
 }
 
 // skillBound is the name of the first usable binding of the config that

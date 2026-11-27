@@ -16,7 +16,7 @@
 <text x="640" y="210" font-size="15" fill="#9AA6B8" text-anchor="middle">ledger moved to its own service</text>
 <circle cx="980" cy="176" r="9" fill="#0B0F17" stroke="#E6EDF3" stroke-width="3"/>
 <text x="980" y="154" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="16" fill="#E6EDF3" text-anchor="middle">1a2b3c4</text>
-<text x="980" y="210" font-size="15" fill="#9AA6B8" text-anchor="middle">now for every session, + run.sh</text>
+<text x="980" y="210" font-size="15" fill="#9AA6B8" text-anchor="middle">repo set + github.com/**, + run.sh</text>
 <rect x="360" y="315" width="276" height="30" rx="15" fill="#A78BFA" fill-opacity="0.14" stroke="#A78BFA" stroke-opacity="0.6"/>
 <text x="376" y="336" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15" fill="#A78BFA">pinned abc1234</text>
 <rect x="640" y="315" width="576" height="30" rx="15" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-opacity="0.6"/>
@@ -28,6 +28,6 @@
 <text x="640" y="268.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15" fill="#E6EDF3" text-anchor="middle">source update: diff → <tspan fill="#4ADE80" font-weight="700">Accept? y</tspan></text>
 <line x1="980" y1="222" x2="980" y2="246.0" stroke="#F87171" stroke-width="2" stroke-dasharray="4 4"/>
 <rect x="810" y="246.0" width="380" height="34" rx="8" fill="#121926" stroke="#F87171"/>
-<text x="1000" y="268.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15" fill="#E6EDF3" text-anchor="middle"><tspan fill="#FBBF24" font-weight="700">WARNING</tspan> scope widened → <tspan fill="#F87171" font-weight="700">N</tspan>, keep def5678</text>
+<text x="1000" y="268.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="15" fill="#E6EDF3" text-anchor="middle"><tspan fill="#FBBF24" font-weight="700">WARNING</tspan> github.com/** → <tspan fill="#F87171" font-weight="700">N</tspan>, keep def5678</text>
 <text x="56" y="384" font-size="17" fill="#9AA6B8">ctxtra keeps its own copy, so you need no clone. Sessions never fetch. <tspan font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#E6EDF3">ctxtra source download</tspan> gives a new laptop exactly the accepted commits.</text>
 </svg>

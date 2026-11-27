@@ -264,7 +264,7 @@ def team_sync(theme):
     b.append(f'<text x="56" y="{bot+6}" font-family="{MONO}" font-size="16" fill="{c["MUTED"]}">your sessions</text>')
     b.append(f'<line x1="{lx0}" y1="{top}" x2="{lx1}" y2="{top}" stroke="{c["EDGE"]}" stroke-width="3"/>')
     commits = [(360, "abc1234", "first version"), (640, "def5678", "ledger moved to its own service"),
-               (980, "1a2b3c4", "now for every session, + run.sh")]
+               (980, "1a2b3c4", "repo set + github.com/**, + run.sh")]
     for x, sha, msg in commits:
         b.append(f'<circle cx="{x}" cy="{top}" r="9" fill="{c["BG"]}" stroke="{c["TEXT"]}" stroke-width="3"/>')
         b.append(f'<text x="{x}" y="{top-22}" font-family="{MONO}" font-size="16" fill="{c["TEXT"]}" text-anchor="middle">{sha}</text>')
@@ -286,7 +286,7 @@ def team_sync(theme):
     b.append(f'<line x1="{gx}" y1="{top+46}" x2="{gx}" y2="{mid-17}" stroke="{c["RED"]}" stroke-width="2" stroke-dasharray="4 4"/>')
     b.append(f'<rect x="{gx-170}" y="{mid-17}" width="380" height="34" rx="8" fill="{c["PANEL"]}" stroke="{c["RED"]}"/>')
     b.append(f'<text x="{gx+20}" y="{mid+5}" font-family="{MONO}" font-size="15" fill="{c["TEXT"]}" text-anchor="middle">'
-             f'<tspan fill="{c["AMBER"]}" font-weight="700">WARNING</tspan> scope widened → <tspan fill="{c["RED"]}" font-weight="700">N</tspan>, keep def5678</text>')
+             f'<tspan fill="{c["AMBER"]}" font-weight="700">WARNING</tspan> github.com/** → <tspan fill="{c["RED"]}" font-weight="700">N</tspan>, keep def5678</text>')
     b.append(f'<text x="56" y="{h-36}" font-size="17" fill="{c["MUTED"]}">ctxtra keeps its own copy, so you need no clone. Sessions never fetch. '
              f'<tspan font-family="{MONO}" fill="{c["TEXT"]}">ctxtra source download</tspan> gives a new laptop exactly the accepted commits.</text>')
     write(f"team-sync-{theme}.svg", "\n".join(b), w, h,
@@ -341,7 +341,7 @@ class Path:
 
 
 def story(theme):
-    """ctxtra's hooks in every agent; then, one at a time: your files, a binding by remote, a team package,
+    """ctxtra's hooks in every agent; then, one at a time: your files, a binding by remote, a team source,
     an edit that reaches every matching session, and a team update that waits for review."""
     c = THEMES[theme]
     W, H, T = 960, 600, 23.0
@@ -428,9 +428,9 @@ def story(theme):
 
     # ---- bindings: a line per binding, from its files to the hooks of the projects it matches
     bindings = [  # x where it leaves the source, rail y, color, projects, selector, label x and anchor, start
-        (120, 250, "VIOLET", [0, 1, 2], "global: true", 132, "start", t_personal),
+        (120, 250, "VIOLET", [0, 1, 2], "no location: every session", 132, "start", t_personal),
         (300, 296, "CYAN", [0, 1], "repos: github.com/acme/*", 312, "start", t_acme),
-        (775, 342, "AMBER", [0, 1], "repos: github.com/acme/billing  (the package's binding)", 763, "end", t_team),
+        (775, 342, "AMBER", [0, 1], "repos: github.com/acme/billing", 763, "end", t_team),
     ]
     paths = {}
     for k, (sx, ry, col, matched, sel, lx, anchor, a) in enumerate(bindings):
@@ -441,7 +441,7 @@ def story(theme):
                                 f'pathLength="1" stroke-dasharray="1" stroke-dashoffset="1">'
                                 + anim("stroke-dashoffset", [(a, 1), (a + 0.7, 0)]) + "</path>", 0.1))
             b.append(flow(p, col, a + 0.7, phase=0.3 * j))
-            if k == 2:  # the package's binding carries the skill too
+            if k == 2:  # this binding adds the skill too
                 b.append(flow(p, "LIME", a + 0.7, phase=0.3 * j + 0.5))
         tw = 7.8 * len(sel) + 16
         bx = lx - 8 if anchor == "start" else lx - tw + 8
@@ -493,7 +493,7 @@ def story(theme):
         b.append(show(a, z, f'<text x="{W/2}" y="44" font-size="19" fill="{c["TEXT"]}" text-anchor="middle">{escape(text)}</text>', 0.3))
 
     write(f"story-{theme}.svg", "\n".join(b), W, H,
-          "ctxtra hooks into every agent. Bindings add your own instruction files and a pinned team package to "
+          "ctxtra hooks into every agent. Bindings add your own instruction files and files of a pinned team source to "
           "sessions by folder or Git remote, worktrees included. An edited file reaches every matching session, "
           "a team update waits for your review, and nothing is written into the repos")
 

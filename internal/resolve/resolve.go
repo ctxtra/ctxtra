@@ -29,11 +29,25 @@ type Hit struct {
 	// Global is true for a file of a binding without conditions: every
 	// session gets it.
 	Global bool
+	// Conds are the conditions of the file's binding, for its header.
+	Conds Conds
 	// Skills only.
 	Name, Description string
 	// Dropped files only: the limit the text was over, for example
 	// "max-ctx-chars".
 	Over string
+}
+
+// Conds are the conditions of a binding, as they held in a session.
+type Conds struct {
+	// Location and Agents are true for a binding with that condition.
+	Location, Agents bool
+	// Repo is true for a location that holds in the whole repository and
+	// its worktrees.
+	Repo bool
+	// Profiles are the active profiles that the profiles condition names,
+	// and NotProfiles the profiles of its ! entries.
+	Profiles, NotProfiles []string
 }
 
 // MCPServer is an MCP server the session gets.

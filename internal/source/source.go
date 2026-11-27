@@ -150,9 +150,8 @@ func Has(url, subdir, commit string) bool {
 
 // Repo is the bare repository of one source.
 type Repo struct {
-	URL    string // a git URL, or the absolute path of a clone
-	dir    string
-	fileOK bool // the file transport is allowed, for a fetch from a clone
+	URL string // a git URL, or the absolute path of a clone
+	dir string
 }
 
 // Open returns the repository of a source's remote. It is created on the
@@ -235,7 +234,7 @@ func gitEnv(protocols string) []string {
 func (r *Repo) gitMax(ctx context.Context, repo bool, stdin io.Reader, max int, args ...string) ([]byte, error) {
 	all := append([]string{}, options...)
 	protocols := "https:ssh"
-	if r.local() || r.fileOK {
+	if r.local() {
 		// Only for fetches from a clone the user named.
 		all = append(all, "-c", "protocol.file.allow=always")
 		protocols += ":file"
@@ -374,28 +373,6 @@ func (r *Repo) FetchBranch(ctx context.Context, branch string) (string, error) {
 		return "", err
 	}
 	return r.fetchRef(ctx, r.URL, "refs/heads/"+branch)
-}
-
-// FetchHead fetches the commit HEAD points to in the clone from, an
-// absolute path: the clone's committed state, without its working tree,
-// index, config, hooks or alternates. Detached HEAD works too.
-func (r *Repo) FetchHead(ctx context.Context, from string) (string, error) {
-	if !filepath.IsAbs(from) {
-		return "", fmt.Errorf("%s is not an absolute path", from)
-	}
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
-	unlock, err := r.lock()
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
-	r.fileOK = true
-	defer func() { r.fileOK = false }()
-	if err := r.ensure(ctx, from); err != nil {
-		return "", err
-	}
-	return r.fetchRef(ctx, from, "HEAD")
 }
 
 // fetchRef fetches ref from into a private ref and returns its commit. The
@@ -812,13 +789,9 @@ func writeFile(dir string, e Entry, data []byte) error {
 // Sanitize is term.Sanitize.
 func Sanitize(s string) string { return term.Sanitize(s) }
 
-// Clone is what ctxtra reads from a clone on disk to import it.
+// Clone is what ctxtra reads from a clone on disk to add it as a source.
 type Clone struct {
-	Top      string            // the top of the working tree
-	Head     string            // the commit HEAD points to
-	Remotes  map[string]string // name: URL
-	Upstream string            // the remote of the current branch's upstream, "" when none
-	Branch   string            // the upstream's branch on that remote
+	Top string // the top of the working tree
 	// Current is the branch checked out, "" when HEAD is detached.
 	Current string
 }
@@ -846,22 +819,11 @@ func InspectClone(ctx context.Context, dir string) (Clone, error) {
 		return Clone{}, fmt.Errorf("%s is not in a git clone with a working tree", paths.Tilde(dir))
 	}
 	c.Top = paths.Real(c.Top)
-	if c.Head, err = run("rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil || !ValidCommit(c.Head) {
+	if head, err := run("rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil || !ValidCommit(head) {
 		return Clone{}, fmt.Errorf("%s has no commit yet", paths.Tilde(c.Top))
-	}
-	names, _ := run("remote")
-	c.Remotes = map[string]string{}
-	for _, n := range strings.Fields(names) {
-		if u, err := run("remote", "get-url", "--", n); err == nil {
-			c.Remotes[n] = u
-		}
 	}
 	if b, err := run("symbolic-ref", "-q", "--short", "HEAD"); err == nil && b != "" {
 		c.Current = b
-		up, _ := run("for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", "--", "refs/heads/"+b)
-		if remote, ref, ok := strings.Cut(up, "\x00"); ok && remote != "" {
-			c.Upstream, c.Branch = remote, strings.TrimPrefix(ref, "refs/heads/")
-		}
 	}
 	return c, nil
 }

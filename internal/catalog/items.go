@@ -186,6 +186,18 @@ func (c *Catalog) readMax(it Item, rd *fsutil.Reader, limit int) ([]byte, string
 		return data, p, err
 	}
 	var err error
+	if from, real, ok := c.overlaid(p); ok && !it.stored {
+		if from, err = c.trust.Resolve(from); err != nil {
+			return nil, "", &Untrusted{err}
+		}
+		var data []byte
+		if rd == nil {
+			data, err = readBounded(from, limit)
+		} else {
+			data, err = rd.ReadMax(from, limit)
+		}
+		return data, real, err
+	}
 	if !it.stored {
 		p, err = c.trust.Resolve(p)
 		if err != nil {
@@ -257,7 +269,7 @@ func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[{\`) }
 // as the config names it.
 func (c *Catalog) glob(fsys fs.FS, root, pattern, ref string, kind Kind, live bool, links *symlinkTree) ([]string, []error) {
 	t := &tree{FS: fsys, root: root, trust: c.trust, live: live, virtual: fsys != nil, left: maxGlobEntries,
-		ids: map[string]fileID{}, skippedPaths: map[string]bool{}, pattern: hasMeta(pattern)}
+		ids: map[string]fileID{}, skippedPaths: map[string]bool{}, pattern: hasMeta(pattern), overlaid: c.overlaid}
 	if links != nil {
 		t.links, t.linkPaths = links.links, links.paths
 	}
@@ -326,6 +338,18 @@ type tree struct {
 	// ids are the folders listed, by their path, for finding symlink
 	// cycles.
 	ids map[string]fileID
+	// overlaid is Catalog.overlaid, for live folders.
+	overlaid func(string) (string, string, bool)
+}
+
+// statLive is os.Stat of full, in the catalog's overlay if it is there.
+func (t *tree) statLive(full string) (fs.FileInfo, error) {
+	if t.overlaid != nil {
+		if from, _, ok := t.overlaid(full); ok {
+			full = from
+		}
+	}
+	return os.Stat(full)
 }
 
 // fileID is what makes two paths the same folder.
@@ -370,7 +394,7 @@ func (t *tree) match(p string, kind Kind) bool {
 	case t.virtual:
 		stat = t.statFS
 	case t.live:
-		stat = os.Stat
+		stat = t.statLive
 	}
 	fi, err := stat(full)
 	if err != nil {
@@ -481,7 +505,7 @@ func (t *tree) Stat(name string) (fs.FileInfo, error) {
 	case t.virtual:
 		stat = t.statFS
 	case t.live:
-		stat = os.Stat
+		stat = t.statLive
 	}
 	fi, err := stat(full)
 	if err != nil {

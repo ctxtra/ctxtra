@@ -14,7 +14,7 @@ import (
 
 func TestApprovalCannotBeUsedBeforeDurableSave(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
-	srv := upstream.Server{ID: "work/local", Name: "local", Pinned: true, Command: []string{"local-mcp"}}
+	srv := upstream.Server{ID: "work:local", Name: "local", Pinned: true, Command: []string{"local-mcp"}}
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var once, releaseOnce sync.Once
 	oldSync := syncDir
@@ -57,7 +57,7 @@ func TestApprovalCannotBeUsedBeforeDurableSave(t *testing.T) {
 
 func TestApprovalDoesNotWaitForCredentialLock(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
-	srv := upstream.Server{ID: "work/local", Name: "local", Pinned: true, Command: []string{"local-mcp"}}
+	srv := upstream.Server{ID: "work:local", Name: "local", Pinned: true, Command: []string{"local-mcp"}}
 	if err := s.DecideApproval(srv, true); err != nil {
 		t.Fatal(err)
 	}

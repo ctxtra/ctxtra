@@ -168,7 +168,7 @@ func TestOnboardFailure(t *testing.T) {
 				args = []string{"--agent", "nonexistent"}
 			case "skill":
 				testenv.Write(t, filepath.Join(h, "notes.md"), "notes")
-				testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - name: ctxtra\n    instructions: [~/notes.md]\n")
+				testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - name: ctxtra-system\n    typo: true\n    instructions: [~/notes.md]\n")
 			case "choice":
 				input = "\n\ny\n99\n"
 			case "start":

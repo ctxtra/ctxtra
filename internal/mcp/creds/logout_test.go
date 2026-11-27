@@ -18,7 +18,7 @@ func TestLogoutPreservesSharedRegistrationAcrossDeclarations(t *testing.T) {
 			if _, err := s.EnsureKey(); err != nil {
 				t.Fatal(err)
 			}
-			original := upstream.Server{ID: "work/shared", Name: "shared", Source: "work", Origin: "git:example", URL: "https://example.com/mcp"}
+			original := upstream.Server{ID: "work:shared", Name: "shared", Source: "work", Origin: "repo:github.com/acme/example", URL: "https://example.com/mcp"}
 			client := Client{ID: "registered-app", Secret: "client-secret", Registered: true, Redirect: "http://127.0.0.1:4567/callback", CallbackPort: 4567, TokenURL: "https://example.com/token", AuthMethod: "client_secret_basic"}
 			if _, err := s.Update(original, true, func(r *Record) error {
 				r.Client, r.Issuer = client, "https://example.com"
@@ -39,7 +39,7 @@ func TestLogoutPreservesSharedRegistrationAcrossDeclarations(t *testing.T) {
 			case "other URL":
 				selected.URL = "https://other.example/mcp"
 			case "other origin":
-				selected.Origin = "git:other"
+				selected.Origin = "repo:github.com/acme/other"
 			case "other command":
 				selected.URL, selected.Command = "", []string{"other-mcp", "--account", "other"}
 			}

@@ -1,0 +1,114 @@
+# Each file's header says which sessions get it. Only a binding without
+# conditions is for every session; profiles and agents are named.
+mkdir dev/app
+gitrepo dev/svc git@github.com:acme/svc.git
+mkdir dev/svc/cmd dev/svc/internal
+
+exec ctxtra context show dev/app --agent codex --profile iam
+stdout '^Contents of .*/ctx/me.md \(instructions added by ctxtra for every session; binding: me\):$'
+stdout '^Contents of .*/ctx/iam.md \(instructions added by ctxtra for sessions with the profile iam; binding: iam\):$'
+stdout '^Contents of .*/ctx/codex.md \(instructions added by ctxtra for codex sessions; binding: codex\):$'
+stdout '^Contents of .*/ctx/calm.md \(instructions added by ctxtra for sessions without the profile oncall; binding: calm\):$'
+stdout '^Contents of .*/ctx/dev.md \(instructions added by ctxtra for codex sessions in ~/dev/app with the profile iam; binding: dev\):$'
+! stdout 'svc.md'
+
+exec ctxtra context show dev/svc --agent codex --profile iam
+stdout '^Contents of .*/ctx/svc.md \(instructions added by ctxtra for this repository, ~/dev/svc, and all its worktrees; binding: svc\):$'
+stdout '^Contents of .*/ctx/svc-codex.md \(instructions added by ctxtra for codex sessions in this repository, ~/dev/svc, and all its worktrees; binding: svc-codex\):$'
+
+# A binding for a part of the repository names the session folder: a dirs
+# entry for a subfolder, a repos entry with subdirs, and ! entries.
+exec ctxtra context show dev/svc/cmd --agent codex --profile iam
+stdout '^Contents of .*/ctx/svc.md \(instructions added by ctxtra for this repository, ~/dev/svc, and all its worktrees; binding: svc\):$'
+stdout '^Contents of .*/ctx/cmd.md \(instructions added by ctxtra for codex sessions in ~/dev/svc/cmd with the profile iam; binding: cmd\):$'
+stdout '^Contents of .*/ctx/sub.md \(instructions added by ctxtra for codex sessions in ~/dev/svc/cmd with the profile iam; binding: sub\):$'
+stdout '^Contents of .*/ctx/cmd-only.md \(instructions added by ctxtra for sessions in ~/dev/svc/cmd; binding: cmd-only\):$'
+stdout '^Contents of .*/ctx/not-legacy.md \(instructions added by ctxtra for codex sessions in ~/dev/svc/cmd; binding: not-legacy\):$'
+stdout '^Contents of .*/ctx/not-dir.md \(instructions added by ctxtra for sessions in ~/dev/svc/cmd; binding: not-dir\):$'
+exec ctxtra context show dev/svc/internal --agent codex --profile iam
+! stdout 'cmd.md|sub.md'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/ctx/me.md]
+  - name: iam
+    profiles: [iam, ops]
+    instructions: [~/ctx/iam.md]
+  - name: codex
+    agents: [codex]
+    instructions: [~/ctx/codex.md]
+  - name: calm
+    profiles: ['!oncall']
+    instructions: [~/ctx/calm.md]
+  - name: dev
+    location:
+      dirs: ['~/dev/**']
+    agents: ['!cursor']
+    profiles: [iam]
+    instructions: [~/ctx/dev.md]
+  - name: svc
+    location:
+      repos: [github.com/acme/svc]
+    instructions: [~/ctx/svc.md]
+  - name: svc-codex
+    location:
+      repos: [github.com/acme/svc]
+    agents: [codex]
+    instructions: [~/ctx/svc-codex.md]
+  - name: cmd
+    location:
+      dirs: ['~/dev/svc/cmd']
+    agents: [codex]
+    profiles: [iam]
+    instructions: [~/ctx/cmd.md]
+  - name: sub
+    location:
+      repos:
+        - repo: github.com/acme/svc
+          subdirs: ['cmd/**']
+    agents: [codex]
+    profiles: [iam]
+    instructions: [~/ctx/sub.md]
+  - name: cmd-only
+    location:
+      repos:
+        - repo: github.com/acme/svc
+          subdirs: ['cmd']
+    instructions: [~/ctx/cmd-only.md]
+  - name: not-legacy
+    location:
+      repos:
+        - repo: github.com/acme/svc
+          subdirs: ['**', '!legacy/**']
+    agents: [codex]
+    instructions: [~/ctx/not-legacy.md]
+  - name: not-dir
+    location:
+      dirs: ['~/dev/**', '!~/dev/svc/legacy']
+    instructions: [~/ctx/not-dir.md]
+-- ctx/me.md --
+ME
+-- ctx/iam.md --
+IAM
+-- ctx/codex.md --
+CODEX
+-- ctx/calm.md --
+CALM
+-- ctx/dev.md --
+DEV
+-- ctx/svc.md --
+SVC
+-- ctx/svc-codex.md --
+SVC-CODEX
+-- ctx/cmd.md --
+CMD
+-- ctx/sub.md --
+SUB
+-- ctx/cmd-only.md --
+CMD-ONLY
+-- ctx/not-legacy.md --
+NOT-LEGACY
+-- ctx/not-dir.md --
+NOT-DIR

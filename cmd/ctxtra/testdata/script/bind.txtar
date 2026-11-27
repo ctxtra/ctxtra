@@ -104,11 +104,6 @@ stderr '^error: ~/.config/ctxtra/config.yaml: line 5: binding broken: unknown ke
 exec ctxtra binding remove broken
 stdout '^removed binding broken'
 ! grep broken .config/ctxtra/config.yaml
-! exec ctxtra skill install ctxtra --dry-run
-stderr 'a binding named ctxtra already exists'
-! exec ctxtra skill install ctxtra
-stderr 'a binding named ctxtra already exists'
-! exists .local/share/ctxtra/skills/ctxtra
 cp original.yaml .config/ctxtra/config.yaml
 
 # Usage errors.
@@ -161,8 +156,6 @@ bindings:
   - name: broken
     instructions: [../../notes/me.md]
     nope: 1
-  - name: ctxtra
-    instructions: [../../notes/me.md]
 -- budget.yaml --
 schema: ctxtra/config/v1
 max-ctx-chars: 5
