@@ -79,16 +79,16 @@ func TestCommandsReportFatalErrors(t *testing.T) {
 // it refuses before it writes anything.
 func TestSkillInstallBrokenBinding(t *testing.T) {
 	for name, bindings := range map[string]string{
-		"an unknown key": "  - {name: ctxtra, typo: true, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n",
-		"a name twice": "  - {name: ctxtra, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n" +
-			"  - {name: ctxtra, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n",
+		"an unknown key": "  - {name: ctxtra-system, typo: true, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n",
+		"a name twice": "  - {name: ctxtra-system, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n" +
+			"  - {name: ctxtra-system, skills: [~/.local/share/ctxtra/skills/ctxtra]}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := testenv.Home(t)
 			conf := "schema: ctxtra/config/v1\nbindings:\n" + bindings
 			file := testenv.Config(t, h, conf)
 			code, out, errOut := run("skill", "install", "ctxtra")
-			if code != 1 || !strings.Contains(errOut, "the binding ctxtra has errors") || strings.Contains(out, "adds the skill") {
+			if code != 1 || !strings.Contains(errOut, "the binding ctxtra-system has errors") || strings.Contains(out, "adds the skill") {
 				t.Errorf("exit %d\n%s%s", code, out, errOut)
 			}
 			if _, err := os.Stat(paths.SkillDir("ctxtra")); !errors.Is(err, os.ErrNotExist) {
