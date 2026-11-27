@@ -645,3 +645,39 @@ func TestCheckDeepFile(t *testing.T) {
 		t.Errorf("deep: %q", n)
 	}
 }
+
+// One hook of an earlier ctxtra keeps its position; several are one line,
+// which Notices for doctor counts by event.
+func TestEarlierHooksNotice(t *testing.T) {
+	h := testenv.Home(t)
+	o := fakeBinary(t, h)
+	c := Config{Agent: "claude-code", Path: filepath.Join(h, ".claude", "settings.json"), Events: events}
+	old := func(event string) any {
+		cmd := strings.ReplaceAll(agent.Command(o.Binary, c.Agent, event, nil), " "+agent.SetupVersionArg, "")
+		return map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}
+	}
+	write := func(hooks map[string]any) {
+		b, err := json.Marshal(map[string]any{"hooks": hooks})
+		if err != nil {
+			t.Fatal(err)
+		}
+		testenv.Write(t, c.Path, string(b))
+	}
+	repair := "; run ctxtra setup --agent claude-code"
+	for _, detailed := range []bool{false, true} {
+		write(map[string]any{"SessionStart": []any{old("SessionStart")}, "SubagentStart": []any{old("SubagentStart"), old("SubagentStart")}})
+		want := "3 hooks in ~/.claude/settings.json are from an earlier ctxtra" + repair
+		if detailed {
+			want = "3 hooks in ~/.claude/settings.json are from an earlier ctxtra (1 SessionStart, 2 SubagentStart)" + repair
+		}
+		if got := c.Notices(o.Binary, false, detailed); !slices.Contains(got, want) || slices.ContainsFunc(got, func(n string) bool { return n != want && strings.Contains(n, "earlier") }) {
+			t.Errorf("detailed %v: %q, want %q", detailed, got, want)
+		}
+
+		write(map[string]any{"SessionStart": []any{old("SessionStart")}, "SubagentStart": []any{}})
+		want = "SessionStart hook 0:0 in ~/.claude/settings.json is from an earlier ctxtra" + repair
+		if got := c.Notices(o.Binary, false, detailed); !slices.Contains(got, want) {
+			t.Errorf("one hook, detailed %v: %q, want %q", detailed, got, want)
+		}
+	}
+}

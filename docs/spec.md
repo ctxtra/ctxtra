@@ -1464,11 +1464,15 @@ shows the same lines under each agent instead:
 |---|---|
 | The binary in the setup is gone | `claude-code: the hooks run ~/Downloads/ctxtra-0.3/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code` |
 | The setup runs another binary | `claude-code: the hooks run /usr/local/bin/ctxtra, not this ctxtra (/opt/homebrew/bin/ctxtra); to switch, run ctxtra setup --agent claude-code` |
-| An earlier release set it up | `claude-code: SessionStart hook 0:0 in ~/.claude/settings.json is from an earlier ctxtra; run ctxtra setup --agent claude-code` |
+| An earlier release set it up | `claude-code: 80 hooks in ~/.claude/settings.json are from an earlier ctxtra; run ctxtra setup --agent claude-code`, `cursor: sessionStart hook 0:0 in ~/.cursor/hooks.json is from an earlier ctxtra; run ctxtra setup --agent cursor`, `pi: the ctxtra MCP proxy entry is from an earlier ctxtra; run ctxtra setup --agent pi` |
 | Part of the setup is missing | `claude-code: SessionStart has 3 of the 40 ctxtra hooks; run ctxtra setup --agent claude-code`, `dsh: the patch row that loads ctxtra's plugin is missing; run ctxtra setup --agent dsh`, `claude-code: ctxtra's plugin, which offers the skills as slash commands, is missing from ~/.claude/skills/ctxtra; run ctxtra setup --agent claude-code` |
 | The Hermes plugin isn't enabled | `hermes-agent: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra` |
 | A setup is gone from its file | `claude-code: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; if it was, ctxtra setup --remove --agent claude-code stops this notice` |
 | An agent was found since the last setup | `cursor: found since the last ctxtra setup; to add ctxtra to it, run ctxtra setup --agent cursor` |
+
+Hooks of an earlier release are one line for each file, with how many there are; a single hook keeps its
+position (group:handler). `doctor` adds how many each event has, for example
+`80 hooks in ~/.claude/settings.json are from an earlier ctxtra (40 SessionStart, 40 SubagentStart)`.
 
 A new agent is told about once: ctxtra then adds it to `detected` in `~/.local/state/ctxtra/setup.json`, unless a setup
 is running or the file can't be written, and then tells again next time. `doctor` still lists it as not set

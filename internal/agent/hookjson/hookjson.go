@@ -239,7 +239,7 @@ func (c Config) Status(bin string, known bool) agent.Status {
 		return agent.Status{State: "unreadable: " + err.Error()}
 	}
 	cmds := c.commands(data)
-	notices := c.check(data, cmds, bin, known)
+	notices := c.check(data, cmds, bin, known, true)
 	var evs []string
 	for _, ev := range c.Events {
 		if len(cmds[ev.Name]) > 0 {
@@ -257,15 +257,20 @@ func (c Config) Status(bin string, known bool) agent.Status {
 
 // Check is agent.Agent.Check for the hook file: the binaries the hooks
 // run, hooks of an older version, missing hooks, and hooks that are gone.
-func (c Config) Check(bin string, known bool) []string {
+func (c Config) Check(bin string, known bool) []string { return c.Notices(bin, known, false) }
+
+// Notices are Check's notices; detailed are those of Status, for doctor.
+func (c Config) Notices(bin string, known, detailed bool) []string {
 	data, err := c.load()
 	if err != nil {
 		return []string{agent.UnreadableNotice(c.Path, err)}
 	}
-	return c.check(data, c.commands(data), bin, known)
+	return c.check(data, c.commands(data), bin, known, detailed)
 }
 
-func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string, known bool) []string {
+// check has the notices about the hook file. detailed: the notice about
+// hooks of an earlier ctxtra counts them by event.
+func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string, known, detailed bool) []string {
 	repair := agent.Repair(c.Agent) + c.RepairNote
 	// Setup and --remove both leave such a file alone: only the user can
 	// end this notice.
@@ -294,16 +299,14 @@ func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string
 			}
 		}
 	}
+	if n := c.earlier(cmds, detailed); n != "" {
+		out = append(out, n+"; "+repair)
+	}
 	for _, ev := range c.Events {
 		list := c.entries(data, ev.Name)
 		if len(cmds[ev.Name]) == 0 {
 			out = append(out, fmt.Sprintf("%s has no ctxtra hook; %s", ev.Name, repair))
 			continue
-		}
-		for _, cmd := range cmds[ev.Name] {
-			if h, _ := agent.ParseCommand(cmd.Text, c.Missing); !h.Current {
-				out = append(out, fmt.Sprintf("%s hook %d:%d in %s is from an earlier ctxtra; %s", ev.Name, cmd.Group, cmd.Handler, paths.Tilde(c.Path), repair))
-			}
 		}
 		for _, cmd := range cmds[ev.Name] {
 			if c.ContextLimit > 0 && limit(data, list, cmd) != fmt.Sprint(c.ContextLimit) {
@@ -316,6 +319,42 @@ func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string
 		}
 	}
 	return out
+}
+
+// earlier is the notice about the hooks in cmds that an earlier ctxtra
+// wrote, "" for none. One line for the file, as a setup of slots has
+// dozens of hooks; one hook keeps its position. detailed adds how many
+// each event has.
+func (c Config) earlier(cmds map[string][]Command, detailed bool) string {
+	var first Command
+	var firstEvent string
+	var events []string
+	total := 0
+	for _, ev := range c.Events {
+		n := 0
+		for _, cmd := range cmds[ev.Name] {
+			if h, _ := agent.ParseCommand(cmd.Text, c.Missing); !h.Current {
+				if total == 0 {
+					first, firstEvent = cmd, ev.Name
+				}
+				n++
+				total++
+			}
+		}
+		if n > 0 {
+			events = append(events, fmt.Sprintf("%d %s", n, ev.Name))
+		}
+	}
+	file := paths.Tilde(c.Path)
+	switch {
+	case total == 0:
+		return ""
+	case total == 1:
+		return fmt.Sprintf("%s hook %d:%d in %s is from an earlier ctxtra", firstEvent, first.Group, first.Handler, file)
+	case detailed:
+		return fmt.Sprintf("%d hooks in %s are from an earlier ctxtra (%s)", total, file, strings.Join(events, ", "))
+	}
+	return fmt.Sprintf("%d hooks in %s are from an earlier ctxtra", total, file)
 }
 
 // binaries are the binaries that cmds run, in file order.
