@@ -542,8 +542,11 @@ type ghRelease struct {
 // asks a local server.
 var errTestAsksGitHub = errors.New("a test asked GitHub for the latest release: turn the release check off (check-releases: false)")
 
-// asksGitHub reports whether a test binary would ask GitHub at u.
-func asksGitHub(u *neturl.URL) bool { return testing.Testing() && u.Hostname() == "api.github.com" }
+// asksGitHub reports whether a test binary would ask GitHub at u, in any
+// case and with or without the trailing dot of a full domain name.
+func asksGitHub(u *neturl.URL) bool {
+	return testing.Testing() && strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "api.github.com")
+}
 
 // getJSON reads GitHub's answer at url, at most limit bytes, into v. It
 // returns the URL of the answer's next page, or "" when there is none.
