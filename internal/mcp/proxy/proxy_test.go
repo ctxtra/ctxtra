@@ -335,11 +335,12 @@ func TestStatusRecord(t *testing.T) {
 			t.Fatal("the slow server never came")
 		}
 	}
-	// Each change of a server's state writes the record again.
+	// Each change of a server's state writes the record again, and so does
+	// the first list's time, which the proxy records on its own.
 	for {
 		mu.Lock()
 		n := len(recs)
-		done := n >= 2 && slices.ContainsFunc(recs[n-1].Servers, func(sv status.Server) bool { return sv.Name == "work/slow" && sv.State == status.Late }) &&
+		done := n >= 2 && recs[n-1].ListMs > 0 && slices.ContainsFunc(recs[n-1].Servers, func(sv status.Server) bool { return sv.Name == "work/slow" && sv.State == status.Late }) &&
 			slices.ContainsFunc(recs[n-1].Servers, func(sv status.Server) bool {
 				return sv.Name == "dies" && strings.HasPrefix(sv.Reason, "ended during the session")
 			})
