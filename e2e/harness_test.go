@@ -170,8 +170,7 @@ type Result struct {
 // the agent fails or the mock got no request.
 func (s *Session) Run(dir string, opts driver.Options, script ...mock.Step) *Result {
 	s.t.Helper()
-	m := mock.New(s.t, script...)
-	m.BeforeReply = s.BeforeReply
+	m := mock.Observed(s.t, s.BeforeReply, script...)
 	prompt := mock.Prompt
 	if opts.Prompt != "" {
 		prompt = opts.Prompt

@@ -39,10 +39,7 @@ func bigSession(t *testing.T, chars int) (home, dir string) {
 }
 
 // slotAnswer is what one slot added.
-type slotAnswer struct {
-	text, summary string
-	end           time.Time
-}
+type slotAnswer struct{ text, summary string }
 
 // runSlots runs all 40 slots of claude's event at once, like Claude does.
 func runSlots(t *testing.T, event, input string) []slotAnswer {
@@ -66,7 +63,7 @@ func runSlotsOf(t *testing.T, event, input string, slots int) []slotAnswer {
 			if err := json.Unmarshal(b.Bytes(), &m); err != nil {
 				t.Errorf("slot %d: %q", k, b.String())
 			}
-			out[k] = slotAnswer{m.HookSpecificOutput.AdditionalContext, m.SystemMessage, time.Now()}
+			out[k] = slotAnswer{m.HookSpecificOutput.AdditionalContext, m.SystemMessage}
 		})
 	}
 	wg.Wait()
@@ -103,9 +100,6 @@ func TestSlots(t *testing.T) {
 			parts = append(parts, a.text)
 			if !strings.HasPrefix(a.text, fmt.Sprintf("[ctxtra part %d of ", k+1)) {
 				t.Errorf("slot %d: %q", k, a.text[:40])
-			}
-			if k > 0 && a.end.Before(got[k-1].end) {
-				t.Errorf("slot %d answered before slot %d", k, k-1)
 			}
 		}
 		if (a.summary != "") != (k == 0) {

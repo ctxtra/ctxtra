@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
@@ -536,6 +537,17 @@ type ghRelease struct {
 	Tag string `json:"tag_name"`
 }
 
+// errTestAsksGitHub fails a release check in a test binary, the CLI's
+// scripts included, that would ask GitHub: a test turns the check off or
+// asks a local server.
+var errTestAsksGitHub = errors.New("a test asked GitHub for the latest release: turn the release check off (check-releases: false)")
+
+// asksGitHub reports whether a test binary would ask GitHub at u, in any
+// case and with or without the trailing dot of a full domain name.
+func asksGitHub(u *neturl.URL) bool {
+	return testing.Testing() && strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "api.github.com")
+}
+
 // getJSON reads GitHub's answer at url, at most limit bytes, into v. It
 // returns the URL of the answer's next page, or "" when there is none.
 func getJSON(ctx context.Context, url, version string, limit int64, v any) (next string, err error) {
@@ -545,11 +557,17 @@ func getJSON(ctx context.Context, url, version string, limit int64, v any) (next
 	if err != nil {
 		return "", err
 	}
+	if asksGitHub(req.URL) {
+		return "", errTestAsksGitHub
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "ctxtra/"+version)
 	client := &http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if r.URL.Scheme != "https" || len(via) >= 3 {
 			return errors.New("unexpected redirect")
+		}
+		if asksGitHub(r.URL) {
+			return errTestAsksGitHub
 		}
 		return nil
 	}}

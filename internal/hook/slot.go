@@ -67,6 +67,10 @@ const (
 // ended. A variable for tests, which run slots in one process.
 var endLock = func(unlock func()) {}
 
+// beforeAnswer runs right before a slot writes its answer. A variable for
+// tests, which see there when each slot answers.
+var beforeAnswer = func(slot int) {}
+
 // snapshot is what all slots of one session start answer, and its log
 // entry, which a later session start that reads it logs again.
 type snapshot struct {
@@ -145,6 +149,7 @@ func runSlot(a agent.Agent, sl agent.Slotted, d agent.Delivery, version string, 
 	if slot == 0 {
 		summary = snap.Summary
 	}
+	beforeAnswer(slot)
 	write(out, sl.SlotAnswer(event, text, summary))
 }
 
