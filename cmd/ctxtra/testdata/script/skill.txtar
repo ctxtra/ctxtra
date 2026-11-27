@@ -150,6 +150,42 @@ cp missing.yaml .config/ctxtra/config.yaml
 cmp .local/share/ctxtra/skills/ctxtra/SKILL.md old.md
 cmp .config/ctxtra/config.yaml missing.yaml
 
+# A glob that selects the installed skill: a reinstall counts it once, as
+# a session does, also close to max-ctx-chars, and repairs a damaged
+# SKILL.md that the glob reaches.
+rm .local/share/ctxtra/skills/ctxtra-follow
+cp glob.yaml .config/ctxtra/config.yaml
+exec ctxtra skill install ctxtra
+cp glob.yaml .config/ctxtra/config.yaml
+exec sh -c 'n=$(ctxtra context show | wc -c); printf "max-ctx-chars: %d\n" $((n + 10)) >> .config/ctxtra/config.yaml'
+cp .config/ctxtra/config.yaml tight.yaml
+exec ctxtra context show
+exec ctxtra skill install ctxtra --dry-run
+exec ctxtra skill install ctxtra
+cp old.md .local/share/ctxtra/skills/ctxtra/SKILL.md
+cp tight.yaml .config/ctxtra/config.yaml
+exec ctxtra skill install ctxtra
+stdout '^Installed to ~/.local/share/ctxtra/skills/ctxtra$'
+grep '^name: ctxtra$' .local/share/ctxtra/skills/ctxtra/SKILL.md
+
+# When the config can't be written, the skill's folder stays as it was:
+# none, or the old one.
+cp glob.yaml .config/ctxtra/config.yaml
+rm .local/state/ctxtra/backups
+cp old.md .local/state/ctxtra/backups
+! exec ctxtra skill install ctxtra-follow
+stderr 'backups'
+cmp .config/ctxtra/config.yaml glob.yaml
+! exists .local/share/ctxtra/skills/ctxtra-follow
+cp old.md .local/share/ctxtra/skills/ctxtra/SKILL.md
+! exec ctxtra skill install ctxtra
+stderr 'backups'
+cmp .config/ctxtra/config.yaml glob.yaml
+cmp .local/share/ctxtra/skills/ctxtra/SKILL.md old.md
+exists .local/share/ctxtra/skills/ctxtra/references/tasks.md
+exec sh -c 'ls -A .local/share/ctxtra/skills'
+cmp stdout skills-dir.txt
+
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/config/v1
 bindings:
@@ -265,3 +301,10 @@ description: An older ctxtra skill.
 -- ctx/me.md --
 CTXMARK-ME
 -- notes/.keep --
+-- glob.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    skills: ['~/.local/share/ctxtra/skills/*']
+-- skills-dir.txt --
+ctxtra

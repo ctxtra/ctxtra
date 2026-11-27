@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ctxtra/ctxtra"
@@ -93,5 +94,76 @@ func TestNames(t *testing.T) {
 		if want := "---\nname: " + name + "\n"; string(b[:min(len(b), len(want))]) != want {
 			t.Errorf("%s/SKILL.md doesn't start with %q", name, want)
 		}
+	}
+}
+
+// Install replaces the skill's folder as a whole: when writing the files or
+// save fails, the folder is as it was, whether there was one or not.
+func TestInstallAllOrNothing(t *testing.T) {
+	want, _ := fs.ReadFile(ctxtra.Skill(Base), "SKILL.md")
+	// state is the skill's folder: "" when there is none, else its
+	// SKILL.md; and the names in the skills folder.
+	state := func() (string, []string) {
+		var names []string
+		entries, _ := os.ReadDir(filepath.Dir(paths.SkillDir(Base)))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		b, err := os.ReadFile(filepath.Join(paths.SkillDir(Base), "SKILL.md"))
+		if err != nil {
+			return "", names
+		}
+		return string(b), names
+	}
+	for _, installed := range []bool{false, true} {
+		for _, fail := range []string{"files", "save"} {
+			t.Run(fail+map[bool]string{true: " over an installed skill", false: ""}[installed], func(t *testing.T) {
+				testenv.Home(t)
+				wantMD, wantNames := "", []string(nil)
+				if installed {
+					if _, err := Write(Base); err != nil {
+						t.Fatal(err)
+					}
+					testenv.Write(t, filepath.Join(paths.SkillDir(Base), "SKILL.md"), "old")
+					wantMD, wantNames = "old", []string{Base}
+				}
+				saved := false
+				save := func() error { saved = true; return nil }
+				if fail == "files" {
+					// A file where a folder of the skill goes: writing fails
+					// after SKILL.md.
+					newTemp = func(dir, pattern string) (string, error) {
+						tmp, err := os.MkdirTemp(dir, pattern)
+						if err == nil {
+							err = os.WriteFile(filepath.Join(tmp, "references"), nil, 0o644)
+						}
+						return tmp, err
+					}
+					t.Cleanup(func() { newTemp = os.MkdirTemp })
+				} else {
+					save = func() error { saved = true; return fs.ErrPermission }
+				}
+				if _, err := Install(Base, save); err == nil {
+					t.Fatal("no error")
+				}
+				if saved != (fail == "save") {
+					t.Errorf("save called: %v", saved)
+				}
+				md, names := state()
+				if md != wantMD || !slices.Equal(names, wantNames) {
+					t.Errorf("SKILL.md %q, folder %v; want %q, %v", md, names, wantMD, wantNames)
+				}
+			})
+		}
+	}
+	testenv.Home(t)
+	if changed, err := Install(Base, func() error { return nil }); err != nil || !changed {
+		t.Fatalf("Install: %v %v", changed, err)
+	}
+	if md, names := state(); md != string(want) || !slices.Equal(names, []string{Base}) {
+		t.Errorf("installed: %v", names)
+	}
+	if changed, err := Install(Base, func() error { return nil }); err != nil || changed {
+		t.Errorf("again: %v %v", changed, err)
 	}
 }

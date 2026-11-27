@@ -795,9 +795,10 @@ that folder to the skills of the binding `ctxtra-system`. When the config has no
 without conditions, with a comment above it that says to keep it. A `ctxtra-system` binding that the user
 changed stays as written: the folder is added at the end of its `skills`, or in a new `skills` key at its end,
 and like any writer, the command keeps all other text. One with errors, one whose `skills` it can't edit that
-way, or one that would still leave the skill out, is refused. The command checks the change with the skill's
-files in a temporary folder, in `--dry-run` too, and writes them only after the check passes: a refused install
-changes neither the config nor the installed skills. When a binding adds the folder already, the config doesn't
+way, or one that would still leave the skill out, is refused. The command checks the change as a session would
+read it with the new skill files in place, from a temporary folder, in `--dry-run` too. It then replaces the
+skill's folder as a whole and writes the config; when either fails, or the check refuses, the config and the
+installed skills stay as they were. When a binding adds the folder already, the config doesn't
 change. Commands find ctxtra's skills by their folders, not by a binding's name.
 
 ## Collections

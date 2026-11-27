@@ -192,7 +192,7 @@ What changed:
 - `skill install` adds ctxtra's skills to one binding, `ctxtra-system`, instead of a binding per skill. It
   adds the binding, with a comment that says to keep it, when the config has none, and adds only the new
   entry to one the user changed. It checks the change before it writes the skill's files, also in
-  `--dry-run`: a refused install changes nothing.
+  `--dry-run`, and replaces the skill's folder as a whole: a refused or failed install changes nothing.
 
 ## v0.6.0
 
