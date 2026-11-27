@@ -768,8 +768,11 @@ Where a session's profiles can differ from what you expect:
   folder name). Other keys are ignored.
 - Each file's text starts with a header that names the file, its binding and which sessions get it. A
   binding without conditions says `for every session`. Others name what their conditions hold in this
-  session: the agent, the repository or folder, and the profiles, for example `for this repository,
-  ~/dev/svc, and all its worktrees`, `for sessions with the profile iam` or `for codex sessions in ~/work`.
+  session: the agent, the place and the profiles, for example `for sessions with the profile iam` or
+  `for codex sessions in ~/dev/svc/cmd`. The place is the repository, `this repository, ~/dev/svc, and all
+  its worktrees`, when the location holds in all of it: a `repos` or repo-set entry without `subdirs`, or a
+  `dirs` entry that matches the main checkout, and no `!` entry that can leave out a part of it. Otherwise
+  it is the session folder.
 - Claude Code, Codex, Muse, Cursor, Copilot, Antigravity, Hermes, DSH and Devin get the file contents and a list of the skills (name, description, path),
   and read a `SKILL.md` when a task needs it. The list says that these skills are not the agent's own: its skill
   tool and slash commands can't load them. Pi gets instruction files as context files and skills as native skills.

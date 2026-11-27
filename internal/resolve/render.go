@@ -61,7 +61,8 @@ func (r *Result) fileBlocks() []chunk.Block {
 	}
 	if len(r.Known) > 0 {
 		var b strings.Builder
-		fmt.Fprintf(&b, "Files that ctxtra also adds %s, which this session already has:", r.place())
+		repo := !slices.ContainsFunc(r.Known, func(h Hit) bool { return !h.Conds.Repo })
+		fmt.Fprintf(&b, "Files that ctxtra also adds for %s, which this session already has:", r.place(repo))
 		for _, h := range r.Known {
 			fmt.Fprintf(&b, "\n- %s (binding: %s)", h.Path, h.Origin)
 		}
@@ -101,16 +102,17 @@ func (r *Result) scope(h Hit) string {
 	case h.Global:
 		return "for every session"
 	case !c.Agents && len(c.Profiles) == 0 && len(c.NotProfiles) == 0:
-		return r.place()
+		return "for " + r.place(c.Repo)
 	}
 	s := "for sessions"
 	if c.Agents && r.Agent != "" {
 		s = "for " + r.Agent + " sessions"
 	}
-	if c.Location && r.Repo != nil {
-		s += fmt.Sprintf(" in this repository, %s, and all its worktrees,", paths.Tilde(r.Repo.Root))
-	} else if c.Location {
-		s += " in " + paths.Tilde(r.Dir)
+	if c.Location {
+		s += " in " + strings.TrimPrefix(r.place(c.Repo), "sessions in ")
+		if c.Repo && r.Repo != nil {
+			s += ","
+		}
 	}
 	if len(c.Profiles) > 0 {
 		s += " with the profile " + strings.Join(c.Profiles, " or ")
@@ -121,12 +123,13 @@ func (r *Result) scope(h Hit) string {
 	return strings.TrimSuffix(s, ",")
 }
 
-// place says which sessions get a file of a binding with only a location.
-func (r *Result) place() string {
-	if r.Repo != nil {
-		return fmt.Sprintf("for this repository, %s, and all its worktrees", paths.Tilde(r.Repo.Root))
+// place is where a session gets a file of a binding with a location: the
+// repository when the location holds in all of it, else the session folder.
+func (r *Result) place(repo bool) string {
+	if repo && r.Repo != nil {
+		return fmt.Sprintf("this repository, %s, and all its worktrees", paths.Tilde(r.Repo.Root))
 	}
-	return "for sessions in " + paths.Tilde(r.Dir)
+	return "sessions in " + paths.Tilde(r.Dir)
 }
 
 // skillBlock lists the skills in the format Pi uses for its own skills, which

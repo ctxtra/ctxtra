@@ -31,6 +31,9 @@ type Condition struct {
 	Why string
 	// Not is the ! entry that kept the condition from holding, "" for none.
 	Not string
+	// whole is true for a location that holds for every session in the
+	// repository and its worktrees.
+	whole bool
 }
 
 // Exclusion is an item that a ! entry removed from a binding.
@@ -76,6 +79,7 @@ func (env *Env) Resolve(in Input) *Result {
 				t.Reason = "no conditions: every session"
 			}
 			if t.Matched {
+				r.whole = slices.ContainsFunc(t.Conditions, func(c Condition) bool { return c.whole })
 				r.add(b, &t)
 			}
 		}
@@ -144,6 +148,9 @@ type session struct {
 	manifests map[string]bool
 	// reported are the errors in collections reported already.
 	reported map[*catalog.Error]bool
+	// whole is true while the files of a binding whose location holds for
+	// the whole repository are added.
+	whole bool
 }
 
 // repository is the session's repository, found once when first needed:
@@ -271,8 +278,12 @@ func profiles(list []config.Entry, active []string) Condition {
 // check is one of location's two checks while it is worked out.
 type check struct {
 	present, positive, matched bool
-	not                        string // the ! entry that matched
-	why                        string
+	// whole is true when the check holds for every folder of the
+	// repository and its worktrees: a positive entry matched the
+	// repository as a whole, and no ! entry can leave out a part of it.
+	whole bool
+	not   string // the ! entry that matched
+	why   string
 }
 
 // holds reports whether the check holds: a positive entry matches, or
@@ -300,6 +311,7 @@ func (r *session) location(b *config.Binding, t *Trace) Condition {
 			continue
 		}
 		c.Held = c.Held || k.holds()
+		c.whole = c.whole || k.holds() && k.whole
 		if k.not != "" && c.Not == "" {
 			c.Not = k.not
 		}
@@ -343,6 +355,12 @@ func (r *session) dirs(b *config.Binding, t *Trace) (k check, left bool) {
 		if e.Err == nil && !k.matched && dirMatch(e.Value, folders, rule == caserule.Insensitive) {
 			k.matched = true
 			k.why = "dirs " + e.Text + " matches " + paths.Tilde(r.dir)
+		}
+		// A ! entry may leave out a subfolder or a worktree: only a
+		// match of the main checkout without one covers the repository.
+		if e.Err == nil && repo != nil && firstNot(list) == nil &&
+			dirMatch(e.Value, []string{filepath.ToSlash(repo.Root)}, rule == caserule.Insensitive) {
+			k.whole = true
 		}
 	}
 	switch {
@@ -461,11 +479,17 @@ func (r *session) repos(b *config.Binding, t *Trace) (k check, left string) {
 			k.matched = true
 			k.why = "repos " + e.Text + " matches " + strings.Join(repo.Remotes, ", ")
 		}
+		if hit && !e.Not && e.Subdirs == nil {
+			k.whole = true
+		}
 	}
 	// notSet is the set entry that a ! repo-sets entry matched with.
 	var notSet string
 	for _, s := range sets {
 		in, via := inSet(s.set, repo)
+		if in && !s.entry.Not && wholeIn(s.set, repo) {
+			k.whole = true
+		}
 		switch {
 		case !in:
 		case s.entry.Not:
@@ -479,6 +503,13 @@ func (r *session) repos(b *config.Binding, t *Trace) (k check, left string) {
 	}
 	if !k.matched && k.not == "" && subNot != "" {
 		k.not = subNot
+	}
+	// A ! entry for this repository may leave out a part of it.
+	if slices.ContainsFunc(l.Repos, func(e config.RepoEntry) bool { return e.Not && e.Err == nil && ofRepo(e, repo) }) ||
+		slices.ContainsFunc(sets, func(s repoSet) bool {
+			return s.entry.Not && slices.ContainsFunc(s.set.Entries, func(e config.RepoEntry) bool { return e.Err == nil && ofRepo(e, repo) })
+		}) {
+		k.whole = false
 	}
 	switch {
 	case notSet != "":
@@ -580,6 +611,29 @@ func inSet(s *config.RepoSet, repo *gitrepo.Repo) (in bool, via string) {
 		}
 	}
 	return false, ""
+}
+
+// wholeIn reports whether set s has the repository as a whole: an entry
+// without subdirs, and no ! entry for it.
+func wholeIn(s *config.RepoSet, repo *gitrepo.Repo) bool {
+	whole := false
+	for _, e := range s.Entries {
+		switch {
+		case e.Err != nil || !ofRepo(e, repo):
+		case e.Not:
+			return false
+		case e.Subdirs == nil:
+			whole = true
+		}
+	}
+	return whole
+}
+
+// ofRepo reports whether e names the session's repository, whatever its
+// subdirs.
+func ofRepo(e config.RepoEntry, repo *gitrepo.Repo) bool {
+	pat := config.RepoID(e.Repo)
+	return repo != nil && slices.ContainsFunc(repo.Remotes, func(remote string) bool { return globMatch(pat, remote) })
 }
 
 // repoMatch reports whether e matches the session's repository, through
@@ -751,7 +805,7 @@ func (r *session) read(b *config.Binding, t *Trace, it catalog.Item, seen map[st
 func (r *session) hit(b *config.Binding, it catalog.Item, real string, content []byte) Hit {
 	h := Hit{Path: real, Content: string(content), Origin: b.Name, Source: it.Source, SourcePath: it.Rel,
 		Global: b.Location == nil && b.Agents == nil && b.Profiles == nil,
-		Conds:  Conds{Location: b.Location != nil, Agents: b.Agents != nil}}
+		Conds:  Conds{Location: b.Location != nil, Repo: r.whole, Agents: b.Agents != nil}}
 	for _, e := range b.Profiles {
 		switch {
 		case e.Not:

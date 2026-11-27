@@ -186,7 +186,9 @@ What changed:
   `mcp status` exits 1 when a session in the folder wouldn't get everything it should. `binding add` refuses
   such a server and gives the approve command to run first.
 - A file's header says `for every session` only for a binding without conditions. For a binding with
-  `profiles` or `agents`, it names them, for example `for sessions with the profile iam`.
+  `profiles` or `agents`, it names them, for example `for sessions with the profile iam`. It says `this
+  repository, ..., and all its worktrees` only when the binding's location holds in all of the repository,
+  not for a subfolder, `subdirs` or `!` entries; it names the session folder then.
 - `skill install` adds ctxtra's skills to one binding, `ctxtra-system`, instead of a binding per skill. It
   adds the binding, with a comment that says to keep it, when the config has none, and keeps the shape of one
   the user changed.

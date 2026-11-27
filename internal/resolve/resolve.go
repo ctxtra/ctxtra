@@ -42,6 +42,9 @@ type Hit struct {
 type Conds struct {
 	// Location and Agents are true for a binding with that condition.
 	Location, Agents bool
+	// Repo is true for a location that holds in the whole repository and
+	// its worktrees.
+	Repo bool
 	// Profiles are the active profiles that the profiles condition names,
 	// and NotProfiles the profiles of its ! entries.
 	Profiles, NotProfiles []string
