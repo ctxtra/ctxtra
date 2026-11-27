@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.7.0
+
 ### Breaking changes
 
 This release starts over. It reads nothing that v0.6 and earlier wrote. To move:
@@ -10,8 +12,8 @@ This release starts over. It reads nothing that v0.6 and earlier wrote. To move:
    (`ctxtra help config`). The `ctxtra/v1` format is not read or converted.
 2. Add each git source again with `ctxtra source add --repo URL`, so its accepted commit goes into
    `ctxtra.lock` next to the config.
-3. Run `ctxtra setup` for each agent. Earlier hooks and MCP proxy entries add nothing; setup replaces them,
-   and `ctxtra doctor` lists the ones left.
+3. Run `ctxtra setup` for each agent and trust the hooks again in Codex. Earlier hooks and MCP proxy entries
+   add nothing; setup replaces them, and `ctxtra doctor` lists the ones left.
 4. Trust live folders, approve source servers and sign in to MCP servers again: the new state folder starts
    empty. Then delete `~/.ctxtra`.
 
