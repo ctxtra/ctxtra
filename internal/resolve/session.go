@@ -749,8 +749,17 @@ func (r *session) read(b *config.Binding, t *Trace, it catalog.Item, seen map[st
 }
 
 func (r *session) hit(b *config.Binding, it catalog.Item, real string, content []byte) Hit {
-	h := Hit{Path: real, Content: string(content), Origin: b.Name, Global: b.Location == nil,
-		Source: it.Source, SourcePath: it.Rel}
+	h := Hit{Path: real, Content: string(content), Origin: b.Name, Source: it.Source, SourcePath: it.Rel,
+		Global: b.Location == nil && b.Agents == nil && b.Profiles == nil,
+		Conds:  Conds{Location: b.Location != nil, Agents: b.Agents != nil}}
+	for _, e := range b.Profiles {
+		switch {
+		case e.Not:
+			h.Conds.NotProfiles = append(h.Conds.NotProfiles, e.Value)
+		case slices.Contains(r.in.Profiles.Names, e.Value) && !slices.Contains(h.Conds.Profiles, e.Value):
+			h.Conds.Profiles = append(h.Conds.Profiles, e.Value)
+		}
+	}
 	if it.Source != "" {
 		h.Ref = it.Ref()
 	}

@@ -766,6 +766,10 @@ Where a session's profiles can differ from what you expect:
   the same name both reach the session and produce a notice.
 - `SKILL.md` must start with YAML frontmatter that has a `description`. `name` is optional (default: the
   folder name). Other keys are ignored.
+- Each file's text starts with a header that names the file, its binding and which sessions get it. A
+  binding without conditions says `for every session`. Others name what their conditions hold in this
+  session: the agent, the repository or folder, and the profiles, for example `for this repository,
+  ~/dev/svc, and all its worktrees`, `for sessions with the profile iam` or `for codex sessions in ~/work`.
 - Claude Code, Codex, Muse, Cursor, Copilot, Antigravity, Hermes, DSH and Devin get the file contents and a list of the skills (name, description, path),
   and read a `SKILL.md` when a task needs it. The list says that these skills are not the agent's own: its skill
   tool and slash commands can't load them. Pi gets instruction files as context files and skills as native skills.

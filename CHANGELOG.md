@@ -185,6 +185,8 @@ What changed:
   error with its approve command in the session message, the log, `context explain`, `doctor` and `mcp status`.
   `mcp status` exits 1 when a session in the folder wouldn't get everything it should. `binding add` refuses
   such a server and gives the approve command to run first.
+- A file's header says `for every session` only for a binding without conditions. For a binding with
+  `profiles` or `agents`, it names them, for example `for sessions with the profile iam`.
 
 ## v0.6.0
 
