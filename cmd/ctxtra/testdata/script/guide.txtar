@@ -1,6 +1,7 @@
 # The commands of docs/guide.md, in its order, work as the guide shows them.
 # Repository addresses point at the test's own repositories ($GITSRV), and
-# a name the guide uses twice, in separate examples, gets a suffix.
+# a name the guide uses twice, in separate examples, gets a suffix. The
+# config turns the release check off, so nothing here asks GitHub.
 mkdir work dev/billing
 gitrepo srv/team-ctx
 gitrepo srv/iam-ctx
@@ -116,6 +117,9 @@ exec ctxtra mcp list
 stdout 'internal'
 exec ctxtra mcp status work
 
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
 -- yes.txt --
 y
 -- obs.yaml --

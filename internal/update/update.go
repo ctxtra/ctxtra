@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/ctxtra/ctxtra/internal/catalog"
@@ -536,6 +537,11 @@ type ghRelease struct {
 	Tag string `json:"tag_name"`
 }
 
+// errTestAsksGitHub fails a release check in a test binary, the CLI's
+// scripts included, that would ask GitHub: a test turns the check off or
+// asks a local server.
+var errTestAsksGitHub = errors.New("a test asked GitHub for the latest release: turn the release check off (check-releases: false)")
+
 // getJSON reads GitHub's answer at url, at most limit bytes, into v. It
 // returns the URL of the answer's next page, or "" when there is none.
 func getJSON(ctx context.Context, url, version string, limit int64, v any) (next string, err error) {
@@ -544,6 +550,9 @@ func getJSON(ctx context.Context, url, version string, limit int64, v any) (next
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if testing.Testing() && req.URL.Hostname() == "api.github.com" {
+		return "", errTestAsksGitHub
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "ctxtra/"+version)
