@@ -23,8 +23,8 @@ func TestUnapprovedServerNeverStarts(t *testing.T) {
 	store := &creds.Store{Dir: t.TempDir()}
 	marker := filepath.Join(t.TempDir(), "started")
 	for _, srv := range []upstream.Server{
-		{ID: "work/web", Name: "web", Pinned: true, URL: remote.URL},
-		{ID: "work/local", Name: "local", Pinned: true, Command: []string{"sh", "-c", "touch \"$MARKER\""}, Env: map[string]string{"MARKER": marker}},
+		{ID: "work:web", Name: "web", Pinned: true, URL: remote.URL},
+		{ID: "work:local", Name: "local", Pinned: true, Command: []string{"sh", "-c", "touch \"$MARKER\""}, Env: map[string]string{"MARKER": marker}},
 	} {
 		client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 		d := Dialer{Approval: store.RequireApproval}

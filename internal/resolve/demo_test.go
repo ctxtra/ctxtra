@@ -68,7 +68,6 @@ func newDemo(tb testing.TB) demo {
 		gens[e.Name] = source.GenDir(e.Repo, e.Subdir, e.Commit)
 	}
 	write(filepath.Join(gens["iam-team"], "ctxtra-source.yaml"), data("../manifest/testdata/ctxtra-source.yaml"))
-	write(filepath.Join(gens["iam-team"], "mcp-servers.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  jira: {url: 'https://mcp.atlassian.com/v1/mcp'}\n")
 	files(gens["iam-team"], "docs/conventions/naming.md", "docs/conventions/errors.md", "docs/overview.md", "docs/testing.md",
 		"docs/draft-auth.md", "skills/login/", "skills/tokens/", "services/billing.md")
 	files(gens["obs-team"], "docs/conventions/metrics.md", "docs/conventions/logs.md", "docs/conventions/traces.md",

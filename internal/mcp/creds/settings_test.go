@@ -84,7 +84,7 @@ func TestReplacementSettingsRequireConsentAndGeneration(t *testing.T) {
 	if _, err := s.EnsureKey(); err != nil {
 		t.Fatal(err)
 	}
-	old := upstream.Server{ID: "work/shared", Name: "shared", Origin: "git:one", URL: "https://one.example/mcp"}
+	old := upstream.Server{ID: "work:shared", Name: "shared", Origin: "repo:github.com/acme/one", URL: "https://one.example/mcp"}
 	if _, err := s.Update(old, true, func(r *Record) error {
 		r.Token.Access, r.Token.Refresh = "old-token", "old-refresh"
 		r.Client.Secret, r.Generation = "old-client", 123
@@ -93,7 +93,7 @@ func TestReplacementSettingsRequireConsentAndGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := old
-	other.Origin = "git:two"
+	other.Origin = "repo:github.com/acme/two"
 	settings := Settings{Secrets: &Secrets{Headers: map[string]string{"Authorization": "new"}}}
 	if _, err := s.SaveSettings(other, WriteGuard{Replace: true}, settings); err == nil {
 		t.Fatal("replacement accepted without inspected generation")
