@@ -291,21 +291,43 @@ func TestInstructions(t *testing.T) {
 }
 
 // The session's status record says which server was too slow for the
-// first tool list, and how long it took.
+// first tool list, and how long it took. The slow server connects only when
+// the test lets it, after the first list, and the test waits for records,
+// not for time to pass.
 func TestStatusRecord(t *testing.T) {
-	slow := testServer(t, "slow", "-delay", "1s")
+	slow := testServer(t, "slow")
 	slow.ID, slow.Source = "work/slow", "work"
+	release := make(chan struct{})
+	reported := make(chan struct{}, 1)
 	var mu sync.Mutex
 	var recs []status.Record
-	s := startWith(t, t.TempDir(), 300*time.Millisecond, func(o *Options) {
+	s := startWith(t, t.TempDir(), 3*time.Second, func(o *Options) {
 		o.Report = func(r status.Record) {
 			mu.Lock()
 			recs = append(recs, r)
 			mu.Unlock()
+			select {
+			case reported <- struct{}{}:
+			default:
+			}
+		}
+		o.Connect = func(ctx context.Context, srv upstream.Server, dir string, c *mcp.Client) (*Upstream, error) {
+			if srv.ID == slow.ID {
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return Dialer{}.Dial(ctx, srv, dir, c)
 		}
 	}, testServer(t, "fast"), slow, upstream.Server{ID: "bad", Name: "bad", Command: []string{"/nonexistent/mcp"}},
 		testServer(t, "dies", "-exit-after", "150ms"))
-	deadline := time.After(10 * time.Second)
+	if slices.Contains(toolNames(s.tools(t)), "slow__echo") {
+		t.Fatal("the slow server is in the first list")
+	}
+	close(release)
+	deadline := time.After(30 * time.Second)
 	for !slices.Contains(toolNames(s.tools(t)), "slow__echo") {
 		select {
 		case <-s.changed:
@@ -313,12 +335,27 @@ func TestStatusRecord(t *testing.T) {
 			t.Fatal("the slow server never came")
 		}
 	}
-	time.Sleep(100 * time.Millisecond)
+	// Each change of a server's state writes the record again.
+	for {
+		mu.Lock()
+		n := len(recs)
+		done := n >= 2 && slices.ContainsFunc(recs[n-1].Servers, func(sv status.Server) bool { return sv.Name == "work/slow" && sv.State == status.Late }) &&
+			slices.ContainsFunc(recs[n-1].Servers, func(sv status.Server) bool {
+				return sv.Name == "dies" && strings.HasPrefix(sv.Reason, "ended during the session")
+			})
+		mu.Unlock()
+		if done {
+			break
+		}
+		select {
+		case <-reported:
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("records: %+v", recs)
+		}
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(recs) < 2 {
-		t.Fatalf("records: %+v", recs)
-	}
 	byName := func(r status.Record) map[string]status.Server {
 		m := map[string]status.Server{}
 		for _, s := range r.Servers {
@@ -331,10 +368,10 @@ func TestStatusRecord(t *testing.T) {
 		first["bad"].State != status.Missing || first["bad"].Reason != "program not found" {
 		t.Errorf("first record: %+v", recs[0])
 	}
-	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 1000 {
+	if last["work/slow"].State != status.Late || last["work/slow"].Ms < 3000 {
 		t.Errorf("last record: %+v", recs[len(recs)-1])
 	}
-	if r := recs[len(recs)-1]; r.DeadlineMs != 300 || r.ListMs < 300 || r.ListMs > 2000 || r.ResolveMs > r.ListMs {
+	if r := recs[len(recs)-1]; r.DeadlineMs != 3000 || r.ListMs < 3000 || r.ResolveMs > r.ListMs {
 		t.Errorf("first list after %d ms, servers found after %d ms, deadline %d ms", r.ListMs, r.ResolveMs, r.DeadlineMs)
 	}
 	for _, rec := range s.records() {
