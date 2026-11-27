@@ -612,23 +612,20 @@ These values are written to the config. Use `--secret-header NAME` for a header 
 stored encrypted. Quote values that contain spaces, punctuation or start with `!`.
 
 A source declares servers in top-level `ctxtra-source.yaml`, with `schema: ctxtra/source/v1` and an
-`mcp-servers` map. Your config selects a source's `linear` server as `work:linear`:
-
-```bash
-ctxtra binding add tracker --repo 'github.com/acme/**' --mcp-server work:linear
-```
-
-Sources do not define bindings or select other sources' servers.
+`mcp-servers` map. Your config selects a source's `linear` server as `work:linear`. Sources do not define
+bindings or select other sources' servers.
 
 A server of a repo source needs your approval in your terminal before ctxtra contacts or starts it, also one
-without sign-in:
+without sign-in. Approve it first, then bind it:
 
 ```bash
 ctxtra mcp approve work:linear   # inspect and consent; connects to nothing
 ctxtra mcp login work:linear    # authorize this identity if needed
+ctxtra binding add tracker --repo 'github.com/acme/**' --mcp-server work:linear
 ```
 
-Login offers that separate approval first if missing. Source-version acceptance, server approval, provider
+`binding add` refuses a server that isn't approved and gives the approve command. Login offers that separate
+approval first if missing. Source-version acceptance, server approval, provider
 consent and each agent's tool permissions are different decisions. A no-auth server needs approval, not a browser.
 Config and dir-source definitions need no extra approval. Trust only live source content you would run as your own
 configuration.
