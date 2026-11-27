@@ -48,9 +48,10 @@ func TestWaitForTheSlotBefore(t *testing.T) {
 		t.Fatal("still waiting after the slot before ended")
 	}
 
-	// An expired deadline ends the wait at once: while the slot before has
-	// not answered, and while it has answered but not ended.
-	expired := time.Now().Add(-time.Second)
+	// The deadline ends the wait while the slot before has not answered,
+	// and while it has answered but not ended: at once when it has already
+	// passed, and soon after it when it passes during the wait, well within
+	// the hook's timeout.
 	held := filepath.Join(d, "run.1.0")
 	unlockHeld, err := fsutil.LockTimeout(held, time.Second)
 	if err != nil {
@@ -60,19 +61,28 @@ func TestWaitForTheSlotBefore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d, "done.1.0"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ name, done, run string }{
-		{"not answered", filepath.Join(d, "done.2.0"), filepath.Join(d, "run.2.0")},
-		{"answered, not ended", filepath.Join(d, "done.1.0"), held},
+	for _, c := range []struct {
+		name, done, run string
+		in, watchdog    time.Duration
+	}{
+		{"passed, not answered", filepath.Join(d, "done.2.0"), filepath.Join(d, "run.2.0"), -time.Second, 500 * time.Millisecond},
+		{"passed, not ended", filepath.Join(d, "done.1.0"), held, -time.Second, 500 * time.Millisecond},
+		{"passing, not answered", filepath.Join(d, "done.2.0"), filepath.Join(d, "run.2.0"), 300 * time.Millisecond, 2 * time.Second},
+		{"passing, not ended", filepath.Join(d, "done.1.0"), held, 300 * time.Millisecond, 2 * time.Second},
 	} {
-		returned := make(chan struct{})
+		deadline := time.Now().Add(c.in)
+		returned := make(chan time.Time, 1)
 		go func() {
-			waitFor(c.done, c.run, expired)
-			close(returned)
+			waitFor(c.done, c.run, deadline)
+			returned <- time.Now()
 		}()
 		select {
-		case <-returned:
-		case <-time.After(30 * time.Second):
-			t.Fatalf("%s: still waiting after the deadline", c.name)
+		case at := <-returned:
+			if at.Before(deadline) {
+				t.Errorf("%s: returned %v before the deadline", c.name, deadline.Sub(at))
+			}
+		case <-time.After(max(c.in, 0) + c.watchdog):
+			t.Errorf("%s: still waiting %v after the deadline", c.name, time.Since(deadline))
 		}
 	}
 }
