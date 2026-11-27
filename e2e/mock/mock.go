@@ -59,9 +59,9 @@ type Request struct {
 type Server struct {
 	srv    *httptest.Server
 	script []Step
-	// BeforeReply observes a request before its scripted reply. Set it
-	// before starting an agent; callbacks may run concurrently.
-	BeforeReply func(Request)
+	// beforeReply observes a request before its scripted reply; it is set
+	// before the server starts, so handlers read it without a lock.
+	beforeReply func(Request)
 
 	mu    sync.Mutex
 	reqs  []Request
@@ -79,8 +79,12 @@ const subagentWait = 30 * time.Second
 
 // New starts a mock that runs script in the main agent, one step per model
 // request, and stops it when the test ends.
-func New(t testing.TB, script ...Step) *Server {
-	s := &Server{script: script, subagentSeen: make(chan struct{})}
+func New(t testing.TB, script ...Step) *Server { return Observed(t, nil, script...) }
+
+// Observed is New with beforeReply, which observes each request before its
+// scripted reply, when not nil. Calls may run concurrently.
+func Observed(t testing.TB, beforeReply func(Request), script ...Step) *Server {
+	s := &Server{script: script, beforeReply: beforeReply, subagentSeen: make(chan struct{})}
 	s.srv = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.srv.Close)
 	return s
@@ -164,8 +168,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		reply = c.name
 	}
 	request := Request{API: api, Path: path, Role: role, Text: BodyText(body), Body: body, Reply: reply}
-	if s.BeforeReply != nil {
-		s.BeforeReply(request)
+	if s.beforeReply != nil {
+		s.beforeReply(request)
 	}
 	s.mu.Lock()
 	s.reqs = append(s.reqs, request)
