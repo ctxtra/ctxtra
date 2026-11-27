@@ -73,19 +73,20 @@ func (a Agent) Setup(o agent.Options, r *agent.Report) error { return a.hooks().
 
 func (a Agent) Status(bin string, known bool) agent.Status {
 	s := a.hooks().Status(bin, known)
-	notices := a.previousFolders(bin)
+	notices := a.previousFolders(bin, true)
 	s.Details = append(s.Details, notices...)
 	s.OK = s.OK && len(notices) == 0
 	return s
 }
 
 func (a Agent) Check(bin string, known bool) []string {
-	return append(a.hooks().Check(bin, known), a.previousFolders(bin)...)
+	return append(a.hooks().Check(bin, known), a.previousFolders(bin, false)...)
 }
 
 // A changed XDG_CONFIG_HOME also moves Muse's settings. Find its last setup
 // through the recorded agent paths when the current settings have no hooks.
-func (a Agent) previousFolders(bin string) []string {
+// detailed: the notices for doctor (hookjson.Config.Notices).
+func (a Agent) previousFolders(bin string, detailed bool) []string {
 	cmds, err := a.hooks().Commands()
 	if err != nil || len(cmds) != 0 {
 		return nil
@@ -106,7 +107,7 @@ func (a Agent) previousFolders(bin string) []string {
 		}
 		m := a.MCP().(mcpentry.Config)
 		m.Path = p
-		return append(c.Check(bin, true), m.CheckMCP(bin, agent.MCPCheck{})...)
+		return append(c.Notices(bin, true, detailed), m.CheckMCP(bin, agent.MCPCheck{})...)
 	}
 	return nil
 }

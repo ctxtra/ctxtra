@@ -58,6 +58,8 @@ What changed:
   names `ctxtra mcp login ID`, which asks for approval first.
 - In Codex, the session message says to run `ctxtra setup --agent codex` when a bound local server takes a
   `pass-env` variable that Codex's MCP entry doesn't pass yet.
+- Hooks that an earlier ctxtra wrote are one setup notice for each file, with their count, instead of a line
+  for each hook. `doctor` also counts them by event.
 - `config set` applies decimal count changes correctly when the existing or requested value has leading zeros.
 - Repeating an identical collection or MCP alias add succeeds when the referenced content has disappeared,
   including collection `--replace`. New and changed entries still validate their content.
