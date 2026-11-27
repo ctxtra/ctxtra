@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -104,5 +106,33 @@ func TestEarlierHooksGrouped(t *testing.T) {
 	}
 	if n := strings.Count(out, "from an earlier ctxtra"); n != 2 {
 		t.Errorf("doctor has %d notices about earlier hooks:\n%s", n, out)
+	}
+
+	_, out, _ = run("doctor", "--json")
+	var doc struct {
+		Data struct {
+			Hooks []struct {
+				Agent   string   `json:"agent"`
+				Details []string `json:"details"`
+			} `json:"hooks"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("doctor --json: %v\n%s", err, out)
+	}
+	earlier := map[string][]string{}
+	for _, a := range doc.Data.Hooks {
+		for _, d := range a.Details {
+			if strings.Contains(d, "earlier ctxtra") {
+				earlier[a.Agent] = append(earlier[a.Agent], d)
+			}
+		}
+	}
+	wantJSON := map[string][]string{
+		"claude-code": {"80 hooks in ~/.claude/settings.json are from an earlier ctxtra (40 SessionStart, 40 SubagentStart); run ctxtra setup --agent claude-code"},
+		"codex":       {"2 hooks in ~/.codex/hooks.json are from an earlier ctxtra (1 SessionStart, 1 SubagentStart); run ctxtra setup --agent codex (Codex will then ask you to trust the hooks again)"},
+	}
+	if !maps.EqualFunc(earlier, wantJSON, slices.Equal) {
+		t.Errorf("doctor --json: %q, want %q", earlier, wantJSON)
 	}
 }

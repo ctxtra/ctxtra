@@ -656,6 +656,9 @@ func TestEarlierHooksNotice(t *testing.T) {
 		cmd := strings.ReplaceAll(agent.Command(o.Binary, c.Agent, event, nil), " "+agent.SetupVersionArg, "")
 		return map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}
 	}
+	current := func(event string) any {
+		return map[string]any{"hooks": []any{map[string]any{"type": "command", "command": agent.Command(o.Binary, c.Agent, event, nil)}}}
+	}
 	write := func(hooks map[string]any) {
 		b, err := json.Marshal(map[string]any{"hooks": hooks})
 		if err != nil {
@@ -678,6 +681,41 @@ func TestEarlierHooksNotice(t *testing.T) {
 		want = "SessionStart hook 0:0 in ~/.claude/settings.json is from an earlier ctxtra" + repair
 		if got := c.Notices(o.Binary, false, detailed); !slices.Contains(got, want) {
 			t.Errorf("one hook, detailed %v: %q, want %q", detailed, got, want)
+		}
+
+		// Current hooks around it aren't counted.
+		write(map[string]any{"SessionStart": []any{current("SessionStart"), old("SessionStart")}, "SubagentStart": []any{current("SubagentStart")}})
+		want = "SessionStart hook 1:0 in ~/.claude/settings.json is from an earlier ctxtra" + repair
+		if got := earlierNotices(c.Notices(o.Binary, false, detailed)); !slices.Equal(got, []string{want}) {
+			t.Errorf("one hook among current ones, detailed %v: %q, want %q", detailed, got, want)
+		}
+	}
+}
+
+// earlierNotices are the notices about hooks of an earlier ctxtra.
+func earlierNotices(notices []string) []string {
+	return slices.DeleteFunc(slices.Clone(notices), func(n string) bool { return !strings.Contains(n, "earlier ctxtra") })
+}
+
+// In the flat layout each entry is a hook: repeated ones are one notice.
+func TestEarlierHooksNoticeFlat(t *testing.T) {
+	h := testenv.Home(t)
+	o := fakeBinary(t, h)
+	c := Config{Agent: "cursor", Path: filepath.Join(h, ".cursor", "hooks.json"), Events: []Event{{Name: "sessionStart"}}, Flat: true, Version: 1}
+	cmd := strings.ReplaceAll(agent.Command(o.Binary, c.Agent, "sessionStart", nil), " "+agent.SetupVersionArg, "")
+	entry := map[string]any{"command": cmd}
+	b, err := json.Marshal(map[string]any{"version": 1, "hooks": map[string]any{"sessionStart": []any{entry, entry, entry}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testenv.Write(t, c.Path, string(b))
+	repair := "; run ctxtra setup --agent cursor"
+	for detailed, want := range map[bool]string{
+		false: "3 hooks in ~/.cursor/hooks.json are from an earlier ctxtra" + repair,
+		true:  "3 hooks in ~/.cursor/hooks.json are from an earlier ctxtra (3 sessionStart)" + repair,
+	} {
+		if got := earlierNotices(c.Notices(o.Binary, false, detailed)); !slices.Equal(got, []string{want}) {
+			t.Errorf("detailed %v: %q, want %q", detailed, got, want)
 		}
 	}
 }
