@@ -2,9 +2,10 @@
 // one in ctxtra's store.
 //
 // Each source has a bare repository in ~/.cache/ctxtra/git and, for each accepted
-// commit, a generation in ~/.local/share/ctxtra/store: the commit's regular files, written
-// once and never changed. Sessions read only generations; only the commands
-// that fetch (add, sync) run git with network access.
+// commit, a generation in ~/.local/share/ctxtra/store: the commit's regular
+// files and the paths of omitted symlinks, written once and never changed.
+// Sessions read only generations; only the commands that fetch (add,
+// update, download) run git with network access.
 //
 // Git runs as the user's git, so ssh keys and credential helpers work, but
 // only with the https and ssh transports, without hooks or submodules, and
@@ -717,7 +718,7 @@ func (r *Repo) MaterializeAs(ctx context.Context, commit, subdir, store string) 
 	if c, err := r.commit(ctx, commit); err != nil || c != commit {
 		return "", fmt.Errorf("commit %s is not in ctxtra's copy of %s", Short(commit), r.URL)
 	}
-	entries, _, err := r.Files(ctx, commit, subdir)
+	entries, skipped, err := r.Files(ctx, commit, subdir)
 	if err != nil {
 		return "", err
 	}
@@ -731,6 +732,9 @@ func (r *Repo) MaterializeAs(ctx context.Context, commit, subdir, store string) 
 	defer os.RemoveAll(tmp)
 	if err := r.writeFiles(ctx, tmp, entries); err != nil {
 		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
+	}
+	if err := writeSymlinks(tmp, skipped); err != nil {
+		return "", err
 	}
 	if err := os.Rename(tmp, dst); err != nil && !Has(store, subdir, commit) {
 		return "", err

@@ -189,6 +189,9 @@ the check at its own location: outside git, in a repository without remotes, or 
 trusted without it. Trusting the folder a link leads to doesn't cover the link, also in the same repository.
 Otherwise the source is not read, `source trust` refuses it, and the error names the folder the link leads to.
 A repo source leaves symlinks and submodules out, including links in an explicit path or at its manifest.
+A matched symlink is an error that names its source and path. Other files a glob matches still load.
+The store records omitted symlink paths with the accepted files. Sessions use that record offline,
+without reading the links or their targets. Checkout validation and update review use the same matching rule.
 Repository trust is checked without running git; git config includes are not followed.
 
 A local repo path or dir folder missing on this machine is not an error. Its entries add nothing.
@@ -753,6 +756,9 @@ Where a session's profiles can differ from what you expect:
   An untrusted folder is left out with an error; other matches remain. Repo sources never follow symlinks.
 - Each pattern is limited to 10,000 directory entries and operations, with a maximum traversal depth of
   64. A traversal error or exceeded limit skips the whole pattern, with an error.
+  Recorded symlink paths under each visited directory count against this budget before its children
+  are built. Links outside that directory cost only one index lookup. Named paths check link membership
+  without expanding directories.
 - Repo-source patterns expand only against the selected commit. `source update` reviews matching files from
   both the old and proposed commits, including newly matched files. Local patterns are expanded live:
   new matching files apply immediately. Use `context files`, `context show` or `context explain` to inspect the result.

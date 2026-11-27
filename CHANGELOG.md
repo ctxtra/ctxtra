@@ -47,6 +47,10 @@ What changed:
 
 ### Changes
 
+- Symlink metadata traversal stays within each pattern's budget and skips links outside visited directories.
+  Named reads avoid directory expansion.
+- Repo source symlinks matched by a glob or named directly are errors, including paths omitted during download.
+  Other matching files still load.
 - The session message names the first three errors, with their line in the config or the command that
   fixes them, and counts the rest. Each is one line of at most 240 characters, with control characters
   escaped; a cut line keeps its command.

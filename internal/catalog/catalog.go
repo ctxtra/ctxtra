@@ -123,6 +123,10 @@ type Source struct {
 	manifestErrs []*Error
 	manifestRead bool
 	manifestSize int
+	symlinksRead bool
+	symlinks     []string
+	symlinksErr  error
+	linkTree     *symlinkTree
 }
 
 // Live reports whether the source is a folder read as it is on disk.

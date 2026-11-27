@@ -113,9 +113,10 @@ stdout '^error: .*nested/a.md.*nested repository or submodule'
 stdout '^2 errors, 0 warnings$'
 cp all.yaml team-ctx/ctxtra-source.yaml
 ! exec ctxtra source validate team-ctx
+stdout '^error: .*all: .*instructions/link.md.*symlink'
 stdout '^error: .*\.git\*/\*\*.*matches no file'
 stdout '^error: .*all: .*nested/a.md.*nested repository or submodule'
-stdout '^2 errors, 0 warnings$'
+stdout '^3 errors, 0 warnings$'
 cp cycle.yaml team-ctx/ctxtra-source.yaml
 ! exec ctxtra source validate team-ctx
 stdout '^error: line 3: collections a and b nest each other, so they add nothing'

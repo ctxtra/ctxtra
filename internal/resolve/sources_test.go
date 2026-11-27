@@ -378,7 +378,7 @@ func TestDirSourceGlobs(t *testing.T) {
 		symlink(t, h.path("notes"), filepath.Join(source.GenDir("https://github.com/acme/team.git", "", commit("a")), "agents", "notes"))
 		env := h.load("sources: {team: {repo: 'https://github.com/acme/team.git', branch: main}}\nbindings:\n  - {name: b, instructions: ['team:agents/**/*.md']}\n", entry)
 		res := start(env, h.dir, "")
-		noErrors(t, res)
+		oneError(t, res, "team:agents/notes", "symlink")
 		eq(t, "files", bases(res.Files), "me.md")
 	})
 

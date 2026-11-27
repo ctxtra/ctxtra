@@ -252,6 +252,8 @@ A dir source's path can lead through a symlink in another repository with remote
 trusted dir source too. Otherwise name the folder the link leads to.
 Live patterns can follow links to your own files and folders. Repo sources leave all symlinks out,
 including symlinks in an explicit path or at the manifest.
+A repo source's matched symlink is an error that names its source and path. Other matching files still load.
+This also applies to downloaded commits, source validation and update review; link targets are never read.
 
 ### Reviewed source content
 
