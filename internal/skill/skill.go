@@ -30,12 +30,29 @@ const Comment = "# ctxtra's own skills (ctxtra skill install). Agents use them t
 // binary's, and reports whether it changed any. The folder is ctxtra's:
 // changed files get no backup. A link in place of the folder is refused, so
 // the hook never writes into a folder somewhere else.
-func Write(name string) (bool, error) {
+func Write(name string) (bool, error) { return writeTo(name, paths.SkillDir(name)) }
+
+// Stage writes the skill name to a new temporary folder, for a check before
+// it is installed. remove deletes the folder.
+func Stage(name string) (dir string, remove func(), err error) {
+	tmp, err := os.MkdirTemp("", "ctxtra-skill-")
+	if err != nil {
+		return "", nil, err
+	}
+	remove = func() { os.RemoveAll(tmp) }
+	dir = filepath.Join(paths.Real(tmp), name)
+	if _, err := writeTo(name, dir); err != nil {
+		remove()
+		return "", nil, err
+	}
+	return dir, remove, nil
+}
+
+func writeTo(name, dir string) (bool, error) {
 	src := ctxtra.Skill(name)
 	if src == nil {
 		return false, fmt.Errorf("ctxtra has no skill %q", name)
 	}
-	dir := paths.SkillDir(name)
 	if fi, err := os.Lstat(dir); err == nil && !fi.IsDir() {
 		return false, fmt.Errorf("%s isn't a folder; not changed", paths.Tilde(dir))
 	}

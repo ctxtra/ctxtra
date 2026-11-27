@@ -190,8 +190,9 @@ What changed:
   repository, ..., and all its worktrees` only when the binding's location holds in all of the repository,
   not for a subfolder, `subdirs` or `!` entries; it names the session folder then.
 - `skill install` adds ctxtra's skills to one binding, `ctxtra-system`, instead of a binding per skill. It
-  adds the binding, with a comment that says to keep it, when the config has none, and keeps the shape of one
-  the user changed.
+  adds the binding, with a comment that says to keep it, when the config has none, and adds only the new
+  entry to one the user changed. It checks the change before it writes the skill's files, also in
+  `--dry-run`: a refused install changes nothing.
 
 ## v0.6.0
 

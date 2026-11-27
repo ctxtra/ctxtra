@@ -113,11 +113,42 @@ cp broken.yaml .config/ctxtra/config.yaml
 stderr '^ctxtra skill install: the binding ctxtra-system has errors, so it can''t add the skill; fix it first \(see ctxtra doctor\); nothing changed$'
 cmp .config/ctxtra/config.yaml broken.yaml
 
-# One that leaves the skill out is refused.
-cp excludes.yaml .config/ctxtra/config.yaml
+# Every byte of the binding but the new entry stays: comments in it,
+# quoting and spacing.
+cp inner.yaml .config/ctxtra/config.yaml
+exec ctxtra skill install ctxtra-follow
+cmp .config/ctxtra/config.yaml want-inner.yaml
+
+# A layout it can't change as text is refused, and nothing changes.
+cp multiline.yaml .config/ctxtra/config.yaml
 ! exec ctxtra skill install ctxtra-follow
-stderr 'the binding ctxtra-system leaves out ~/.local/share/ctxtra/skills/ctxtra-follow; add it to that binding by hand'
+stderr 'can''t add ~/.local/share/ctxtra/skills/ctxtra-follow to the skills of the binding ctxtra-system: .*flow list over several lines; add it by hand; nothing changed'
+cmp .config/ctxtra/config.yaml multiline.yaml
+
+# A refused install writes no skill files: not for a skill that isn't
+# installed, and not over an installed one. --dry-run refuses the same.
+rm .local/share/ctxtra/skills/ctxtra-follow
+cp excludes.yaml .config/ctxtra/config.yaml
+! exec ctxtra skill install ctxtra-follow --dry-run
+stderr 'the binding ctxtra-system leaves out ~/.local/share/ctxtra/skills/ctxtra-follow; add it to that binding by hand; nothing changed'
+! stdout 'would'
+! exec ctxtra skill install ctxtra-follow
+stderr 'the binding ctxtra-system leaves out ~/.local/share/ctxtra/skills/ctxtra-follow; add it to that binding by hand; nothing changed'
+! stdout 'Installed'
 cmp .config/ctxtra/config.yaml excludes.yaml
+! exists .local/share/ctxtra/skills/ctxtra-follow
+cp missing.yaml .config/ctxtra/config.yaml
+! exec ctxtra skill install ctxtra-follow --dry-run
+stderr 'skills/gone'
+! exec ctxtra skill install ctxtra-follow
+stderr 'skills/gone'
+cmp .config/ctxtra/config.yaml missing.yaml
+! exists .local/share/ctxtra/skills/ctxtra-follow
+cp old.md .local/share/ctxtra/skills/ctxtra/SKILL.md
+cp missing.yaml .config/ctxtra/config.yaml
+! exec ctxtra skill install ctxtra
+cmp .local/share/ctxtra/skills/ctxtra/SKILL.md old.md
+cmp .config/ctxtra/config.yaml missing.yaml
 
 -- .config/ctxtra/config.yaml --
 schema: ctxtra/config/v1
@@ -184,6 +215,44 @@ bindings:
   - name: ctxtra-system
     skills: [~/.local/share/ctxtra/skills/ctxtra]
     nope: 1
+-- inner.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    # above agents
+    agents:   [codex]  # keep this limit
+    instructions: ["~/ctx/me.md"]
+    skills:      # mine
+      -   ~/.local/share/ctxtra/skills/ctxtra   # why this is needed
+
+      # after the entries
+  - name: me
+    instructions: ['~/ctx/me.md']
+-- want-inner.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    # above agents
+    agents:   [codex]  # keep this limit
+    instructions: ["~/ctx/me.md"]
+    skills:      # mine
+      -   ~/.local/share/ctxtra/skills/ctxtra   # why this is needed
+      - ~/.local/share/ctxtra/skills/ctxtra-follow
+
+      # after the entries
+  - name: me
+    instructions: ['~/ctx/me.md']
+-- multiline.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    skills: [~/.local/share/ctxtra/skills/ctxtra,
+      ~/ctx/other]
+-- missing.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: ctxtra-system
+    skills: [~/skills/gone]
 -- excludes.yaml --
 schema: ctxtra/config/v1
 bindings:

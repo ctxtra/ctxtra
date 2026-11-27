@@ -793,9 +793,12 @@ Where a session's profiles can differ from what you expect:
 `ctxtra skill install NAME` writes one of ctxtra's own skills to `~/.local/share/ctxtra/skills/NAME` and adds
 that folder to the skills of the binding `ctxtra-system`. When the config has no such binding, it adds one
 without conditions, with a comment above it that says to keep it. A `ctxtra-system` binding that the user
-changed keeps its shape: its conditions and comments above it stay, and the folder is added to its skills.
-One with errors, or one that would still leave the skill out, is refused. When a binding adds the folder
-already, nothing changes. Commands find ctxtra's skills by their folders, not by a binding's name.
+changed stays as written: the folder is added at the end of its `skills`, or in a new `skills` key at its end,
+and like any writer, the command keeps all other text. One with errors, one whose `skills` it can't edit that
+way, or one that would still leave the skill out, is refused. The command checks the change with the skill's
+files in a temporary folder, in `--dry-run` too, and writes them only after the check passes: a refused install
+changes neither the config nor the installed skills. When a binding adds the folder already, the config doesn't
+change. Commands find ctxtra's skills by their folders, not by a binding's name.
 
 ## Collections
 
