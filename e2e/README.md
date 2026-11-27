@@ -20,7 +20,7 @@ This folder is a separate Go module: `go test ./...` at the repository root does
 ```bash
 cd e2e
 go test -count=1 -timeout 20m ./...                      # every agent found
-go test -count=1 . -agent claude            # one agent
+go test -count=1 . -agent claude-code            # one agent
 go test -count=1 -timeout 20m ./... -run TestSkills -v   # one scenario, with each agent's version and timing
 go test -count=1 . -keep -v                 # keep each run's home folder, and print where it is
 ```
@@ -68,7 +68,13 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestUntrustedHookAddsNothing` | Codex without hook trust: the session works and gets nothing from ctxtra |
 | `TestUserMessage` | Claude and Muse get the summary message for the user from the hook |
 | `TestMissingBinary` | Claude and Muse: with the binary that the hooks run gone, the session starts, and the hook command gives the message for the user that the binary is missing |
-| `TestOutsideGit` | Outside git, only `global` and `dirs` bindings apply |
+| `TestProfileStored` | The profile selection stored on the machine decides which bindings with `profiles` reach the model |
+| `TestProfileSwitchingWhileASessionRuns` | After the main session's first request, `profile set` switches the stored selection; a later subagent keeps the parent's profile, except Antigravity, which supplies no parent ID and uses the new selection |
+| `TestProfileClearStartsOver` | OpenCode's interactive `/clear` creates a new session ID, and the next model request uses the new stored profile; waits for its command menu before submitting and saves the screen, requests and hook log on failure |
+| `TestProfileVariableReachesTheMCPProxy` | With `CTXTRA_PROFILES` set, including empty, the hook and proxy choose the same profiles; an inactive profile's server never starts |
+| `TestProfileMuseHooksWithoutTheEnvironment` | Muse clears `CTXTRA_PROFILES` for hooks and the proxy, so both use the stored profile |
+| `TestProfileVariable` | A session started with `CTXTRA_PROFILES` gets that profile instead of the stored selection, its subagent too, and Claude's session message names it. Not Muse, which runs hooks without the shell's environment |
+| `TestOutsideGit` | Outside git, repository conditions do not match; bindings without location or with matching dirs still apply |
 | `TestResume` | Copilot and Muse: a resumed session has the current version of the files, once |
 | `TestCapacity` | About 315K characters of bound files (a third for Copilot), Unicode and emoji included, reach the model at session start: every line once, in config order (parts that arrive out of order are put back by their labels). Agents that get the text from several hooks resolve the files once |
 | `TestCapacitySubagent` | The same text reaches a subagent in full, and the main agent still has it once after tool calls |
@@ -78,10 +84,10 @@ docker build -f e2e/Dockerfile --build-arg AGENTS=latest -t ctxtra-e2e-latest . 
 | `TestCodexTrustTUI` | Interactive Codex in tmux: one "Trust all and continue" in the hook review trusts ctxtra's hooks, which set a finite `additionalContextLimit`; the session gets the text in full; `setup` run again asks for no new trust. Needs tmux |
 | `TestCodexUpgradeKeepsTrust` | Interactive Codex in tmux: after the user trusted ctxtra's hooks, a newer binary at the same path asks for no new trust, and the session gets the text in full. Needs tmux |
 | `TestImportTUI` | `ctxtra import --start AGENT` in tmux, with the ctxtra skill installed: import backs up the agent's own instruction file and starts the agent's interactive app through a shim pointed at the mock (Hermes, which has no such file, moves Claude Code's; DSH, without a terminal app, gets the prompt that `ctxtra import` prints). The first request has the import prompt with the file and its backup, and the ctxtra skill. It doesn't check what a real model does with them. Needs tmux |
-| `TestMCPProxy` | MCP servers with `$CTXTRA_CONFIG` at a path of its own, including Muse's setup-recorded fallback after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
+| `TestMCPProxy` | MCP servers added after setup, with `XDG_CONFIG_HOME` at a path of its own, including Muse's recorded XDG values after it clears the environment: in each agent that setup gives ctxtra's MCP proxy, a session in a bound folder calls that folder's server, also through a shortened tool name that reaches the server as it lists it; another folder gets its own server; an unbound folder starts none |
 | `TestMCPRemoteCredential` | A remote MCP server on 127.0.0.1 that wants an API key, stored with `ctxtra mcp login` under a file key in the test's home (never the user's keychain): the proxy reaches it from inside each agent |
 | `TestMCPFailingServer` | A bound server that fails to start costs only its own tools |
-| `TestMuseBackgroundConfig` | A cleared-environment Muse hook starts a detached check using its recorded config, not a same-named source in the default config. Uses only local repositories |
+| `TestMuseBackgroundConfig` | A cleared-environment Muse hook starts a detached check using its recorded XDG values, not a same-named source in the default config. Uses only local repositories |
 | `TestMCPInstructions` | Claude Code and Codex show the proxy's MCP instructions to the model: how to learn why a tool is missing, and which servers need sign-in |
 | `TestMCPSignInDuringSession` | Claude Code: a server missing at the start because its secret value isn't set gets its tools once the user sets it during the session |
 | `TestMCPOpenCodeService` | OpenCode's shared background service (started explicitly on a port of its own, stopped at the end): a repository's subfolder and a worktree each get their own proxy, in their folder, with their servers |
@@ -96,8 +102,9 @@ The test still handles folder trust and runs the import against the real interac
 
 Not covered here, and checked by hand before a release:
 
-- What the interactive TUI shows (the session-start message on screen), `/clear`, `/compact`, and resume in
-  Claude, Codex, Pi and OpenCode. These need a pseudo-terminal runner. Also ctxtra's slash commands in
+- What the interactive TUI shows (the session-start message on screen), `/clear` in Claude, Codex and Pi,
+  `/compact`, and resume in Claude, Codex, Pi and OpenCode. OpenCode's `/clear` has an interactive test.
+  Also ctxtra's slash commands in
   Claude Code's desktop app and VS Code extension.
 - What a real model makes of the import that `ctxtra import --start` starts: the merged file,
   its questions, and the cleanup of the old files.
@@ -129,7 +136,7 @@ records what it gets (folder, environment names, client capabilities, roots, too
 model call MCP tools by name (`mock.CallMCPTools`). It runs only with `-out`:
 
 ```bash
-go test -count=1 ./mcpprobe -v -out /tmp/probe -agents claude,codex
+go test -count=1 ./mcpprobe -v -out /tmp/probe -agents claude-code,codex
 python3 -I mcpprobe/analyze.py /tmp/probe
 ```
 

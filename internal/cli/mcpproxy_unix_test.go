@@ -15,6 +15,7 @@ import (
 
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
 // mcp add and mcp show stop a server with every process it started.
@@ -53,15 +54,16 @@ func TestProxyBrokenStdout(t *testing.T) {
 	}
 	h := t.TempDir()
 	pidfile := filepath.Join(h, "a.pid")
-	cfg := filepath.Join(h, "config.yaml")
-	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"', -pidfile, '"+pidfile+"', -ignore-term], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
-		"bindings:\n  - {name: all, match: {global: true}, mcp-servers: [a]}\n"), 0o644); err != nil {
+	cfg := filepath.Join(h, "ctxtra", "config.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
+	if err := os.WriteFile(cfg, []byte("schema: ctxtra/config/v1\nmcp-servers:\n  a: {command: ['"+exe+"', -pidfile, '"+pidfile+"', -ignore-term], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
+		"bindings:\n  - {name: all, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(exe, "mcp", "proxy", "test")
+	cmd := exec.Command(exe, "mcp", "proxy", "codex", "--setup-version=1")
 	cmd.Dir = h
 	cmd.Env = []string{"HOME=" + h, "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
-		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
+		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(h, "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -118,8 +120,7 @@ func TestProxyStartBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := t.TempDir()
-	t.Setenv("HOME", h)
+	h := testenv.Home(t)
 	dir := filepath.Join(h, "dev", "app")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -127,9 +128,10 @@ func TestProxyStartBudget(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
 		t.Skipf("git: %v %s", err, out)
 	}
-	cfg := filepath.Join(h, "config.yaml")
-	if err := os.WriteFile(cfg, []byte("schema: ctxtra/v1\nmcp-servers:\n  a: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
-		"bindings:\n  - {name: app, match: {dirs: ['~/dev/**']}, mcp-servers: [a]}\n"), 0o644); err != nil {
+	cfg := filepath.Join(h, "ctxtra", "config.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
+	if err := os.WriteFile(cfg, []byte("schema: ctxtra/config/v1\nmcp-servers:\n  a: {command: ['"+exe+"'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n"+
+		"bindings:\n  - {name: app, location: {dirs: ['~/dev/**']}, mcp-servers: [a]}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	best := struct{ init, list, resolve time.Duration }{time.Hour, time.Hour, time.Hour}
@@ -161,10 +163,10 @@ func TestProxyStartBudget(t *testing.T) {
 // its answers to initialize and to the first tool list. The agent is Codex
 // for its long deadline: a slow run has the server's tools too.
 func proxyStart(exe, dir, cfg string) (initialize, list time.Duration, err error) {
-	cmd := exec.Command(exe, "mcp", "proxy", "codex")
+	cmd := exec.Command(exe, "mcp", "proxy", "codex", "--setup-version=1")
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "CTXTRA_TEST_HOOK=1",
-		"CTXTRA_CONFIG=" + cfg, "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}
+		"XDG_CONFIG_HOME=" + filepath.Dir(filepath.Dir(cfg)), "CTXTRA_LOG=" + filepath.Join(os.Getenv("HOME"), "log.jsonl")}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	began := time.Now()
@@ -212,4 +214,32 @@ func waitRecord(t *testing.T, dir string, began time.Time) sessionstatus.Record 
 	}
 	t.Fatal("no status record")
 	return sessionstatus.Record{}
+}
+
+// A ~/ program runs from the home folder, not from a folder called ~ in
+// the session's folder, which a repository can hold.
+func TestHomeProgramNotFromSession(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := testenv.Home(t)
+	testenv.Write(t, filepath.Join(h, "bin", "probe"), "#!/bin/sh\nexec '"+exe+"' \"$@\"\n")
+	session := filepath.Join(h, "repo")
+	marker := filepath.Join(h, "ran-from-session")
+	testenv.Write(t, filepath.Join(session, "~", "bin", "probe"), "#!/bin/sh\ntouch '"+marker+"'\n")
+	for _, p := range []string{filepath.Join(h, "bin", "probe"), filepath.Join(session, "~", "bin", "probe")} {
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  probe: {command: ['~/bin/probe'], env: {CTXTRA_TEST_MCPSERVER: '1'}}\n")
+	t.Chdir(session)
+	code, out, errOut := run("mcp", "show", "probe")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("ran the session's ~/bin/probe")
+	}
+	if code != 0 {
+		t.Fatalf("mcp show: %d %s\n%s", code, errOut, out)
+	}
 }

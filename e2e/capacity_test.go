@@ -22,9 +22,9 @@ import (
 // tokens; Antigravity keeps only the last ~686K bytes.
 func capacity(agent string) int {
 	switch agent {
-	case "claude", "muse":
+	case "claude-code", "muse":
 		return 360_000
-	case "copilot":
+	case "github-copilot":
 		return 140_000
 	case "antigravity":
 		return 650_000
@@ -37,11 +37,11 @@ func capacity(agent string) int {
 // the agents that get the text from one.
 func slots(agent string) (n, part int) {
 	switch agent {
-	case "claude":
+	case "claude-code":
 		return 40, 9000
 	case "muse":
 		return 40, 13_000
-	case "hermes":
+	case "hermes-agent":
 		return 125, 9000
 	}
 	return 0, 0
@@ -49,7 +49,7 @@ func slots(agent string) (n, part int) {
 
 // slotted are the agents that get the text from several hooks or callbacks
 // of one session start: ctxtra resolves the files once for all of them.
-var slotted = []string{"claude", "muse", "hermes"}
+var slotted = []string{"claude-code", "muse", "hermes-agent"}
 
 // A file is lines with a unique ID each. A line is the unit of these tests:
 // ctxtra may add its own text between lines, never inside one.
@@ -154,7 +154,7 @@ func absent(t *testing.T, name, text string, f bigFile) {
 // headers: its capacity counts bytes, and non-ASCII text has many.
 func capacityFiles(s *Session) []bigFile {
 	n := func(chars int) int {
-		if s.agent.Name() == "copilot" {
+		if s.agent.Name() == "github-copilot" {
 			return chars / 3
 		}
 		return chars
@@ -168,7 +168,7 @@ func capacityFiles(s *Session) []bigFile {
 		writeBig(s, "ctx/escaped.md", "F6", n(10_000), false),
 	}
 	s.Config(global("me", "~/ctx/me.md", "~/ctx/big.md") + `  - name: svc
-    match: {dirs: [~/dev/svc]}
+    location: {dirs: [~/dev/svc]}
     instructions: [~/ctx/uni.md, ~/ctx/team.md, ~/ctx/emoji.md, ~/ctx/escaped.md]
 `)
 	return files
@@ -207,7 +207,7 @@ func TestCapacitySubagent(t *testing.T) {
 		files := capacityFiles(s)
 		s.Setup()
 		r := s.Run(repo, driver.Options{}, mock.Read(s.Path("dev/svc/internal/code.txt")), mock.StartSubagent())
-		if last := r.Last(mock.Main).text; a.Name() == "copilot" && strings.Contains(last, compacted) {
+		if last := r.Last(mock.Main).text; a.Name() == "github-copilot" && strings.Contains(last, compacted) {
 			t.Log("Copilot compacted the conversation, which drops the text: see TestCopilotCompactionDropsText")
 		} else {
 			complete(t, "main[last]", r.Last(mock.Main).Has("CODE").text, files...)
@@ -217,7 +217,7 @@ func TestCapacitySubagent(t *testing.T) {
 }
 
 // Above the agent's capacity, whole files are dropped from the end, as with
-// budget.max-chars: the files before them arrive in full, a dropped file
+// max-ctx-chars: the files before them arrive in full, a dropped file
 // not at all. The log lists it, and the user is told which file was dropped.
 func TestOverCapacity(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
@@ -256,7 +256,7 @@ func TestOverCapacity(t *testing.T) {
 // Copilot shows no message from the hook.
 func TestCopilotDenseText(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
-		if a.Name() != "copilot" {
+		if a.Name() != "github-copilot" {
 			t.Skip("Copilot only")
 		}
 		for _, lines := range []int{1900, 2800} {

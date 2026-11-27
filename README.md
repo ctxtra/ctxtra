@@ -37,21 +37,19 @@ ctxtra onboard
 
 ctxtra preloads instructions and makes skills available at session start, using bindings that match
 folders or Git remotes. Bindings in `~/.config/ctxtra/config.yaml` can reference files in different
-locations and sources, and the config can include separate binding files.
+locations and sources. Bindings live only in this config.
 
 ```yaml
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: personal
-    match:
-      global: true  # Every session.
     instructions:
       - ~/dotfiles/agents/preferences.md
     skills:
       - ~/dev/review-tools/skills/review  # Contains SKILL.md.
 
   - name: work
-    match:  # Any entry matches; dirs and repos are alternatives.
+    location:  # Any entry matches; dirs and repos are alternatives.
       dirs:
         # Matches session folders or the main checkout, including worktrees.
         - '~/dev/work/**'
@@ -68,18 +66,16 @@ bindings:
       - '!~/dev/team-tools/skills/experimental-*'  # Except these.
 
   - name: billing-service
-    match:
+    location:
       repos:
-        - remote: github.com/acme/mono
-          subpath: services/billing/**  # Remote AND session subfolder.
+        - repo: github.com/acme/mono
+          subdirs: [services/billing/**]  # Remote AND session subfolder.
     instructions:
       - /opt/agent-context/billing.md  # Absolute path.
-      - ctxtra://team-ctx/billing-runbook.md  # From an added source.
+      - team-ctx:billing-runbook.md  # From an added source.
     skills:
-      - ctxtra://team-ctx/skills/billing  # Skills from that source too.
+      - team-ctx:skills/billing  # Skills from that source too.
 
-include:
-  - ~/dev/team-context/bindings.yaml  # Load bindings from another file.
 ```
 
 ## Ask your agent to set it up
@@ -132,19 +128,17 @@ Only what you bind gets in. `ctxtra context show DIR` prints the exact text a se
   </picture>
 </p>
 
-A package is a git repo of Markdown files and skills, with bindings that say where they go. The team writes
-"billing.md goes to every session in github.com/acme/billing" once, and everyone who adds the package gets
-it there, with no PRs to the billing repo:
+A source is a git repository of Markdown files and skills. Each user decides where they apply:
 
 ```bash
-ctxtra source add git git@github.com:acme/team-ctx.git --include bindings/billing.yaml
+ctxtra source add --repo git@github.com:acme/team-ctx.git
+ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md
 ```
 
-Each person stays at the commit they accepted, like a lockfile. `ctxtra source update` shows the diff of a new commit
-and warns when a binding starts to match more sessions. A package's bindings can point only to its own
-files, never to `~/.ssh` or anything else on your disk. Its text still goes to your agent, though, and
-`ctxtra source add` accepts the current commit, so read a package before you add it, as you would read code before
-you run it.
+The source's accepted commit is in `ctxtra.lock` next to the config. `ctxtra source update` shows changes
+before new commits reach sessions. A source cannot define bindings or select files on your disk.
+Its text still goes to your agent, and adding it accepts the current commit without review.
+Read a source before adding it, as you would read code before running it.
 
 ## Works with your agents
 

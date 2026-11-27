@@ -36,8 +36,8 @@ func TestClients(t *testing.T) {
 			t.Errorf("%s/%s: %d files, %v", c.ID, c.Agent, n, err)
 		}
 	}
-	if !ids["0.1"] {
-		t.Error("no 0.1 fixtures")
+	if !ids["current"] {
+		t.Error("no current fixtures")
 	}
 	for _, p := range []string{"/home/a b", "/home/\tx", "/home/ü", `/home/"x"`, "/home/$x", "/home/../x", ""} {
 		if CheckPath(p) == nil {
@@ -69,7 +69,7 @@ func TestReleases(t *testing.T) {
 	}
 	dir := t.TempDir()
 	Write(t, filepath.Join(dir, "empty.json"), "\n")
-	Write(t, filepath.Join(dir, "bad.json"), `{"v0.1.0": ["claude"]}`)
+	Write(t, filepath.Join(dir, "bad.json"), `{"v0.1.0": ["claude-code"]}`)
 	for name, ok := range map[string]bool{"missing.json": true, "empty.json": true, "bad.json": false} {
 		if r, err := Releases(filepath.Join(dir, name)); (err == nil) != ok || len(r) != 0 {
 			t.Errorf("%s: %v, %v", name, r, err)

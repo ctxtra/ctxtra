@@ -12,7 +12,7 @@ cmp .gemini/config/mcp_config.json original.json
 exec ctxtra setup --agent antigravity
 stdout '~/.gemini/config/mcp_config.json'
 cmpenv .gemini/config/mcp_config.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 exec ctxtra setup --agent antigravity
 stdout 'is already set up for'
 
@@ -24,7 +24,7 @@ exec ctxtra setup --remove --agent antigravity
 grep '"other"' .gemini/config/mcp_config.json
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [pg-mcp]}
 -- original.json --
@@ -46,7 +46,8 @@ mcp-servers:
       "args": [
         "mcp",
         "proxy",
-        "antigravity"
+        "antigravity",
+        "--setup-version=1"
       ]
     }
   }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -29,9 +30,8 @@ func bigSession(t *testing.T, chars int) (home, dir string) {
 	}
 	testenv.Write(t, filepath.Join(h, "big.md"), b.String())
 	testenv.Write(t, filepath.Join(h, "z.md"), "LAST FILE")
-	testenv.Write(t, filepath.Join(h, ".config", "ctxtra", "b.yaml"),
-		"schema: ctxtra/v1\nbindings:\n  - {name: a, match: {global: true}, instructions: [~/big.md, ~/z.md]}\n")
-	testenv.Config(t, h, "schema: ctxtra/v1\ninclude: [b.yaml]\n")
+	bindingsYAML := "bindings:\n  - {name: a, instructions: [~/big.md, ~/z.md]}\n"
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n"+bindingsYAML)
 	orig := endLock
 	endLock = func(unlock func()) { unlock() }
 	t.Cleanup(func() { endLock = orig })
@@ -39,10 +39,7 @@ func bigSession(t *testing.T, chars int) (home, dir string) {
 }
 
 // slotAnswer is what one slot added.
-type slotAnswer struct {
-	text, summary string
-	end           time.Time
-}
+type slotAnswer struct{ text, summary string }
 
 // runSlots runs all 40 slots of claude's event at once, like Claude does.
 func runSlots(t *testing.T, event, input string) []slotAnswer {
@@ -58,7 +55,7 @@ func runSlotsOf(t *testing.T, event, input string, slots int) []slotAnswer {
 	for k := range out {
 		wg.Go(func() {
 			var b bytes.Buffer
-			RunArgs("claude", event, Args{Slot: k, Slots: slots}, strings.NewReader(input), &b, io.Discard)
+			RunArgs("claude-code", event, Args{Slot: k, Slots: slots}, strings.NewReader(input), &b, io.Discard)
 			var m struct {
 				HookSpecificOutput struct{ AdditionalContext string }
 				SystemMessage      string
@@ -66,7 +63,7 @@ func runSlotsOf(t *testing.T, event, input string, slots int) []slotAnswer {
 			if err := json.Unmarshal(b.Bytes(), &m); err != nil {
 				t.Errorf("slot %d: %q", k, b.String())
 			}
-			out[k] = slotAnswer{m.HookSpecificOutput.AdditionalContext, m.SystemMessage, time.Now()}
+			out[k] = slotAnswer{m.HookSpecificOutput.AdditionalContext, m.SystemMessage}
 		})
 	}
 	wg.Wait()
@@ -75,7 +72,7 @@ func runSlotsOf(t *testing.T, event, input string, slots int) []slotAnswer {
 
 func logEntries(t *testing.T, h string) []Entry {
 	t.Helper()
-	f, err := os.Open(filepath.Join(h, ".ctxtra", "log.jsonl"))
+	f, err := os.Open(filepath.Join(h, ".local/state/ctxtra", "log.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,9 +101,6 @@ func TestSlots(t *testing.T) {
 			if !strings.HasPrefix(a.text, fmt.Sprintf("[ctxtra part %d of ", k+1)) {
 				t.Errorf("slot %d: %q", k, a.text[:40])
 			}
-			if k > 0 && a.end.Before(got[k-1].end) {
-				t.Errorf("slot %d answered before slot %d", k, k-1)
-			}
 		}
 		if (a.summary != "") != (k == 0) {
 			t.Errorf("slot %d: summary %q", k, a.summary)
@@ -124,7 +118,7 @@ func TestSlots(t *testing.T) {
 	if n := len(logEntries(t, h)); n != 1 {
 		t.Errorf("%d log entries, want 1", n)
 	}
-	slots := filepath.Join(h, ".ctxtra", "slots")
+	slots := filepath.Join(h, ".local/state/ctxtra", "slots")
 	dirs, _ := os.ReadDir(slots)
 	if len(dirs) != 1 {
 		t.Fatalf("slot folders: %v", dirs)
@@ -178,7 +172,7 @@ func age(t *testing.T, d string) {
 func TestSnapshot(t *testing.T) {
 	h, r := bigSession(t, 1000)
 	p := payload{Cwd: r, SessionID: "s2", Source: "startup"}
-	d := filepath.Join(h, ".ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
 	calls := 0
 	mk := func() snapshot { calls++; return snapshot{Parts: []string{fmt.Sprint(calls)}} }
 	at, s, err := shared(d, 0, mk)
@@ -209,7 +203,7 @@ func TestSnapshot(t *testing.T) {
 	// Folders of earlier session starts go, unless their lock is held; the
 	// session start's own folder and its young generations stay.
 	old := time.Now().Add(-time.Hour)
-	stale, busy := filepath.Join(h, ".ctxtra", "slots", "stale"), filepath.Join(h, ".ctxtra", "slots", "busy")
+	stale, busy := filepath.Join(h, ".local/state/ctxtra", "slots", "stale"), filepath.Join(h, ".local/state/ctxtra", "slots", "busy")
 	testenv.Write(t, filepath.Join(stale, "0000000000000001", "snapshot.json"), "{}")
 	unlock, err := fsutil.LockTimeout(filepath.Join(busy, "lock"), 0)
 	if err != nil {
@@ -235,7 +229,7 @@ func TestSnapshot(t *testing.T) {
 	if n := len(generations(d)); n != 3 {
 		t.Errorf("%d generations, want 3", n)
 	}
-	if slotKey("claude", "SessionStart", 0, payload{Cwd: r}, r) != "" {
+	if slotKey("claude-code", "SessionStart", 0, payload{Cwd: r}, r) != "" {
 		t.Error("a key without a session ID")
 	}
 }
@@ -343,8 +337,8 @@ func TestSnapshotGeneration(t *testing.T) {
 	h, r := bigSession(t, 1000)
 	input := `{"cwd": "` + r + `", "session_id": "same", "source": "clear"}`
 	p := payload{Cwd: r, SessionID: "same", Source: "clear"}
-	d := filepath.Join(h, ".ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
-	RunSlot("claude", "SessionStart", 0, strings.NewReader(input), io.Discard, io.Discard)
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
+	RunSlot("claude-code", "SessionStart", 0, strings.NewReader(input), io.Discard, io.Discard)
 	testenv.Write(t, filepath.Join(h, "big.md"), "NEW-GENERATION-CONTEXT")
 	if got := runSlots(t, "SessionStart", input); strings.Contains(got[0].text, "NEW-GENERATION-CONTEXT") || !strings.Contains(got[0].text, "big L00000") {
 		t.Errorf("within joinWindow: %q", got[0].text)
@@ -370,12 +364,12 @@ func TestOverlappingGenerations(t *testing.T) {
 	h, r := bigSession(t, 30_000)
 	input := `{"cwd": "` + r + `", "session_id": "same", "source": "resume"}`
 	p := payload{Cwd: r, SessionID: "same", Source: "resume"}
-	d := filepath.Join(h, ".ctxtra", "slots", slotKey("claude", "SessionStart", 40, p, r))
-	claude, _ := registry.Get("claude")
+	d := filepath.Join(h, ".local/state/ctxtra", "slots", slotKey("claude-code", "SessionStart", 40, p, r))
+	claude, _ := registry.Get("claude-code")
 	var want []string
 	for k := range 10 {
 		_, s, err := shared(d, k, func() snapshot {
-			res, e := session(claude, claude.Delivery(), "", "", "", "SessionStart", p, r)
+			res, e := session(claude, claude.Delivery(), "", "", "SessionStart", p, profile.Event{}, r)
 			return snapshot{Parts: claude.Delivery().Chunks(res), Entry: &e}
 		})
 		if err != nil {
@@ -420,7 +414,7 @@ func TestSlotsWithoutSession(t *testing.T) {
 	if e := logEntries(t, h); len(e) != 1 {
 		t.Errorf("%d log entries, want 1: %+v", len(e), e)
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra", "slots")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra", "slots")); !os.IsNotExist(err) {
 		t.Errorf("slot folder: %v", err)
 	}
 }
@@ -430,7 +424,7 @@ func TestSlotsWithoutSession(t *testing.T) {
 func TestSlotsOverCapacity(t *testing.T) {
 	h, r := bigSession(t, 370_000)
 	got := runSlots(t, "SessionStart", `{"cwd": "`+r+`", "session_id": "s3"}`)
-	if !strings.Contains(got[0].summary, "dropped big.md, z.md (over Claude Code's limit of 360,000 characters)") {
+	if !strings.Contains(got[0].summary, "dropped big.md, z.md of binding a (over Claude Code's limit of 360,000 characters)") {
 		t.Errorf("summary %q", got[0].summary)
 	}
 	if e := logEntries(t, h); len(e) != 1 || len(e[0].Dropped) != 2 || !strings.HasSuffix(e[0].Dropped[0], "big.md") {
@@ -447,7 +441,7 @@ func TestSlotsReadOnlyState(t *testing.T) {
 	h, r := bigSession(t, 30_000)
 	logPath := filepath.Join(h, "log", "log.jsonl")
 	t.Setenv("CTXTRA_LOG", logPath)
-	state := filepath.Join(h, ".ctxtra")
+	state := filepath.Join(h, ".local/state/ctxtra")
 	if err := os.MkdirAll(state, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +530,7 @@ func TestSlotCount(t *testing.T) {
 			t.Errorf("64 slots: part %d is %.80q", k, more[k].text)
 		}
 	}
-	if entries, _ := os.ReadDir(filepath.Join(h, ".ctxtra", "slots")); len(entries) != 3 {
+	if entries, _ := os.ReadDir(filepath.Join(h, ".local/state/ctxtra", "slots")); len(entries) != 3 {
 		t.Errorf("want a folder per slot count, got %d", len(entries))
 	}
 	if e := logEntries(t, h); len(e) != 3 {

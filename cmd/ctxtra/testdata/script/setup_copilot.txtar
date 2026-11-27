@@ -1,31 +1,31 @@
 # Copilot: setup writes its own hook file next to the user's, the hook
 # answers with additionalContext, and --remove deletes only its own file.
 
-exec ctxtra setup --agent copilot
+exec ctxtra setup --agent github-copilot
 stdout '^ctxtra is set up for Copilot:$'
 cmpenv .copilot/hooks/ctxtra.json want.json
 exists .copilot/hooks/other.json
 
-exec ctxtra setup --agent copilot
+exec ctxtra setup --agent github-copilot
 stdout 'is already set up for'
 
 exec ctxtra doctor
-stdout 'copilot: set up for \[sessionStart subagentStart\], runs .*/ctxtra \(ok\)'
+stdout 'github-copilot: set up for \[sessionStart subagentStart\], runs .*/ctxtra \(ok\)'
 ! stderr .
 
-runhook copilot sessionStart .
+runhook github-copilot sessionStart .
 stdout '"additionalContext":"[^"]*CTXMARK-ME'
-runhook copilot subagentStart .
+runhook github-copilot subagentStart .
 stdout 'CTXMARK-ME'
 
-exec ctxtra setup --remove --agent copilot
+exec ctxtra setup --remove --agent github-copilot
 stdout '^ctxtra is removed from Copilot:$'
 ! exists .copilot/hooks/ctxtra.json
 cmp .copilot/hooks/other.json other.json
 
 # With COPILOT_HOME, the hooks go there.
 env COPILOT_HOME=$WORK/cphome
-exec ctxtra setup --agent copilot
+exec ctxtra setup --agent github-copilot
 exists cphome/hooks/ctxtra.json
 
 -- .copilot/hooks/other.json --
@@ -38,26 +38,22 @@ exists cphome/hooks/ctxtra.json
   "hooks": {
     "sessionStart": [
       {
-        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook copilot sessionStart; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook github-copilot sessionStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
         "timeout": 10
       }
     ],
     "subagentStart": [
       {
-        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook copilot subagentStart; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+        "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook github-copilot subagentStart --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
         "timeout": 10
       }
     ]
   }
 }
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include: [b.yaml]
--- .config/ctxtra/b.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: me
-    match: {global: true}
     instructions: [~/me.md]
 -- me.md --
 CTXMARK-ME

@@ -1,0 +1,152 @@
+# Every flag of binding add takes ! entries and values that YAML would read
+# as something else (yes, on, null, 1.10, #, : , quotes, spaces). The written
+# config parses, and each entry reads back as given and means what it says.
+env CTXTRA_PROFILES=yes,True
+
+exec ctxtra binding add every --dir '!~/dev/clients/**' --dir '~/My Notes/**' --dir '~/dev/#tmp: x/**' --repo-set no --repo-set '!on' --profile yes --profile '!null' --profile True --agent '!cursor' --collection on --collection 'n*' --collection '!no' --instruction 'notes/*.md' --instruction '!notes/draft *.md' --instruction 'notes/''q'' "dq".md' --skill 'skills/*' --skill '!skills/old #1' --mcp-server null --mcp-server '!off'
+exec ctxtra binding add part --repo 'github.com/acme/1.10' --subdir '!web/#legacy/**' --subdir yes --instruction 'notes/a: b.md'
+exec ctxtra binding add repos --repo 'github.com/acme/*' --repo '!github.com/acme/on' --instruction '~/notes/@at.md'
+
+# The config reads, and every entry is as given.
+exec ctxtra binding list --json
+cmp stdout want.json
+
+# ! entries leave out, and the other values mean what they say.
+exec ctxtra context files --agent codex 'My Notes'
+stdout '/notes/a.md$'
+stdout '/notes/yes$'
+stdout '/notes/#1: plan.md$'
+stdout '/notes/''q'' "dq".md$'
+! stdout 'draft'
+! stdout 'other/1.10'
+stdout '/skills/new/SKILL.md$'
+! stdout 'old #1'
+exec ctxtra context explain --agent codex 'My Notes'
+stdout '^    mcp      null$'
+stdout '^    mcp      true$'
+stdout '^    excluded off \(by !off\)$'
+stdout '^    excluded .*/notes/draft 1.md \(by !~/notes/draft \*.md\)$'
+stdout '^    excluded .*/skills/old #1 \(by !~/skills/old #1\)$'
+exec ctxtra context files --agent cursor 'My Notes'
+! stdout 'notes'
+exec ctxtra context files --agent codex dev/clients/x
+! stdout 'notes/a.md'
+exec ctxtra context files --agent codex 'dev/#tmp: x'
+stdout '/notes/a.md$'
+env CTXTRA_PROFILES=yes,null
+exec ctxtra context files --agent codex 'My Notes'
+! stdout 'notes/a.md'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+mcp-servers:
+  'null': {url: 'https://example.com/null'}
+  'off': {url: 'https://example.com/off'}
+  'true': {url: 'https://example.com/true'}
+collections:
+  'on': {mcp-servers: ['off', 'true'], instructions: [../../notes/yes]}
+  'no': {instructions: [../../other/1.10]}
+  'null': {instructions: ['./../../notes/#1: plan.md']}
+repo-sets:
+  'no': [github.com/acme/yes]
+  'on': ['github.com/acme/1.10']
+-- notes/a.md --
+A
+-- notes/yes --
+YES
+-- other/1.10 --
+ONE TEN
+-- notes/#1: plan.md --
+PLAN
+-- notes/draft 1.md --
+DRAFT
+-- notes/'q' "dq".md --
+QUOTES
+-- notes/a: b.md --
+COLON
+-- notes/@at.md --
+AT
+-- skills/new/SKILL.md --
+---
+description: New.
+---
+-- skills/old #1/SKILL.md --
+---
+description: Old.
+---
+-- My Notes/.keep --
+-- dev/clients/x/.keep --
+-- dev/#tmp: x/.keep --
+-- want.json --
+{
+  "schema_version": 1,
+  "data": [
+    {
+      "name": "every",
+      "line": 14,
+      "dirs": [
+        "!~/dev/clients/**",
+        "~/My Notes/**",
+        "~/dev/#tmp: x/**"
+      ],
+      "repo_sets": [
+        "no",
+        "!on"
+      ],
+      "profiles": [
+        "yes",
+        "!null",
+        "True"
+      ],
+      "agents": [
+        "!cursor"
+      ],
+      "collections": [
+        "on",
+        "n*",
+        "!no"
+      ],
+      "instructions": [
+        "~/notes/*.md",
+        "!~/notes/draft *.md",
+        "~/notes/'q' \"dq\".md"
+      ],
+      "skills": [
+        "~/skills/*",
+        "!~/skills/old #1"
+      ],
+      "mcp_servers": [
+        "null",
+        "!off"
+      ]
+    },
+    {
+      "name": "part",
+      "line": 43,
+      "repos": [
+        "github.com/acme/1.10 (subdirs !web/#legacy/**, yes)"
+      ],
+      "collections": [],
+      "instructions": [
+        "~/notes/a: b.md"
+      ],
+      "skills": [],
+      "mcp_servers": []
+    },
+    {
+      "name": "repos",
+      "line": 52,
+      "repos": [
+        "github.com/acme/*",
+        "!github.com/acme/on"
+      ],
+      "collections": [],
+      "instructions": [
+        "~/notes/@at.md"
+      ],
+      "skills": [],
+      "mcp_servers": []
+    }
+  ],
+  "diagnostics": []
+}

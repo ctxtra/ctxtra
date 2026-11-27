@@ -3,37 +3,36 @@
 package resolve
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
-	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/caserule"
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/gitrepo"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
-	"github.com/ctxtra/ctxtra/internal/paths"
-	"github.com/ctxtra/ctxtra/internal/source"
-	"github.com/ctxtra/ctxtra/internal/state"
+	"github.com/ctxtra/ctxtra/internal/profile"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 // Hit is a file or a skill added to the session.
 type Hit struct {
 	Path    string // the file, or the skill's SKILL.md
-	Ref     string // a file of a pinned source: ctxtra://<source>/<path>
+	Ref     string // a file of a source: SOURCE:PATH
 	Content string // a file's text; a skill's SKILL.md text after the frontmatter
 	Origin  string // the binding that added it
 	// Source is the source the file or SKILL.md is in, and SourcePath its
 	// slash-separated path in it; both "" outside sources.
 	Source, SourcePath string
-	Global             bool // from a binding with `global: true`
+	// Global is true for a file of a binding without conditions: every
+	// session gets it.
+	Global bool
 	// Skills only.
 	Name, Description string
 	// Dropped files only: the limit the text was over, for example
-	// "budget.max-chars".
+	// "max-ctx-chars".
 	Over string
 }
 
@@ -41,6 +40,11 @@ type Hit struct {
 type MCPServer struct {
 	upstream.Server
 	Origin string // the binding that added it
+	// Unapproved is why a source's server isn't approved on this machine,
+	// "" when it is or needs no approval. The session keeps its name, so
+	// no other server is served in its place, and the proxy doesn't start
+	// it.
+	Unapproved string
 }
 
 // MCPConflict records why one selected identity was suppressed.
@@ -53,19 +57,47 @@ type Trace struct {
 	Origin  string
 	Matched bool
 	Reason  string
-	Files   []string
-	Skills  []string // SKILL.md paths
-	// MCPServers are the names of the binding's servers.
+	// Files and Skills are the real paths of the files and SKILL.md files
+	// the binding added, as in the session's hits.
+	Files  []string
+	Skills []string
+	// MCPServers are the IDs of the binding's servers.
 	MCPServers []string
-	Missing    []string
-	Problems   []string
-	// Removed by the binding's entries that start with !.
-	ExcludedFiles, ExcludedSkills []string
+	// Conditions are the binding's conditions, each with whether it held.
+	Conditions []Condition
+	// Excluded are what the binding's ! content entries removed.
+	Excluded []Exclusion
+	// Unavailable are the sources the binding names whose content this
+	// machine can't use: what they would add is left out.
+	Unavailable []string
+	// Errors are the errors of the binding's entries in this session.
+	Errors []*catalog.Error
 }
+
+// UnreadableSet is a repo-sets entry of a binding whose set can't be read.
+type UnreadableSet struct {
+	Binding string
+	// Entry is the entry as written, with its !.
+	Entry string
+	// Why is why the set can't be read.
+	Why string
+	// Err is the error that reports it.
+	Err *catalog.Error
+}
+
+// SessionMessage is how many instructions and skills the session message
+// lists; 0 leaves a list out.
+type SessionMessage struct {
+	MaxInstructions, MaxSkills int
+}
+
+// DefaultSessionMessage is the session message without settings.
+var DefaultSessionMessage = SessionMessage{MaxInstructions: 30, MaxSkills: 30}
 
 // Result is what a session in Dir gets.
 type Result struct {
 	Dir    string
+	Agent  string
 	Repo   *gitrepo.Repo // nil outside git
 	Files  []Hit
 	Skills []Hit
@@ -73,239 +105,40 @@ type Result struct {
 	MCPServers []MCPServer
 	// MCPConflicts are suppressed identities sharing an earlier tool prefix.
 	MCPConflicts []MCPConflict
-	Dropped      []Hit // over budget.max-chars or the agent's capacity, see Hit.Over
+	Dropped      []Hit // over max-ctx-chars or the agent's capacity, see Hit.Over
 	// Known are files that apply here too, which the session already has
 	// from another folder: listed after the files, without their text.
-	Known    []Hit
-	Missing  []string
-	Problems []string
-	// Notices are for the user, not the model: about the pinned sources the
-	// session uses. A notice's command to run, if any, is on its second line.
+	Known []Hit
+	// Notices are for the user, not the model: new commits of the sources
+	// the session uses, same names. A notice's command to run, if any, is on
+	// its second line.
 	Notices  []string
 	Trace    []Trace
 	MaxChars int
-	Summary  config.SummaryMessage
-}
-
-// Session loads the config at configPath and resolves it for a session in
-// dir. All reads share the per-session limits in config.
-func Session(dir, configPath string) (*Result, *config.Config) {
-	rd := fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes)
-	cfg := config.Load(configPath, rd)
-	return Resolve(dir, cfg, rd), cfg
-}
-
-// Resolve works out what a session started in dir gets, reading files with
-// rd. Bindings apply in config order; a file that several bindings add is
-// added once, at its first position, and the same for skills.
-func Resolve(dir string, cfg *config.Config, rd config.Reader) *Result {
-	dir = paths.Real(dir)
-	res := &Result{Dir: dir, Repo: gitrepo.Identify(dir), MaxChars: cfg.MaxChars, Summary: cfg.Summary}
-	res.Problems = append(res.Problems, cfg.Problems...)
-	l := &loader{rd: rd, cfg: cfg, files: map[string]bool{}, skills: map[string]bool{}}
-	for _, b := range cfg.Bindings {
-		t := Trace{Origin: b.ID()}
-		t.Matched, t.Reason = b.Selector.Match(dir, res.Repo)
-		if t.Matched {
-			res.apply(&t, b, l)
-		}
-		res.Trace = append(res.Trace, t)
-	}
-	res.dedupeSkillNames()
-	res.applyBudget()
-	res.addNotices(cfg)
-	return res
-}
-
-// OtherProblems checks the bindings that don't match Dir the way a session
-// they match would, and returns what is wrong with them. Each binding reads
-// with its own limits: the limits are per session.
-func (r *Result) OtherProblems(cfg *config.Config) []string {
-	var out []string
-	for i, b := range cfg.Bindings {
-		if !r.Trace[i].Matched {
-			out = append(out, CheckBinding(cfg, b)...)
-		}
-	}
-	return out
-}
-
-// CheckBinding reads the files and skills of b the way a session that b
-// matches would, and returns what is wrong with them. It reads with its own
-// limits: the limits are per session.
-func CheckBinding(cfg *config.Config, b config.Binding) []string {
-	rd := fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes)
-	l := &loader{rd: rd, cfg: cfg, files: map[string]bool{}, skills: map[string]bool{}}
-	t := Trace{Origin: b.ID()}
-	c := &Result{}
-	c.apply(&t, b, l)
-	c.dedupeSkillNames()
-	var out []string
-	for _, m := range c.Missing {
-		out = append(out, t.Origin+": missing: "+m)
-	}
-	return append(out, c.Problems...)
-}
-
-// addNotices tells about the pinned sources the session uses: new commits
-// that the last check found, for a source with check-updates on, and a
-// commit the user didn't accept.
-func (r *Result) addNotices(cfg *config.Config) {
-	var st *state.State
-	for _, src := range cfg.Sources {
-		if !src.Pinned() || src.Commit == "" || !r.uses(src.Gen()) && !slices.ContainsFunc(r.MCPServers, func(s MCPServer) bool { return s.Source == src.Name }) {
-			continue
-		}
-		if st == nil {
-			s := state.Load()
-			st = &s
-		}
-		e := st.Get(source.ID(src.Remote()), src.Remote(), src.Branch)
-		if src.CheckUpdates && e.Head != "" && e.Head != src.Commit && e.Head != e.Dismissed {
-			on := "on " + src.Branch
-			if src.LocalGit != "" {
-				on = "in " + paths.Tilde(src.LocalGit)
-			}
-			r.Notices = append(r.Notices, fmt.Sprintf("%s has new commits %s\nrun `ctxtra source update %s` to review them.", src.Name, on, src.Name))
-		}
-		if e.Dismissed != "" && e.Dismissed != src.Commit {
-			r.Notices = append(r.Notices, fmt.Sprintf("%s has a newer commit that you didn't accept\nrun `ctxtra source update %s` to review it again.", src.Name, src.Name))
-		}
-	}
-}
-
-// uses reports whether the session gets a file or skill from under dir.
-func (r *Result) uses(dir string) bool {
-	dir = paths.Real(dir)
-	for _, list := range [][]Hit{r.Files, r.Skills, r.Dropped} {
-		for _, h := range list {
-			if _, ok := paths.Rel(dir, h.Path); ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (r *Result) apply(t *Trace, b config.Binding, l *loader) {
-	for _, raw := range b.Instructions {
-		f := paths.Real(raw)
-		t.Files = append(t.Files, f)
-		if content, ok := l.load(t, raw, f, l.files); ok {
-			src, rel := l.cfg.SourceOf(raw)
-			r.Files = append(r.Files, Hit{Path: f, Ref: l.cfg.Ref(raw), Content: content, Origin: t.Origin, Global: b.Selector.Global,
-				Source: src, SourcePath: rel})
-		}
-	}
-	for _, dir := range b.Skills {
-		raw := filepath.Join(dir, "SKILL.md")
-		f := paths.Real(raw)
-		t.Skills = append(t.Skills, f)
-		content, ok := l.load(t, raw, f, l.skills)
-		if !ok {
-			continue
-		}
-		name, desc, body, err := parseSkill(content)
-		if err != nil {
-			t.Problems = append(t.Problems, fmt.Sprintf("%s: %v; skipped", f, err))
-			continue
-		}
-		if name == "" {
-			name = filepath.Base(filepath.Dir(f))
-		}
-		src, rel := l.cfg.SourceOf(raw)
-		r.Skills = append(r.Skills, Hit{Path: f, Origin: t.Origin, Global: b.Selector.Global, Name: name, Description: desc,
-			Content: body, Source: src, SourcePath: rel})
-	}
-	for _, name := range b.MCPServers {
-		t.MCPServers = append(t.MCPServers, name)
-		s, ok := l.cfg.MCPServer(name)
-		if !ok || slices.ContainsFunc(r.MCPServers, func(m MCPServer) bool { return m.ID == s.ID }) ||
-			slices.ContainsFunc(r.MCPConflicts, func(c MCPConflict) bool { return c.Loser == s.ID }) {
-			continue
-		}
-		if i := slices.IndexFunc(r.MCPServers, func(m MCPServer) bool { return m.Name == s.Name }); i >= 0 {
-			winner := r.MCPServers[i].ID
-			r.MCPConflicts = append(r.MCPConflicts, MCPConflict{Winner: winner, Loser: s.ID, Prefix: s.Name, Origin: t.Origin})
-			t.Problems = append(t.Problems, fmt.Sprintf("MCP server %s is shadowed by %s: both use tool prefix %s; the first binding wins, without fallback", s.ID, winner, s.Name))
-			continue
-		}
-		r.MCPServers = append(r.MCPServers, MCPServer{s, t.Origin})
-	}
-	for _, f := range b.ExcludedInstructions {
-		t.ExcludedFiles = append(t.ExcludedFiles, paths.Real(f))
-	}
-	for _, dir := range b.ExcludedSkills {
-		t.ExcludedSkills = append(t.ExcludedSkills, paths.Real(filepath.Join(dir, "SKILL.md")))
-	}
-	r.Missing = append(r.Missing, t.Missing...)
-	for _, p := range t.Problems {
-		r.Problems = append(r.Problems, t.Origin+": "+p)
-	}
-}
-
-// loader adds each file and each skill once. Files and skills are tracked
-// apart: the same SKILL.md can be both an instruction file and a skill.
-type loader struct {
-	rd            config.Reader
-	cfg           *config.Config
-	files, skills map[string]bool
-}
-
-// load reads path, the real path of raw, unless added already to seen. raw
-// is checked with the config's trust policy first (the check needs the
-// symlinks on the way), unless it is in a pinned source's store folder. A
-// missing file goes to t.Missing, other errors to t.Problems.
-func (l *loader) load(t *Trace, raw, path string, seen map[string]bool) (string, bool) {
-	if seen[path] {
-		return "", false
-	}
-	if !l.cfg.Pinned(raw) {
-		if err := l.cfg.Trust.Check(raw); err != nil {
-			t.Problems = append(t.Problems, err.Error())
-			return "", false
-		}
-	}
-	b, err := l.rd.Read(path)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		t.Missing = append(t.Missing, path)
-		return "", false
-	case err != nil:
-		t.Problems = append(t.Problems, fmt.Sprintf("%v; skipped", err))
-		return "", false
-	}
-	seen[path] = true
-	return string(b), true
-}
-
-// dedupeSkillNames keeps the first skill of each name: agents pick skills by
-// name, so two with the same name would be ambiguous.
-func (r *Result) dedupeSkillNames() {
-	first := map[string]Hit{}
-	var kept []Hit
-	for _, h := range r.Skills {
-		if f, ok := first[h.Name]; ok {
-			r.Problems = append(r.Problems, fmt.Sprintf("%s: skill %q is already added from %s; skipped", h.Origin, h.Name, f.Path))
-			continue
-		}
-		first[h.Name] = h
-		kept = append(kept, h)
-	}
-	r.Skills = kept
+	Summary  SessionMessage
+	// Errors are every error the session reports: in the config, the lock,
+	// the sources and their manifests, and in what the bindings add.
+	Errors []*catalog.Error
+	// SameSkills are skills that have a name another skill of the session
+	// has. All of them are delivered, as the agent would get them by hand.
+	SameSkills []SameSkill
+	// UnreadableSets are the repo-sets entries whose sets can't be read,
+	// for the session message, which names them. Their errors are in
+	// Errors.
+	UnreadableSets []UnreadableSet
+	// CaseRule is how the session folder's volume compares names, when a
+	// binding compares folders.
+	CaseRule caserule.Rule
+	// RepoErr is why git couldn't tell the session's repository, when a
+	// binding needed it.
+	RepoErr error
+	// Profiles are the active profiles; their errors are in Errors.
+	Profiles profile.Active
 }
 
 // Chars is the length of s in characters (Unicode code points), the unit of
-// budget.max-chars.
+// max-ctx-chars.
 func Chars(s string) int { return utf8.RuneCountInString(s) }
-
-// applyBudget drops whole files from the end until the text fits
-// budget.max-chars. The skill list is never dropped.
-func (r *Result) applyBudget() {
-	if r.MaxChars > 0 {
-		r.Fit(func(r *Result) bool { return Chars(r.Render()) <= r.MaxChars }, "budget.max-chars")
-	}
-}
 
 // Fit drops whole files from the end until fits accepts the result, and
 // marks them as over the limit over. Files dropped before stay after them:
@@ -324,10 +157,31 @@ func (r *Result) Fit(fits func(*Result) bool, over string) {
 		return !fits(&c)
 	})
 	var dropped []Hit
+	var bindings []string
 	for _, h := range files[n:] {
 		h.Over = over
 		dropped = append(dropped, h)
+		if !slices.Contains(bindings, h.Origin) {
+			bindings = append(bindings, h.Origin)
+		}
 	}
 	r.Files = files[:n:n]
 	r.Dropped = append(dropped, r.Dropped...)
+	msg := fmt.Sprintf("the text is over %s; %d files of bindings %s are left out", over, len(dropped), strings.Join(bindings, ", "))
+	// With files left, the search found that they fit; with none, the
+	// skills alone may be over.
+	if c.Files = r.Files; n == 0 && !fits(&c) {
+		var skills []string
+		for _, h := range r.Skills {
+			if !slices.Contains(skills, h.Origin) {
+				skills = append(skills, h.Origin)
+			}
+		}
+		msg = fmt.Sprintf("the text is over %s even without instruction files; the skills of bindings %s are too long", over, strings.Join(skills, ", "))
+		if len(dropped) > 0 {
+			msg = fmt.Sprintf("the text is over %s; %d files of bindings %s are left out, and the skills of bindings %s are still too long",
+				over, len(dropped), strings.Join(bindings, ", "), strings.Join(skills, ", "))
+		}
+	}
+	r.Errors = append(r.Errors, &catalog.Error{Err: &yamlx.Error{Mistake: yamlx.OverCapacity, Msg: msg}})
 }

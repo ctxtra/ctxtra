@@ -14,7 +14,7 @@ func TestMCPEnvironment(t *testing.T) {
 	h := testenv.Home(t)
 	t.Setenv("CTXTRA_LOG", filepath.Join(h, "custom.log"))
 	t.Setenv("CTXTRA_NO_UPDATE_CHECK", "1")
-	t.Setenv("CTXTRA_CONFIG", filepath.Join(h, "private/config.yaml"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "private-state"))
 	t.Setenv("CTXTRA_TOKEN", "must-not-be-copied")
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "must-not-be-copied")
 	t.Setenv("SERVER_TOKEN", "must-not-be-copied")
@@ -49,7 +49,7 @@ func TestMCPEnvironment(t *testing.T) {
 	servers := data["mcpServers"].(map[string]any)
 	entry := servers[agent.MCPEntryName].(map[string]any)
 	env := entry["env"].(map[string]any)
-	if len(env) != 3 || env["USER_KEY"] != "keep" || env["CTXTRA_LOG"] != os.Getenv("CTXTRA_LOG") || env["CTXTRA_NO_UPDATE_CHECK"] != "1" {
+	if len(env) != 4 || env["XDG_STATE_HOME"] != os.Getenv("XDG_STATE_HOME") || env["USER_KEY"] != "keep" || env["CTXTRA_LOG"] != os.Getenv("CTXTRA_LOG") || env["CTXTRA_NO_UPDATE_CHECK"] != "1" {
 		t.Fatalf("environment: %+v", env)
 	}
 	if entry["user_key"] != true || entry["mode"] != "optional" {

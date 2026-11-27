@@ -100,7 +100,7 @@ func prepare(dir string, chars int, delay time.Duration) error {
 	if _, err := os.Stat(dir); err == nil {
 		return fmt.Errorf("%s exists; use a new folder for each run", dir)
 	}
-	for _, d := range []string{"bin", "ctx", "config", "empty", "workspace/.cursor"} {
+	for _, d := range []string{"bin", "ctx", "config/ctxtra", "empty/ctxtra", "workspace/.cursor"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			return err
 		}
@@ -135,21 +135,21 @@ func prepare(dir string, chars int, delay time.Duration) error {
 	if err := os.WriteFile(filepath.Join(dir, "ctx", "big.md"), []byte(b.String()), 0o644); err != nil {
 		return err
 	}
-	cfg := "schema: ctxtra/v1\nbindings:\n  - name: cursorkit\n    match: {global: true}\n    instructions: [" +
+	cfg := "schema: ctxtra/config/v1\nbindings:\n  - name: cursorkit\n    instructions: [" +
 		filepath.Join(dir, "ctx", "big.md") + "]\n"
-	if err := os.WriteFile(filepath.Join(dir, "config", "config.yaml"), []byte(cfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config", "ctxtra", "config.yaml"), []byte(cfg), 0o644); err != nil {
 		return err
 	}
 	// For the user's own ctxtra hook, if any: binds nothing.
-	if err := os.WriteFile(filepath.Join(dir, "empty", "config.yaml"), []byte("schema: ctxtra/v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "empty", "ctxtra", "config.yaml"), []byte("schema: ctxtra/config/v1\n"), 0o644); err != nil {
 		return err
 	}
 	wait := ""
 	if delay > 0 {
 		wait = fmt.Sprintf("sleep %.3f; ", delay.Seconds())
 	}
-	cmd := fmt.Sprintf("/bin/sh -c '%sCTXTRA_CONFIG=%s CTXTRA_LOG=%s exec %s hook cursor sessionStart'",
-		wait, filepath.Join(dir, "config", "config.yaml"), filepath.Join(dir, "log.jsonl"), bin)
+	cmd := fmt.Sprintf("/bin/sh -c '%sXDG_CONFIG_HOME=%s CTXTRA_LOG=%s exec %s hook cursor sessionStart'",
+		wait, filepath.Join(dir, "config"), filepath.Join(dir, "log.jsonl"), bin)
 	hooks, _ := json.MarshalIndent(map[string]any{"version": 1, "hooks": map[string]any{
 		"sessionStart": []any{map[string]any{"command": cmd, "timeout": 30}}}}, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "workspace", ".cursor", "hooks.json"), hooks, 0o644); err != nil {
@@ -183,7 +183,7 @@ func load(dir string) (run, error) {
 }
 
 // cli runs a headless cursor-agent chat in the workspace, then verify. The
-// user's own ctxtra hook, if it reads CTXTRA_CONFIG, binds nothing.
+// user's own ctxtra hook, if it reads XDG_CONFIG_HOME, binds nothing.
 func cli(dir, model string) error {
 	r, err := load(dir)
 	if err != nil {
@@ -192,7 +192,7 @@ func cli(dir, model string) error {
 	cmd := exec.Command("cursor-agent", "-p", "--trust", "--model", model, "--workspace", filepath.Join(dir, "workspace"),
 		"--output-format", "text", prompt(r))
 	cmd.Dir = filepath.Join(dir, "workspace")
-	cmd.Env = append(os.Environ(), "CTXTRA_CONFIG="+filepath.Join(dir, "empty", "config.yaml"))
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Join(dir, "empty"))
 	out, err := cmd.CombinedOutput()
 	if err := os.WriteFile(filepath.Join(dir, "cli-output.txt"), out, 0o644); err != nil {
 		return err

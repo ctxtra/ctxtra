@@ -58,7 +58,7 @@ func Content(s Syntax, bin string, protocol int, body string) string {
 		expr = fmt.Sprintf(s.home, rel)
 	}
 	return s.Mark() + "\n" + s.binaryMark() + agent.ShellPath(bin) + "\n" + s.protocolMark() + strconv.Itoa(protocol) + "\n" +
-		fmt.Sprintf(body, expr)
+		s.comment + " " + agent.SetupVersionArg + "\n" + fmt.Sprintf(body, expr)
 }
 
 // maxFile bounds what Protocol reads.
@@ -163,13 +163,13 @@ func Status(path string, notices []string) agent.Status {
 type Ext struct {
 	Path, Agent string
 	Noun        string // "plugin" or "extension", in notices
-	// Legacy is what an extension of a protocol version gets, when that is
-	// less than a new one gets; nil when none does.
-	Legacy func(protocol int) (agent.Delivery, bool)
+	// SessionProtocol is the first protocol that forwards session and
+	// parent IDs; zero disables this check.
+	SessionProtocol int
 }
 
 // CheckSetup is agent.Agent.Check for the extension e: the binary it runs,
-// its protocol version, one that gets less, and an extension that is gone
+// its protocol version, an earlier setup, and an extension that is gone
 // although known. ours is whether ctxtra's extension is there.
 func CheckSetup(e Ext, bin string, known bool) (notices []string, ours bool) {
 	repair := agent.Repair(e.Agent)
@@ -183,18 +183,18 @@ func CheckSetup(e Ext, bin string, known bool) (notices []string, ours bool) {
 	case err != nil:
 		return []string{agent.UnreadableNotice(e.Path, err)}, false
 	}
+	if !bytes.Contains(bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")), []byte(" "+agent.SetupVersionArg+"\n")) {
+		notices = append(notices, fmt.Sprintf("%s is from an earlier ctxtra; %s", paths.Tilde(e.Path), repair))
+	}
 	if runs, ok := binary(string(b)); ok {
-		notices = agent.BinaryNotices("the "+e.Noun+" runs", []string{runs}, bin, repair)
+		notices = append(notices, agent.BinaryNotices("the "+e.Noun+" runs", []string{runs}, bin, repair)...)
 	} else {
 		notices = append(notices, fmt.Sprintf("%s doesn't say which binary it runs; %s", paths.Tilde(e.Path), repair))
 	}
-	switch v, ok := protocol(b); {
-	case !ok:
+	if v, ok := protocol(b); !ok {
 		notices = append(notices, fmt.Sprintf("%s doesn't say its protocol version; %s", paths.Tilde(e.Path), repair))
-	case e.Legacy != nil:
-		if old, ok := e.Legacy(v); ok {
-			notices = append(notices, agent.LegacyNotice(old, repair))
-		}
+	} else if v < e.SessionProtocol {
+		notices = append(notices, fmt.Sprintf("%s doesn't pass session and parent IDs; subagents use the current profiles; %s", paths.Tilde(e.Path), repair))
 	}
 	return notices, true
 }

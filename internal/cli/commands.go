@@ -10,16 +10,15 @@ import (
 
 	"github.com/ctxtra/ctxtra"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/setup"
 )
 
 // quiet are the commands after which setupNotices doesn't run: setup and
 // onboard, which just ran setup, doctor, which shows the same lines under each agent,
-// source check, which reads only the folder it checks, check-updates, which sessions run in
+// source validate, which reads only the folder it checks, check-updates, which sessions run in
 // the background, and the ones that only print help, the version or a completion script.
-var quiet = []string{"setup", "onboard", "doctor", "check", "check-updates", "help", "version", "bash", "zsh", "fish", "powershell"}
+var quiet = []string{"setup", "onboard", "doctor", "validate", "check-updates", "help", "version", "bash", "zsh", "fish", "powershell"}
 
 // root is the command tree.
 func (a *app) root() *cobra.Command {
@@ -30,7 +29,7 @@ func (a *app) root() *cobra.Command {
 folder and repository, through the agents' session-start hooks.
 
 Agents: ` + strings.Join(registry.Names(), ", ") + `.
-Config: $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml (format: ctxtra help config).`,
+Config: $XDG_CONFIG_HOME/ctxtra/config.yaml or ~/.config/ctxtra/config.yaml (format: ctxtra help config).`,
 		Version:           a.version,
 		SilenceErrors:     true,
 		SilenceUsage:      true,
@@ -43,7 +42,6 @@ Config: $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml (format: ctxtra help conf
 	// Defined here, so that cobra doesn't add -v for it.
 	root.Flags().Bool("version", false, "print the version")
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.config, "config", "", "use the config `FILE` instead of $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml")
 	pf.BoolVar(&a.noInput, "no-input", false, "never ask; a step that needs an answer fails instead")
 	root.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Set up:"},
@@ -53,7 +51,8 @@ Config: $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml (format: ctxtra help conf
 	)
 	root.AddCommand(
 		a.onboardCmd(), a.setupCmd(), a.importCmd(),
-		a.sourceCmd(), a.bindingFileCmd(), a.bindingCmd(), a.skillCmd(), a.mcpCmd(),
+		a.sourceCmd(), a.bindingCmd(), a.skillCmd(), a.mcpCmd(), a.profileCmd(),
+		a.groupCmd(false), a.groupCmd(true), a.configCmd(),
 		a.contextCmd(), a.doctorCmd(), a.checkUpdatesCmd(),
 		a.versionCmd(), hookCmd(),
 	)
@@ -137,7 +136,7 @@ existing instruction files into ctxtra. Each step explains what it changes.
 Needs an interactive terminal. For scripts and agents, use setup, skill install
 and import separately. Without --agent, sets up every agent found on this machine.`,
 		Example: `  ctxtra onboard
-  ctxtra onboard --agent claude --agent codex`,
+  ctxtra onboard --agent claude-code --agent codex`,
 		Args:    noArgs,
 		GroupID: "setup",
 		RunE: a.run(func(*cobra.Command, []string) error {
@@ -159,7 +158,7 @@ every agent found on this machine. Run it again after you move the binary.
 
 Agents: ` + strings.Join(registry.Names(), ", ") + `.`,
 		Example: `  ctxtra setup
-  ctxtra setup --agent claude --agent codex --dry-run
+  ctxtra setup --agent claude-code --agent codex --dry-run
   ctxtra setup --remove --agent cursor`,
 		Args:    noArgs,
 		GroupID: "setup",
@@ -186,7 +185,7 @@ The agent shows you the result and empties the files only if you agree.
 
 --start needs a terminal and the ctxtra skill (ctxtra skill install ctxtra).`,
 		Example: `  ctxtra import
-  ctxtra import --start claude`,
+  ctxtra import --start claude-code`,
 		Args:    noArgs,
 		GroupID: "setup",
 		RunE: a.run(func(*cobra.Command, []string) error {
@@ -204,111 +203,101 @@ func (a *app) sourceCmd() *cobra.Command {
 		RunE:                  group,
 		DisableFlagsInUseLine: true,
 		Short:                 "Add, update and remove sources: repositories and folders of files",
-		Long: `A source is where instruction files, skills and binding files come from:
+		Long: `A source is where instruction files, skills and MCP servers come from:
 
-  git           a git repository, pinned to a commit you accepted
-  local-git     your clone of a repository, pinned like git, following its
-                committed HEAD
-  trusted-path  a folder of your own files, read from disk; changes apply
-                right away
+  repo  a git repository, read at the commit you accepted; ctxtra.lock, next
+        to the config, holds the accepted commits
+  dir   a folder of your own files, read live: changes apply right away
 
-Files of a source are referenced as ctxtra://SOURCE/PATH.`,
-		Example: `  ctxtra source add git https://github.com/acme/agent-context --include bindings/work.yaml
+Bindings name the files of a source as SOURCE:PATH, and its servers as
+SOURCE:SERVER.`,
+		Example: `  ctxtra source add --repo https://github.com/acme/agent-context
   ctxtra source update`,
 		GroupID: "config",
 	}
-	add := &cobra.Command{
-		Use:   "add",
-		Short: "Add a source",
-		Example: `  ctxtra source add git https://github.com/acme/agent-context
-  ctxtra source add trusted-path ~/dev/dotfiles --include ctxtra/work.yaml`,
-		RunE:                  group,
-		DisableFlagsInUseLine: true,
-	}
-	add.AddCommand(a.sourceAddCmd("git"), a.sourceAddCmd("local-git"), a.sourceAddCmd("trusted-path"))
-	c.AddCommand(add, a.sourceListCmd(), a.sourceShowCmd(), a.sourceUpdateCmd(), a.sourceRestoreCmd(),
-		a.sourceTrustCmd(), a.sourceRemoveCmd(), a.sourceCheckCmd())
+	c.AddCommand(a.sourceAddCmd(), a.sourceListCmd(), a.sourceShowCmd(), a.sourceUpdateCmd(), a.sourceDownloadCmd(),
+		a.sourceTrustCmd(), a.sourceRemoveCmd(), a.sourceValidateCmd())
 	return c
 }
 
-func (a *app) sourceAddCmd(kind string) *cobra.Command {
-	var o addOptions
-	c := &cobra.Command{RunE: a.run(func(cmd *cobra.Command, args []string) error {
-		o.checkUpdatesSet = cmd.Flags().Changed("check-updates")
-		s := newSources(a.IO)
-		var err error
-		if o.includes, err = cleanIncludes(o.includes); err != nil {
-			return err
-		}
-		wd, _ := os.Getwd()
-		switch kind {
-		case "git":
-			dir, isDir, err := cloneDir(args[0])
-			switch {
-			case err != nil:
-				return code(s.fail("source add git", err))
-			case isDir:
-				err = s.addGitClone(dir, o)
-			case o.remote != "":
-				return errors.New("--remote picks a remote of a clone: it needs a clone's folder, not a URL")
-			default:
-				err = s.addGitURL(args[0], o)
+func (a *app) sourceAddCmd() *cobra.Command {
+	o := addOptions{checkUpdates: true}
+	c := &cobra.Command{
+		Use:   "add (--repo URL | --dir DIR)",
+		Short: "Add a git repository or a folder as a source",
+		Long: `Add a source.
+
+--repo adds a git repository, read at accepted commits: ctxtra fetches what
+the source follows and records its commit in ctxtra.lock. Sessions use exactly
+that commit until you accept a newer one with ctxtra source update. A source
+follows one of:
+
+  --branch BRANCH  new commits on the branch (the default: the remote's
+                   default branch, or your clone's checked-out branch)
+  --tag TAG        the tag; when someone moves it, you review the change
+  --rev REV        one commit; REV may be any revision, such as a short ID,
+                   a tag, HEAD~1 or main~1, and the config gets its full ID
+
+--subdir PATH makes a folder of the repository the source's top: its
+manifest and every SOURCE:PATH are under it. The size limits still count the
+whole repository, and nothing is written when it is over them.
+
+URL may be the path of your clone: then ctxtra follows its checked-out
+branch, and uses only committed files.
+
+Sessions check a repo source for new commits, or a moved tag, in the
+background at most once an hour, using your git credentials. Credential
+helpers or hardware keys can ask for approval or a touch. Use
+--check-updates=false to turn checks off. A source at a rev has nothing to
+check.
+
+Without --name, a source is named after the repository, and with --subdir
+after the repository and the folder's last part.
+
+--dir adds a folder of your own files, read live: changes apply to new
+sessions right away, without review. When the folder is in a repository with
+a remote, others can push to it: ctxtra reads it only after ctxtra source
+trust NAME.
+
+Adding the same repository, branch, tag or rev and subdir again changes
+nothing, also with another --name.`,
+		Example: `  ctxtra source add --repo https://github.com/acme/agent-context
+  ctxtra source add --repo https://github.com/acme/agent-context --subdir teams/billing
+  ctxtra source add --repo https://github.com/acme/observability-ctx --tag v1.4.0
+  ctxtra source add --repo ~/dev/agent-context --name team-dev
+  ctxtra source add --dir ~/dev/dotfiles`,
+		Args: noArgs,
+		RunE: a.run(func(cmd *cobra.Command, _ []string) error {
+			refs := 0
+			for _, f := range []string{"branch", "tag", "rev"} {
+				if cmd.Flags().Changed(f) {
+					refs++
+				}
 			}
-			return s.result("source add git", err)
-		case "local-git":
-			return s.result("source add local-git", s.addLocalGit(paths.Resolve(wd, args[0]), o))
-		default:
-			return s.result("source add trusted-path", s.addTrustedPath(paths.Resolve(wd, args[0]), o))
-		}
-	})}
-	switch kind {
-	case "git":
-		c.Use = "git (URL | DIR)"
-		c.Short = "Add a git repository as a pinned source"
-		c.Long = `Add a git repository as a pinned source: ctxtra fetches it and records the
-current commit, and sessions use exactly that commit until you accept a newer
-one with ctxtra source update.
-
-Sessions check for new commits in the background at most once an hour, using
-your git credentials. Credential helpers or hardware keys can ask for approval
-or a touch. Use --check-updates=false to turn checks off.
-
-DIR is your clone of the repository: its remote's URL is used, and plain paths
-under the clone are read from the pinned commit, not from disk. The source then
-starts at your local commit.
-
-It shows content warnings for the files your config uses from the source:
-text that is easy to miss, like hidden characters or curl | sh. See ctxtra
-help source update.`
-		c.Example = `  ctxtra source add git https://github.com/acme/agent-context --include bindings/work.yaml
-  ctxtra source add git ~/dev/agent-context --name team`
-		c.Args = exactly("URL or DIR")
-		c.Flags().StringVar(&o.branch, "branch", "", "follow `BRANCH` (default: the remote's default branch, or the clone's upstream)")
-		c.Flags().StringVar(&o.remote, "remote", "", "use the clone's remote `REMOTE` (with DIR; needed when it has several)")
-	case "local-git":
-		c.Use = "local-git DIR"
-		c.Short = "Add your clone as a pinned source that follows its committed HEAD"
-		c.Long = `Add your clone of a repository as a pinned source that follows the clone's
-committed HEAD, to try changes before you push them. Uncommitted changes are
-not used; ctxtra source update offers each new commit for review.`
-		c.Example = `  ctxtra source add local-git ~/dev/agent-context --include bindings/work.yaml`
-		c.Args = exactly("DIR")
-	default:
-		c.Use = "trusted-path DIR"
-		c.Short = "Add a folder of your own files as a trusted source"
-		c.Long = `Add a folder of your own files as a trusted source: its files are read from
-disk, and changes apply to new sessions right away, without review. Use it
-only for files that you alone write.`
-		c.Example = `  ctxtra source add trusted-path ~/dev/my-context
-  ctxtra source add trusted-path ~/dev/my-context --include bindings.yaml`
-		c.Args = exactly("DIR")
+			switch {
+			case (o.repo == "") == (o.dir == ""):
+				return errors.New("give --repo URL or --dir DIR")
+			case o.dir != "" && (refs > 0 || cmd.Flags().Changed("subdir") || cmd.Flags().Changed("check-updates")):
+				return errors.New("--branch, --tag, --rev, --subdir and --check-updates are for --repo; a dir source is read live")
+			case refs > 1:
+				return errors.New("give one of --branch, --tag and --rev")
+			case o.rev != "" && cmd.Flags().Changed("check-updates"):
+				return errors.New("a source at a rev has nothing to check; leave out --check-updates")
+			}
+			s := newSources(a.IO)
+			return s.result("source add", s.add(o))
+		}),
 	}
-	c.Flags().StringVar(&o.name, "name", "", "name the source `NAME` (default: from the URL or folder)")
-	c.Flags().StringArrayVar(&o.includes, "include", nil, "also include the binding file `PATH` of the source (repeatable)")
-	c.Flags().BoolVar(&o.dryRun, "dry-run", false, "check and show the change; change nothing and fetch nothing")
-	if kind != "trusted-path" {
-		c.Flags().BoolVar(&o.checkUpdates, "check-updates", true, "have sessions check the source for new commits at most once an hour; use --check-updates=false to disable")
-	}
+	f := c.Flags()
+	f.StringVar(&o.repo, "repo", "", "add the git repository at `URL`, or your clone at a path")
+	f.StringVar(&o.dir, "dir", "", "add the folder `DIR`, read live")
+	f.StringVar(&o.branch, "branch", "", "follow `BRANCH` (default: the remote's default branch, or the clone's checked-out branch)")
+	f.StringVar(&o.tag, "tag", "", "follow the tag `TAG`")
+	f.StringVar(&o.rev, "rev", "", "stay at the commit `REV`, any revision; the config gets its full ID")
+	f.StringVar(&o.subdir, "subdir", "", "make the folder `PATH` of the repository the source's top")
+	f.StringVar(&o.name, "name", "", "name the source `NAME` (default: from the URL or folder)")
+	f.BoolVar(&o.dryRun, "dry-run", false, "check and show the change; change nothing and fetch nothing")
+	f.BoolVar(&o.checkUpdates, "check-updates", true, "have sessions check the source for new commits at most once an hour; use --check-updates=false to disable")
 	return c
 }
 
@@ -331,7 +320,7 @@ func (a *app) sourceShowCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
 		Use:     "show NAME",
-		Short:   "Show a source: its commit, last check, binding files and clones",
+		Short:   "Show a source: its accepted commit, state and last check",
 		Example: `  ctxtra source show team`,
 		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
@@ -343,53 +332,55 @@ func (a *app) sourceShowCmd() *cobra.Command {
 }
 
 func (a *app) sourceUpdateCmd() *cobra.Command {
-	var full, check, asJSON bool
+	var full, dryRun, asJSON bool
 	c := &cobra.Command{
 		Use:   "update [NAME]...",
-		Short: "Fetch pinned sources, review what changed, and accept it",
-		Long: `Fetch the pinned sources (all of them without NAME), show what changed in
+		Short: "Fetch repo sources, review what changed, and accept it",
+		Long: `Fetch the repo sources (all of them without NAME), show what changed in
 the files your bindings use, and ask whether to accept the new commit. New
-sessions get the new files only after you accept them.
+sessions get the new files only after you accept them; ctxtra.lock records
+the accepted commit. What counts as new depends on what the source follows:
+new commits of a branch that change files under its subdir, a moved tag, and
+for a rev nothing until you edit it. A changed branch, tag or rev is reviewed
+as a change from the accepted commit; another address or subdir is a new
+source, reviewed from nothing, as is a source without an accepted commit.
 
 The review warns about text that is easy to miss in the lines that change:
 hidden characters, HTML comments, long encoded blocks, curl | sh and similar
 commands, secret paths like ~/.ssh, new URLs, and new executable files. The
 warnings don't block anything, and no warning doesn't mean the source is safe.
 
-Accepting needs a terminal. --check fetches and shows the same review but
-accepts and dismisses nothing; it works anywhere, for example in an agent.`,
+Accepting needs a terminal. --dry-run fetches and shows the same review but
+accepts and dismisses nothing; it works anywhere, for example in an agent. It
+writes only to ctxtra's cache.`,
 		Example: `  ctxtra source update
   ctxtra source update team --full
-  ctxtra source update --check --json`,
+  ctxtra source update --dry-run --json`,
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			if asJSON && !check {
-				return errors.New("--json needs --check")
-			}
-			mode := accept
-			if check {
-				mode = checkOnly
+			if asJSON && !dryRun {
+				return errors.New("--json needs --dry-run")
 			}
 			s := newSources(a.IO)
 			s.full, s.prompt = full, a.prompts()
-			return code(s.update(args, mode, asJSON))
+			return code(s.update(args, dryRun, asJSON))
 		}),
 	}
 	c.Flags().BoolVar(&full, "full", false, "show every changed file in full, also the ones you don't use")
-	c.Flags().BoolVar(&check, "check", false, "fetch and review only; accept and dismiss nothing")
-	c.Flags().BoolVar(&asJSON, "json", false, "print JSON (with --check)")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "fetch and review only; accept and dismiss nothing")
+	c.Flags().BoolVar(&asJSON, "json", false, "print JSON (with --dry-run)")
 	return c
 }
 
-func (a *app) sourceRestoreCmd() *cobra.Command {
+func (a *app) sourceDownloadCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "restore [NAME]...",
-		Short: "Fetch exactly the commits that the config pins",
-		Long: `Fetch the commits that the config pins into ctxtra's store, for example on a
-new machine or after the store was deleted. It accepts nothing new and changes
-nothing in the config.`,
-		Example: `  ctxtra source restore`,
+		Use:   "download [NAME]...",
+		Short: "Download exactly the commits that ctxtra.lock accepted",
+		Long: `Download the commits that ctxtra.lock accepted into ctxtra's store, for
+example on a new machine. It asks nothing, accepts nothing new and never
+changes ctxtra.lock. Sources that are not on this machine are skipped.`,
+		Example: `  ctxtra source download`,
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(newSources(a.IO).update(args, restore, false))
+			return code(newSources(a.IO).download(args))
 		}),
 	}
 }
@@ -397,72 +388,43 @@ nothing in the config.`,
 func (a *app) sourceTrustCmd() *cobra.Command {
 	var dryRun bool
 	c := &cobra.Command{
-		Use:   "trust NAME [DIR]",
-		Short: "Convert a pinned source into a trusted one, read from your clone",
-		Long: `Convert the pinned source NAME into a trusted-path source that reads DIR, your
-clone of it, from disk: it keeps its name, so every ctxtra://NAME/ reference
-now reads your files, and changes apply right away, without review.
-
-DIR may be left out when ctxtra knows exactly one clone of the source.`,
-		Example: `  ctxtra source trust team
-  ctxtra source trust team ~/dev/agent-context`,
-		Args: func(c *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errors.New("expected NAME")
-			}
-			return atMost(2)(c, args)
-		},
+		Use:   "trust NAME",
+		Short: "Read a dir source live although its repository has remotes",
+		Long: `Trust the dir source NAME: record the remotes of its folder's repository,
+and read its files live, without review, while they stay the same. When they
+change, ctxtra stops reading the folder until you trust it again. A folder
+whose repository has no remote needs no trust.`,
+		Example: `  ctxtra source trust dotfiles`,
+		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			dir := ""
-			if len(args) == 2 {
-				wd, _ := os.Getwd()
-				dir = paths.Resolve(wd, args[1])
-			}
 			s := newSources(a.IO)
-			return s.result("source trust", s.trust(args[0], dir, dryRun))
+			return s.result("source trust", s.trust(args[0], dryRun))
 		}),
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "show the change; change nothing")
 	return c
 }
 
-func (a *app) sourceCheckCmd() *cobra.Command {
-	var name string
+func (a *app) sourceValidateCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
-		Use:   "check DIR [FILE]...",
-		Short: "Check a source repository's binding files, for example in CI",
-		Long: `Check the binding files in DIR, a checkout of a source repository, the way
-sessions read them from a pinned source: their YAML, their bindings, and the
-instruction files and skills they reference. Without FILE, it checks every YAML
-file in DIR with a ctxtra schema; FILE paths are relative to DIR.
+		Use:   "validate DIR",
+		Short: "Check a source's ctxtra-source.yaml, for example in CI",
+		Long: `Check DIR/ctxtra-source.yaml, the manifest of a checkout of a source, the way
+sessions read it: its YAML, its collections, MCP servers and repo sets.
 
 It reads only DIR: not your config or sources, and it runs and fetches
-nothing. It checks that the files are usable, not what they say: it doesn't
-check that instructions or skill scripts are safe, and doesn't know a user's
-agents or budget. A glob that matches nothing, and an exclusion that leaves nothing
-out, are warnings: the binding still applies.
+nothing. It checks that the manifest is usable, not what the files say.
 
 Exit code: 0 without errors, also with warnings; 1 with errors.`,
-		Example: `  ctxtra source check .
-  ctxtra source check . bindings/billing.yaml --name team-ctx
-  ctxtra source check ~/dev/team-ctx --json`,
-		Args: func(c *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errors.New("expected DIR")
-			}
-			return nil
-		},
+		Example: `  ctxtra source validate .
+  ctxtra source validate ~/dev/team-ctx --json`,
+		Args: exactly("DIR"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			files, err := cleanIncludes(args[1:])
-			if err != nil {
-				return err
-			}
 			wd, _ := os.Getwd()
-			return code(checkSource(a.IO, paths.Resolve(wd, args[0]), name, files, asJSON))
+			return code(validateSource(a.IO, paths.Resolve(wd, args[0]), asJSON))
 		}),
 	}
-	c.Flags().StringVar(&name, "name", "", "check as the source `NAME`, for ctxtra://NAME/ references (default: DIR's folder name)")
 	c.Flags().BoolVar(&asJSON, "json", false, "print JSON")
 	return c
 }
@@ -471,7 +433,7 @@ func (a *app) sourceRemoveCmd() *cobra.Command {
 	var dryRun bool
 	c := &cobra.Command{
 		Use:     "remove NAME",
-		Short:   "Remove a source and the binding-file entries that point into it",
+		Short:   "Remove a source and its accepted commit",
 		Example: `  ctxtra source remove team`,
 		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
@@ -480,130 +442,6 @@ func (a *app) sourceRemoveCmd() *cobra.Command {
 		}),
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "show the change; change nothing")
-	return c
-}
-
-func (a *app) bindingFileCmd() *cobra.Command {
-	c := &cobra.Command{
-		Use:                   "binding-file",
-		RunE:                  group,
-		DisableFlagsInUseLine: true,
-		Short:                 "Include, list and remove binding files",
-		Long: `A binding file is a YAML file of bindings, yours or from a source. The config's
-include list names the binding files whose bindings apply.`,
-		Example: `  ctxtra binding-file add ctxtra://team/bindings/work.yaml
-  ctxtra binding-file list`,
-		GroupID: "config",
-	}
-	var dryRun bool
-	add := &cobra.Command{
-		Use:   "add (FILE | ctxtra://SOURCE/PATH)",
-		Short: "Include a binding file",
-		Long: `Include a binding file: one on your disk, in a trusted place, or one of a
-source you have. It never adds, pins or trusts a source: for a file in a
-repository that isn't a source yet, add the repository first with ctxtra
-source add, and its --include.`,
-		Example: `  ctxtra binding-file add ~/agent-context/bindings.yaml
-  ctxtra binding-file add ctxtra://team/bindings/work.yaml`,
-		Args: exactly("FILE or ctxtra://SOURCE/PATH"),
-		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			s := newSources(a.IO)
-			return s.result("binding-file add", s.addBindingFile(args[0], dryRun))
-		}),
-	}
-	add.Flags().BoolVar(&dryRun, "dry-run", false, "check and show the change; change nothing")
-	var asJSON bool
-	list := &cobra.Command{
-		Use:     "list",
-		Short:   "List the included binding files",
-		Example: "  ctxtra binding-file list",
-		Args:    noArgs,
-		RunE: a.run(func(*cobra.Command, []string) error {
-			return code(newSources(a.IO).listBindingFiles(asJSON))
-		}),
-	}
-	list.Flags().BoolVar(&asJSON, "json", false, "print JSON")
-	var removeDry bool
-	remove := &cobra.Command{
-		Use:     "remove ENTRY",
-		Short:   "Remove an entry from the include list; the file stays",
-		Example: `  ctxtra binding-file remove ctxtra://team/bindings/work.yaml`,
-		Args:    exactly("ENTRY"),
-		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			s := newSources(a.IO)
-			return s.result("binding-file remove", s.removeBindingFile(args[0], removeDry))
-		}),
-	}
-	remove.Flags().BoolVar(&removeDry, "dry-run", false, "show the change; change nothing")
-	c.AddCommand(add, list, remove)
-	return c
-}
-
-func (a *app) bindingCmd() *cobra.Command {
-	c := &cobra.Command{
-		Use:                   "binding",
-		RunE:                  group,
-		DisableFlagsInUseLine: true,
-		Short:                 "Add, list and remove bindings: which sessions get which files",
-		Long: `A binding adds instruction files and skills to the sessions it matches: every
-session, sessions in matching folders, or sessions in matching repositories.
-binding add and remove change the bindings in your config; binding list also
-shows the bindings of the included binding files.`,
-		Example: `  ctxtra binding add me --global --instruction ~/agent-context/profile.md
-  ctxtra binding list`,
-		GroupID: "config",
-	}
-	var b config.NewBinding
-	var dryRun bool
-	add := &cobra.Command{
-		Use:   "add NAME (--global | {--dir PATTERN | --repo PATTERN}...) {--instruction FILE | --skill DIR | --mcp REF}...",
-		Short: "Add a binding to the config",
-		Long: `Add a binding to the config. It is written only when it works: its files
-exist and are trusted, as a session would read them. --dir and --repo may be
-combined; a session matches when either does.
-
-Quote patterns, or the shell expands them: --dir '~/dev/work/**'. x/** also
-matches x itself.`,
-		Example: `  ctxtra binding add me --global --instruction ~/agent-context/profile.md
-  ctxtra binding add work --dir '~/dev/work/**' --instruction ~/agent-context/work.md --skill ~/skills/deploy
-  ctxtra binding add acme --repo 'github.com/acme/**' --instruction ctxtra://team/acme.md`,
-		Args: exactly("NAME"),
-		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			b.Name = args[0]
-			return bindingAdd(a.IO, b, dryRun)
-		}),
-	}
-	f := add.Flags()
-	f.BoolVar(&b.Global, "global", false, "add it to every session")
-	f.StringArrayVar(&b.Dirs, "dir", nil, "add it to sessions in folders that match `PATTERN` (repeatable)")
-	f.StringArrayVar(&b.Repos, "repo", nil, "add it to sessions in repositories whose remote matches `PATTERN` (repeatable), such as github.com/acme/**")
-	f.StringArrayVar(&b.Instructions, "instruction", nil, "add the instruction file `FILE` (repeatable); !FILE leaves files out")
-	f.StringArrayVar(&b.Skills, "skill", nil, "add the skill folder `DIR`, with a SKILL.md (repeatable); !DIR leaves skills out")
-	f.StringArrayVar(&b.MCPServers, "mcp", nil, "add a config or source MCP server by `REF` (repeatable)")
-	f.BoolVar(&dryRun, "dry-run", false, "check the binding and show it; change nothing")
-	var asJSON bool
-	list := &cobra.Command{
-		Use:     "list",
-		Short:   "List the bindings, with the file each one is in",
-		Example: "  ctxtra binding list\n  ctxtra binding list --json",
-		Args:    noArgs,
-		RunE: a.run(func(*cobra.Command, []string) error {
-			return code(bindingList(a.IO, asJSON))
-		}),
-	}
-	list.Flags().BoolVar(&asJSON, "json", false, "print JSON")
-	var removeDry bool
-	remove := &cobra.Command{
-		Use:     "remove NAME",
-		Short:   "Remove a binding from the config",
-		Example: `  ctxtra binding remove work`,
-		Args:    exactly("NAME"),
-		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(bindingRemove(a.IO, args[0], removeDry))
-		}),
-	}
-	remove.Flags().BoolVar(&removeDry, "dry-run", false, "show the change; change nothing")
-	c.AddCommand(add, list, remove)
 	return c
 }
 
@@ -645,7 +483,7 @@ func (a *app) skillCmd() *cobra.Command {
 	install := &cobra.Command{
 		Use:   "install NAME",
 		Short: "Install a skill and add it to every session",
-		Long: `Write the skill to ~/.ctxtra/skills/NAME and add a binding of the same name
+		Long: `Write the skill to ~/.local/share/ctxtra/skills/NAME and add a binding of the same name
 that adds it to every session, unless a binding has it already.`,
 		Example: `  ctxtra skill install ctxtra
   ctxtra skill install ctxtra-follow`,
@@ -672,13 +510,19 @@ bindings. These commands only read: they fetch nothing and change nothing.`,
 		GroupID: "inspect",
 	}
 	var filesJSON bool
+	var agentName string
+	var profileNames []string
 	files := &cobra.Command{
 		Use:     "files [DIR]",
 		Short:   "List the instruction files and skills a session gets",
 		Example: `  ctxtra context files ~/dev/work/api`,
 		Args:    atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version}.files(dirArg(args), filesJSON))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.files(dirArg(args), filesJSON))
 		}),
 	}
 	files.Flags().BoolVar(&filesJSON, "json", false, "print JSON")
@@ -696,7 +540,11 @@ long command output.`,
   ctxtra context show ~/dev/api --exclude-session ~/dev/web --part 1`,
 		Args: atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version}.show(dirArg(args), o))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.show(dirArg(args), o))
 		}),
 	}
 	show.Flags().StringArrayVar(&o.exclude, "exclude-session", nil, "leave out what a session in `DIR` gets (repeatable)")
@@ -708,10 +556,18 @@ long command output.`,
 		Example: `  ctxtra context explain ~/dev/work/api`,
 		Args:    atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version}.explain(dirArg(args), explainJSON))
+			r, err := a.newReport(agentName, profileNames)
+			if err != nil {
+				return err
+			}
+			return code(r.explain(dirArg(args), explainJSON))
 		}),
 	}
 	explain.Flags().BoolVar(&explainJSON, "json", false, "print JSON")
+	for _, cmd := range []*cobra.Command{files, show, explain} {
+		cmd.Flags().StringVar(&agentName, "agent", "", "as a session of `AGENT`; without it, bindings with agents don't apply")
+		cmd.Flags().StringArrayVar(&profileNames, "profile", nil, "as a session with only `NAME` active, instead of the current profiles (repeatable)")
+	}
 	c.AddCommand(files, show, explain)
 	return c
 }
@@ -728,7 +584,8 @@ and the last hook runs there. It exits with 1 when it finds a problem.`,
 		Args:    atMost(1),
 		GroupID: "inspect",
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
-			return code(report{a.IO, a.version}.doctor(dirArg(args), asJSON))
+			r, _ := a.newReport("", nil)
+			return code(r.doctor(dirArg(args), asJSON))
 		}),
 	}
 	c.Flags().BoolVar(&asJSON, "json", false, "print JSON")
@@ -758,7 +615,7 @@ func (a *app) helpCmd(root *cobra.Command) *cobra.Command {
 this version:
 
 ` + helpTopics(),
-		Example: `  ctxtra help source add git
+		Example: `  ctxtra help source add
   ctxtra help config`,
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			if len(args) == 1 {
@@ -791,7 +648,10 @@ func hookCmd() *cobra.Command {
 hook input (JSON) on stdin and answers with the text for the session, in the
 agent's format. EVENT defaults to SessionStart. Agents with a size limit per
 hook run several hooks, each with its slot K of N. It never fails a session:
-problems go into the answer and the log. You don't run it yourself.`,
+problems go into the answer and the log. You don't run it yourself.
+
+ctxtra hook --clean-sessions deletes the records of sessions that no hook
+used for 30 days. Sessions start it in the background once a day.`,
 		Hidden:                true,
 		DisableFlagParsing:    true,
 		DisableFlagsInUseLine: true,

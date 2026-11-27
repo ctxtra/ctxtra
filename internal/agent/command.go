@@ -17,11 +17,13 @@ import (
 // then, so the agent never gets a broken pipe; /bin/cat by its path, as PATH
 // may be anything. Codex trusts a hook by a hash of the command, so the text
 // must stay the same across versions.
-const commandTemplate = `/bin/sh -c 'f="%s"; if [ -x "$f" ]; then exec "$f" hook %s %s; else /bin/cat >/dev/null 2>&1; echo %s; fi'`
+const commandTemplate = `/bin/sh -c 'f="%s"; if [ -x "$f" ]; then exec "$f" hook %s %s ` + SetupVersionArg + `; else /bin/cat >/dev/null 2>&1; echo %s; fi'`
 
 // wordRe is a shell word that missingWord writes: a double-quoted string
 // whose only escapes are \".
 const wordRe = `"((?:[^"\\$` + "`" + `'\n]|\\")*)"`
+
+var commandWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // commandRe matches commandTemplate with any binary path, so setup
 // recognizes its own entries also after the binary moved. The event can
@@ -29,7 +31,7 @@ const wordRe = `"((?:[^"\\$` + "`" + `'\n]|\\")*)"`
 var commandRe = func() *regexp.Regexp {
 	p := strings.Split(commandTemplate, "%s")
 	return regexp.MustCompile("^" + regexp.QuoteMeta(p[0]) + `([^"]+)` + regexp.QuoteMeta(p[1]) + `(\S+)` + regexp.QuoteMeta(p[2]) +
-		`(\S+)(?: --slot (\d+) --of (\d+))?` + regexp.QuoteMeta(p[3]) + wordRe + regexp.QuoteMeta(p[4]) + "$")
+		`(\S+)(?: --slot (\d+) --of (\d+))?(?: (` + regexp.QuoteMeta(SetupVersionArg) + `))?` + regexp.QuoteMeta(strings.TrimPrefix(p[3], " "+SetupVersionArg)) + wordRe + regexp.QuoteMeta(p[4]) + "$")
 }()
 
 // MissingMessage is what the hook of agent tells the user when the binary
@@ -76,18 +78,70 @@ type Hook struct {
 	Binary, Agent, Event string
 	Slot                 int // --slot, or -1 without one
 	Slots                int // --of, or 0 without one
+	Env                  map[string]string
+	Current              bool // carries the current setup contract marker
 }
 
-// ParseCommand returns what cmd runs, and whether it is one of our hook
-// commands: the form that setup writes, which prints exactly what setup
-// writes for m when the binary is gone. Setup replaces and removes the
-// entries that are ours, so a command edited by hand isn't one.
+// WithXDG records folder variables for agents that clear the hook environment.
+func WithXDG(cmd string) string {
+	var prefix strings.Builder
+	for _, key := range paths.XDGVars {
+		fmt.Fprintf(&prefix, "%s=\"%s\" ", key, shellEscape(os.Getenv(key)))
+	}
+	return prefix.String() + cmd
+}
+
+func shellEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(s)
+}
+
+var envWord = regexp.MustCompile("^([A-Z_]+)=\"((?:[^\"\\\\$`]|\\\\[\\\\\"$`])*)\" ")
+
+func hookEnv(cmd string) (string, map[string]string) {
+	var env map[string]string
+	for _, key := range paths.XDGVars {
+		g := envWord.FindStringSubmatch(cmd)
+		if g == nil || g[1] != key {
+			return cmd, env
+		}
+		if env == nil {
+			env = map[string]string{}
+		}
+		env[key] = strings.NewReplacer(`\\`, `\`, `\"`, `"`, `\$`, `$`, "\\`", "`").Replace(g[2])
+		cmd = cmd[len(g[0]):]
+	}
+	return cmd, env
+}
+
+// XDGNotices reports setup-time folder values that differ from this process.
+func XDGNotices(what, name string, env map[string]string) []string {
+	var out []string
+	for _, key := range paths.XDGVars {
+		if saved, current := env[key], os.Getenv(key); saved != current {
+			out = append(out, fmt.Sprintf("%s use %s=%q, current value is %q; %s", what, key, saved, current, Repair(name)))
+		}
+	}
+	return out
+}
+
+// ParseCommand recognizes managed shell commands and plain commands from
+// earlier setups. It checks the fallback for a missing binary, so setup
+// leaves commands edited by hand alone.
 func ParseCommand(cmd string, m Missing) (Hook, bool) {
+	cmd, env := hookEnv(cmd)
 	g := commandRe.FindStringSubmatch(cmd)
 	if g == nil {
+		words := strings.Fields(cmd)
+		if len(words) == 4 && filepath.Base(words[0]) == "ctxtra" && words[1] == "hook" &&
+			commandWord.MatchString(words[2]) && commandWord.MatchString(words[3]) {
+			return Hook{Binary: ExpandShellPath(words[0]), Agent: words[2], Event: words[3], Slot: -1}, true
+		}
 		return Hook{}, false
 	}
-	h := Hook{Binary: ExpandShellPath(g[1]), Agent: g[2], Event: g[3], Slot: -1}
+	h := Hook{Binary: ExpandShellPath(g[1]), Agent: g[2], Event: g[3], Slot: -1, Env: env, Current: g[6] != ""}
+	if env != nil && (h.Agent != "muse" || len(env) != len(paths.XDGVars)) {
+		return Hook{}, false
+	}
 	if g[4] != "" {
 		slot, err1 := strconv.Atoi(g[4])
 		slots, err2 := strconv.Atoi(g[5])
@@ -96,7 +150,8 @@ func ParseCommand(cmd string, m Missing) (Hook, bool) {
 		}
 		h.Slot, h.Slots = slot, slots
 	}
-	if strings.ReplaceAll(g[6], `\"`, `"`) != missingAnswer(m, h.Agent, h.Event, h.Slot) {
+	answer := strings.ReplaceAll(g[7], `\"`, `"`)
+	if answer != missingAnswer(m, h.Agent, h.Event, h.Slot) && (answer != "{}" || h.Current) {
 		return Hook{}, false
 	}
 	return h, true

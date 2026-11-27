@@ -5,10 +5,16 @@ DeepSeek Harness (dsh), Cursor Agent CLI, GitHub Copilot CLI, Antigravity and De
 formerly Windsurf) sessions, for the folders and repositories you choose, in every worktree. Nothing is written into
 repositories, and the repo's own `AGENTS.md` and your user-level agent files keep working as before.
 
-**Status: preview (`v0`, config `ctxtra/v1`).** The config format may still change. ctxtra does
+**Status: preview (`v0`, config `ctxtra/config/v1`).** The config format may still change. ctxtra does
 not check what the bound files say: bind only files you wrote or reviewed.
 
 ## How it works
+
+The agent IDs for commands are `claude-code`, `github-copilot` and `hermes-agent`. The other IDs are
+`codex`, `cursor`, `opencode`, `pi`, `antigravity`, `devin`, `muse` and `dsh`.
+After upgrading from an earlier release, run `ctxtra setup` again. Earlier hook and proxy entries add
+nothing with this release. Setup replaces them; `ctxtra doctor` lists the command for each agent that
+needs it. Once every agent is set up again, you can delete `~/.ctxtra`.
 
 `ctxtra setup` adds a session-start hook to each agent's user-level config. When a session starts, the
 hook reads your config, finds the bindings that match the session folder, and gives the agent the bound
@@ -47,7 +53,7 @@ Skills:
 
 Selected MCP servers also appear in the count, for example
 `✓ ctxtra added 3 instructions, 3 skills and 1 MCP server`. An `MCP servers:` list shows up to 30 of
-them, without groups: a server from a source is shown as `SOURCE/NAME`, one of your config by its name.
+them, without groups: a server from a source is shown as `SOURCE:NAME`, one of your config by its name.
 Servers awaiting sign-in or approval are included, with their notices below. With no selected servers,
 the summary stays as above.
 
@@ -56,56 +62,31 @@ path in the source; when one source's folder is inside another's, its files are 
 is under your home folder. Skills are shown by name. The skills that `ctxtra skill install` adds are in the
 `ctxtra` group.
 
-Each group shows up to 30 entries, followed by `+N more`. `summary-message` in the config changes what the
-lists show:
+Each group lists up to 30 entries, then `+N more`. Change those limits with `session-message`:
 
 ```yaml
-summary-message:
-  show-instructions: true   # false: no Instructions list
-  show-skills: true         # false: no Skills list
-  max-instructions: 30      # entries of each source; 0: only the number of entries
-  max-skills: 30
+session-message:
+  max-instructions: 10
+  max-skills: 0
 ```
 
-These are the defaults, and each key is optional. With `max-skills: 2`:
-
-```text
-Skills:
-  openspec
-  - openspec-apply-change
-  - openspec-archive-change
-  - +10 more
-Full list: ctxtra context files
-```
-
-With `max-skills: 0`:
-
-```text
-Skills:
-  openspec (12)
-  ctxtra (1)
-Full list: ctxtra context files
-```
-
-The last line tells where to see every entry. The first line of the summary counts the instructions and
-skills also when their list is hidden. A wrong value in `summary-message` is a problem, and the default
-applies to that key. Muse may show fewer entries to fit its message size limit.
-
-The summary also reports problems found, if any, and names the files that were dropped. A dropped file is
-shown by its name, or by its full path when two have the same name. The session-start hooks of Cursor, Copilot
-and Antigravity, and OpenCode, Hermes and DSH plugins, can't show a message.
+Zero hides that list. The first line still counts all instructions and skills.
+Errors and notices appear below: the first three errors, with their line in the config or the command that fixes
+them, and how many more `ctxtra doctor` shows. Over capacity is an error;
+the message names files that did not fit. Cursor, Copilot, Antigravity, OpenCode, Hermes and DSH cannot
+show a separate message to the user. `ctxtra doctor` and `ctxtra context explain` show the same errors.
 
 ## Install
 
 ```bash
 brew install atelpis/tap/ctxtra   # or: go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest
 ctxtra setup --dry-run            # show what would change
-ctxtra setup                      # every agent found on this machine, or --agent claude --agent codex
+ctxtra setup                      # every agent found on this machine, or --agent claude-code --agent codex
 ```
 
 `setup` adds hooks that run the binary you started it from, by its full path: agents started from the Dock
 often don't have `~/go/bin` in their `PATH`. It changes only its own hook entries and backs up each file it
-changes to `~/.ctxtra/backups`. Setup and config edits keep the latest three backups per original file,
+changes to `~/.local/state/ctxtra/backups`. Setup and config edits keep the latest three backups per original file,
 pruning only after a successful change. The latest backup is reused when its content is unchanged.
 Cleanup is best effort: if an older backup cannot be removed, extra copies stay without failing the
 config change. Import backups are not pruned. Older config backups without a
@@ -116,7 +97,7 @@ asks once more after a hook changed, for example after an upgrade that changes t
 Hermes loads the plugin only after you enable it once (`hermes plugins enable ctxtra`).
 `ctxtra setup --remove` removes them.
 
-An upgrade never needs `ctxtra setup` unless the release notes say so, 0.x releases included: each release
+After setting up this release, an upgrade needs `ctxtra setup` only when the release notes say so, 0.x releases included: each release
 keeps serving what an earlier one set up ([setup compatibility](spec.md#setup-compatibility)). When the
 notes say so, Codex asks once to trust the changed hooks after setup, and Hermes needs the plugin reloaded, or
 Hermes restarted, if it is running. If the binary moves, run `ctxtra setup` again, and trust the hooks again
@@ -128,9 +109,9 @@ start that the binary is missing; the other agents add nothing, without a word.
 
 At most once an hour, a session checks in the background for a new ctxtra release, and the next session
 tells you when there is one, with the command that upgrades it. The check sends your IP address and ctxtra
-version to GitHub. To turn it off, add `check-updates: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
+version to GitHub. To turn it off, add `check-releases: false` to the config; `CTXTRA_NO_UPDATE_CHECK=1` stops it for
 one environment, such as CI, if the hook inherits it. Muse clears that variable: turn release checks off in
-its config and checks off on each pinned source instead. See [Update checks](spec.md#update-checks).
+its config and checks off on each repo source instead. See [Update checks](spec.md#update-checks).
 
 To get release candidates before each release, install the `ctxtra-rc` formula instead:
 `brew uninstall ctxtra && brew install atelpis/tap/ctxtra-rc`. A release candidate, such as
@@ -147,10 +128,10 @@ risks of source repositories that other people push to. `ctxtra setup` prints th
 
 ```bash
 ctxtra skill show ctxtra      # the skill's files, exactly as the agents get them
-ctxtra skill install ctxtra   # writes it to ~/.ctxtra/skills/ctxtra, and adds a binding for it to your config
+ctxtra skill install ctxtra   # writes it to ~/.local/share/ctxtra/skills/ctxtra, and adds a binding for it to your config
 ```
 
-The binding is an ordinary one, named `ctxtra`, with `match: {global: true}`: `ctxtra binding remove ctxtra`
+The binding is an ordinary one, named `ctxtra`, without conditions: `ctxtra binding remove ctxtra`
 stops adding the skill. Then ask any agent, for example "add my instructions to every session in my work
 repositories". The skill tells the agent to ask you before every change, and never to trust a repository or
 accept a new commit for you. Before setup, you can paste the output of `ctxtra skill show ctxtra` into an
@@ -174,8 +155,8 @@ tests:
 
 Files that replace an agent's own system prompt or persona (Pi's `SYSTEM.md`, Hermes's `SOUL.md`) and files the
 agent writes itself (Hermes's `memories/`) stay where they are. `ctxtra import` copies the files to
-`~/.ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude` then starts that
-agent in `~/.ctxtra/import`, in your terminal, with a prompt that lists the files and the backup. Every agent
+`~/.local/state/ctxtra/backups/import-<time>-<n>/<agent>/` and lists them. `ctxtra import --start claude-code` then starts that
+agent in `~/.local/state/ctxtra/import`, in your terminal, with a prompt that lists the files and the backup. Every agent
 above except DSH, whose app is a web page, can be started, and so can Hermes. The agent follows the skill
 (install it first): it merges rules that repeat, asks about rules that fit only one agent, shows you the new
 file, and binds it. Then it recommends removing the moved rules from the old files, so that your agents don't
@@ -185,104 +166,354 @@ permissions and never with flags that skip them. When you ask an agent to import
 runs `ctxtra import` and does the rest itself.
 
 The skill is part of the binary: each version has a fixed text, which `ctxtra skill show ctxtra` shows. When you upgrade
-ctxtra, the hook of the next session writes the new version to `~/.ctxtra/skills/ctxtra`, and the same for
+ctxtra, the hook of the next session writes the new version to `~/.local/share/ctxtra/skills/ctxtra`, and the same for
 ctxtra's other skills that you installed. Antigravity asks before it reads the skill there (see [Limits](#limits)).
 
 ## Configure
 
-`~/.config/ctxtra/config.yaml`:
+ctxtra reads one config: `~/.config/ctxtra/config.yaml`, or `$XDG_CONFIG_HOME/ctxtra/config.yaml` when
+the variable is absolute. Its accepted commits are in `ctxtra.lock` next to the config's real file. Only
+ctxtra writes the lock: keep it with the config, for example in your dotfiles.
+There is no `--config` flag or `CTXTRA_CONFIG` override, and bindings cannot be included from other files.
+
+On Linux and macOS, accepted source content and installed skills live in `~/.local/share/ctxtra`, state
+and backups in `~/.local/state/ctxtra`, and git clones in `~/.cache/ctxtra`. Absolute `XDG_DATA_HOME`,
+`XDG_STATE_HOME` and `XDG_CACHE_HOME` values replace those parent folders. Relative or empty values use the
+defaults. `ctxtra doctor` shows all four folders. Clearing the cache leaves session content available.
+Deleting the state folder forgets your profile selection, trusted folders, server approvals and sign-ins;
+the session message says what to run again.
+Codex passes these variables to its MCP proxy; Muse records their values during setup.
+
+Start with your own files:
 
 ```yaml
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: me
-    match:
-      global: true
-    instructions:
-      - ~/agent-context/me.md
+    instructions: [~/agent-context/me.md]
   - name: work
-    match:
-      repos:
-        - github.com/acme/**
-    instructions:
-      - ~/agent-context/work.md
-    skills:
-      - ~/agent-context/skills/deploy
+    location:
+      repos: ['github.com/acme/**']
+    instructions: [~/agent-context/work.md]
+    skills: [~/agent-context/skills/deploy]
 ```
 
-Or add a binding with a command. It keeps the rest of the config as you wrote it, and writes the binding
-only when its files exist and are trusted:
+No location means every session. `location.dirs` selects folders; `location.repos` selects repositories
+in any clone or worktree. Either can match when both are present. To select parts of a repository, use
+`repos: [{repo: github.com/acme/mono, subdirs: ['services/billing/**']}]`.
+Quoted `!` entries exclude places from their own list. `~/work/**` includes `~/work` itself.
+Names of bindings, sources, collections, repo sets and profiles are 1 to 64 letters, digits, `.`, `_` and `-`,
+starting with a letter; case counts.
+
+The command for the work binding is:
 
 ```bash
 ctxtra binding add work --repo 'github.com/acme/**' --instruction ~/agent-context/work.md --skill ~/agent-context/skills/deploy
 ```
 
-Bindings can also live in their own files, which the config includes: your dotfiles, or a source repository.
-
-Files in a git repository that has a remote are read only if you declare the repository as a source of
-your own files. Its content may come from other people, so ctxtra skips it otherwise and says how to trust
-it. Files outside git and in repositories without a remote are always read.
+Each key has a flag: `--dir`, `--repo`, `--repo-set`, `--profile`, `--agent`, `--collection`, `--instruction`,
+`--skill` and `--mcp-server`, each repeatable. Quote values that start with `!` and patterns, or the shell reads
+them: `--profile '!oncall'`. For one part of a monorepo, add `--subdir 'services/billing/**'` to a single
+`--repo`. For any other shape, give the binding in YAML, without its name:
 
 ```bash
-ctxtra source add trusted-path ~/dev/dotfiles --include ctxtra/work.yaml
+ctxtra binding add obs --file obs.yaml        # or --file - to read stdin
+ctxtra binding add obs --replace --file obs.yaml
+```
+
+`--replace` changes the binding in its place, or adds it if it isn't there, so a script can run the line
+again. A new binding goes last; `--before NAME` or `--after NAME` puts it elsewhere, since bindings apply in
+order.
+
+The command keeps existing comments and writes only when the binding works. It shows the binding as written,
+where it applies, and the files, skills and servers a session there gets. `--dry-run` shows the same without
+writing. The same binding again changes nothing; a different binding with that name is an error.
+`ctxtra binding list` lists bindings and `ctxtra binding remove NAME` removes one.
+
+### Your live folder
+
+Files in repositories with remotes are refused until you trust them for live reading:
+
+```bash
+ctxtra source add --dir ~/dev/dotfiles
+ctxtra source trust dotfiles
+ctxtra binding add personal --instruction dotfiles:agents/me.md --skill 'dotfiles:skills/*'
+```
+
+This accepts whatever is in that folder, including other people's changes pulled into it.
+With no remotes, a dir source needs no trust step. If its remotes change later, ctxtra stops reading it
+until you trust it again. Files outside git and in repositories without remotes need no source.
+The session message, `doctor` and `context explain` give the command to trust the source again.
+When a folder gets its first remote, they also show how to add a repo source for reviewed commits.
+`ctxtra source trust dotfiles --dry-run` explains the decision without recording trust.
+A symlink is followed only when every link and its destination pass the same trust check.
+Trust records include fetch and push URLs. Files are read and shown by the destination path that passed the check.
+A dir source's path can lead through a symlink in another repository with remotes only when that folder is a
+trusted dir source too. Otherwise name the folder the link leads to.
+Live patterns can follow links to your own files and folders. Repo sources leave all symlinks out,
+including symlinks in an explicit path or at the manifest.
+A repo source's matched symlink is an error that names its source and path. Other matching files still load.
+This also applies to downloaded commits, source validation and update review; link targets are never read.
+
+### Reviewed source content
+
+For a repository other people push to, add it as a repo source and bind its files explicitly:
+
+```bash
+ctxtra source add --repo git@github.com:acme/team-ctx.git
+ctxtra binding add billing --repo github.com/acme/billing --instruction team-ctx:services-overview.md --skill team-ctx:skills/deploy
+ctxtra source update --dry-run team-ctx
+ctxtra source update team-ctx
+```
+
+A team's README can give the same two lines to everyone, whatever each person names the source:
+
+```bash
+ctxtra source add --repo git@github.com:acme/iam-ctx.git
+ctxtra binding add iam-work --source git@github.com:acme/iam-ctx.git --repo-set services --collection essentials
+```
+
+`--source` takes a source name or its repository's address, in any form (`https://github.com/acme/iam-ctx`
+works too), and makes `--collection`, `--repo-set`, `--mcp-server`, `--instruction` and `--skill` refer to that
+source. For one folder of a shared repository, write `URL//teams/obs`. `binding add` shows content warnings
+for the source's files that it binds for the first time. A source without a README still tells you how to
+bind it: `source add` lists its collections and repo sets, and prints a `binding add` line that uses them.
+
+Read the repository before adding it: its first commit is accepted without review.
+Later commits reach sessions only after you review and accept them in your terminal.
+`--dry-run` shows the review without accepting or dismissing it, and writes only to ctxtra's cache. Accepting covers every file in the commit,
+also files shown only by name. The warnings help you read; they do not prove the text is safe.
+
+`SOURCE:PATH` always means content from that source. An absolute, `~` or relative disk path stays a disk
+path; it does not map to the reviewed copy. Use `./draft:notes.md` for a disk filename with a colon.
+Relative config paths start at the config's real folder, after symlinks.
+
+You can also review commits of a local clone:
+
+```bash
+ctxtra source add --repo ~/dev/team-ctx --name preview
+ctxtra binding add preview --instruction preview:services-overview.md
+```
+
+This follows the clone's checked-out named branch when added. It reads accepted commits, never dirty files
+or the branch's upstream. Use `--branch NAME` to choose another branch, or when HEAD is detached.
+
+A source can follow a tag or stay at one commit instead of a branch:
+
+```bash
+ctxtra source add --repo https://github.com/acme/observability-ctx.git --tag v1.4.0
+ctxtra source add --repo git@github.com:acme/security-guidelines.git --rev 9f8e7d6
+```
+
+With a tag, you hear when someone moves it, and `source update` shows the change for review. With `--rev`,
+nothing is new until you edit `rev` in the config; `source add` writes the commit's full ID.
+
+When teams share one repository, one folder per team, add only your team's folder:
+
+```bash
+ctxtra source add --repo git@github.com:acme/agent-context.git --subdir teams/billing
+ctxtra binding add billing --skill 'agent-context-billing:skills/*'
+```
+
+The folder is the source's top: `agent-context-billing:skills/*` means `teams/billing/skills/*`, and its
+manifest is `teams/billing/ctxtra-source.yaml`. Commits that change only other teams' folders are nothing
+new for you. Changing `subdir` or `repo` later makes it a new source, which `source update` reviews from
+nothing. Changing `branch`, `tag` or `rev` is reviewed as a change from the accepted commit.
+
+On another machine, copy both the config and its lock, then run:
+
+```bash
+ctxtra source download
+```
+
+It downloads exactly the accepted commits and leaves the lock unchanged. Run it too after you delete
+`~/.local/share/ctxtra`; deleting `~/.cache/ctxtra` changes nothing for sessions. Missing local source folders
+are listed as not on this machine, without an error. A source without a matching lock entry is inactive;
+run `ctxtra source update NAME` to review and accept a version.
+
+Sessions check repo sources for new commits, or a moved tag, at most once an hour in the background.
+Checks never accept them. Remote checks use your git credentials; keys needing a touch or approval can ask for it.
+Use `--check-updates=false` when adding such a source, or set `check-updates: false` on it later.
+`ctxtra check-updates` checks now. `ctxtra source list` and `ctxtra source show NAME` show source state.
+
+### Collections
+
+A source can name sets of its files, skills and servers in its `ctxtra-source.yaml`. Bind a set by its name,
+and the source can move its files without breaking your config:
+
+```yaml
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+    instructions: ['!iam-team:docs/testing.md']   # leave one file of the set out
+```
+
+Your config can have its own `collections` too, for one set in several places:
+
+```bash
+ctxtra collection add go-kit --instruction ~/agent-context/go.md --skill ~/agent-context/skills/go
+ctxtra collection list --json
+ctxtra collection remove go-kit
 ```
 
 ```yaml
-sources:
-  dotfiles:
-    trusted-path: ~/dev/dotfiles
-include:
-  - ctxtra://dotfiles/ctxtra/work.yaml   # the same as ~/dev/dotfiles/ctxtra/work.yaml
+collections:
+  go-kit:
+    instructions: [go-notes.md, 'go-style:go/*.md']
+bindings:
+  - {name: go, location: {dirs: ['~/dev/**']}, collections: [go-kit]}
+  - {name: go-work, location: {repos: ['github.com/acme/**']}, collections: [go-kit]}
 ```
 
-A source repository is added by URL. ctxtra keeps its own copy and serves the commit you accepted; a new
-commit reaches your sessions after `ctxtra source update` shows you the diff and you accept it, in your
-terminal:
+A collection's own entries come after the collections it nests. `context explain` shows what a binding's
+collections added and what its `!` entries left out. `source update` tells you when a commit removes a
+collection you use, or adds servers, skills or files to it.
+
+### Repo sets
+
+A team can list the repositories it works in, as a repo set in its `ctxtra-source.yaml`. Link a binding
+to the set, and it follows the list: when the team adds a repository, your sessions there get the binding
+after you accept the commit.
+
+```yaml
+bindings:
+  - name: iam-repos
+    location:
+      repo-sets: ['iam-team:services']
+      repos: [github.com/me/iam-playground, '!github.com/acme/iam-legacy']   # add one of mine, leave one of theirs out
+    collections: ['iam-team:base']
+```
+
+Your config can have its own `repo-sets`, bound by its bare name. A `!` entry leaves out every repository
+of a set:
 
 ```bash
-ctxtra source add git git@github.com:acme/team-ctx.git --include bindings/billing.yaml
-ctxtra source update           # review and accept new commits
-ctxtra source update --check   # review only: for scripts and agents
-ctxtra source restore          # a new laptop: fetch exactly the accepted commits
+ctxtra repo-set add clients --repo 'github.com/acme/client-*' --repo '!github.com/acme/client-demo'
+ctxtra repo-set add billing --repo github.com/acme/mono --subdir 'services/billing/**'
+ctxtra repo-set list --json
 ```
 
-Sessions check pinned sources for new commits by default, at most once an hour in the
-background. Git sources use `git ls-remote`; local-git sources read the clone's local `HEAD`. The next
-session says when there are new commits. Checks never accept them. Remote checks use your git
-credentials: turn them off for a source whose ssh key asks for a touch or an approval. Pass
-`--check-updates=false` to `source add`, or set `check-updates: false` on the source in the config.
-`ctxtra check-updates` checks now.
+For either collections or repo sets, `add NAME --file entry.yaml` reads one entry in YAML, without its
+name; `--file -` reads stdin. Entry flags cannot be combined with `--file`. `--replace` changes an
+entry in its place, or adds it when missing. The same entry again changes nothing. Add and remove
+accept `--dry-run`. Relative file and skill flags start at the current folder; paths in YAML start
+at the config's real folder. Quote exclusions and patterns.
 
-`source add` and `source update` warn about text that is easy to miss in a diff: hidden characters, HTML
-comments, encoded blocks, `curl | sh`, secret paths like `~/.ssh`, and new URLs. The warnings help you read;
-they don't show that a source is safe. See [Content warnings](spec.md#content-warnings).
+```yaml
+repo-sets:
+  clients: [github.com/acme/client-*]
+bindings:
+  - {name: tracker, location: {repo-sets: ['!clients']}, mcp-servers: [linear]}
+```
 
-`ctxtra source list`, `ctxtra binding-file list` and `ctxtra binding list` show what the config has; each
-group has `remove` too. `ctxtra source show NAME` shows one source's state, binding files and clones.
+If ctxtra can't read an excluded set, for example on a new machine before `ctxtra source download`, it
+leaves out the binding, so it never reaches the repositories you excluded. `context explain` shows which
+set and which of its entries matched. `source update` shows what a commit changes in a set you use, tells
+you when it removes one, and warns about an entry such as `github.com/**`, which matches every repository on
+the host.
 
-Full spec: [spec.md](spec.md). Use cases, from your own instruction files to a source repository you
-share with others: [scenarios.md](scenarios.md). `ctxtra help config` and `ctxtra help scenarios` show
-them for the version you have.
+### Program settings
+
+```bash
+ctxtra config set check-releases false
+ctxtra config set max-ctx-chars 40000
+ctxtra config set session-message.max-skills 0
+ctxtra config unset session-message.max-skills
+```
+
+Only `check-releases`, `max-ctx-chars`, `session-message.max-skills` and
+`session-message.max-instructions` can be set. Counts are whole numbers of 0 or more.
+`unset` restores the default. `ctxtra help config` still shows the config format.
+Counts use decimal values, including when written with leading zeros.
+Every list command accepts `--json`. Exit codes are 0 for success, 1 for a mistake or refused change,
+and 2 for bad flags or arguments.
+
+### Profiles and agents
+
+A binding can have `agents: [claude-code, codex]`, with or without location. Every condition present must
+hold. `agents: ['!cursor']` means every agent except Cursor. Preview with
+`ctxtra context explain DIR --agent codex`; without an agent argument, agent-specific bindings do not apply.
+
+`profiles` is another condition, with case-sensitive names. A binding with `profiles: [iam]` applies only
+while `iam` is active:
+
+```yaml
+bindings:
+  - name: iam-work
+    profiles: [iam]
+    instructions: [~/agent-context/iam.md]
+```
+
+The same from the command line: `ctxtra binding add iam-work --profile iam --instruction ~/agent-context/iam.md`.
+
+Choose the profiles for one launch with `CTXTRA_PROFILES`:
+
+```bash
+CTXTRA_PROFILES=iam claude            # iam
+CTXTRA_PROFILES=iam,oncall codex      # several profiles
+CTXTRA_PROFILES= claude               # none, whatever is stored
+ctxtra context explain --profile iam  # preview, without switching
+```
+
+Without the variable, a session uses the selection stored on this machine, in
+`~/.local/state/ctxtra/profiles.json`. Choose it with these commands; they don't change the config:
+
+```bash
+ctxtra profile set iam oncall        # replace the selection
+ctxtra profile list                  # names, active selection and bindings
+ctxtra profile clear                 # no stored profile
+```
+
+`set` accepts only names the bindings use, including names after `!`. Invalid or unknown names leave the
+selection unchanged. `set` and `clear` refuse to overwrite a selection file they can't read. The session message
+names the active profiles and where they came from. A name that no binding uses is reported as a likely typo.
+
+A session keeps its profiles until it ends or you run `/clear`, even when you switch in another terminal.
+Claude Code, Codex, Copilot, Muse, OpenCode, Hermes and DSH can keep the parent's profiles for subagents.
+Run `ctxtra setup` again for OpenCode, Hermes and DSH to update their plugins. `doctor` reports an older
+plugin that can't forward session IDs, with the setup command to fix it. Muse needs its native parent
+ID; without it, a subagent uses the current selection. Antigravity gives no parent ID, so its subagents
+use the current selection. Cursor, Pi and Devin also use it at every hook event.
+OpenCode's `/clear` makes a new session ID and takes the current profiles.
+The profiles can also differ from what you expect here:
+
+- An agent started from another terminal (for example by Orca, Rex or Herdr) uses the stored selection
+  unless started with `CTXTRA_PROFILES`.
+- The MCP proxy uses the profiles of when it started: on resume they can be newer than the instructions',
+  and after `/clear` it keeps the old servers until the session restarts.
+- Muse, and IDE agents started from the Dock, don't pass your shell's variables to hooks: they see only the
+  stored selection.
+- Some agents keep the hook's text in their history and don't run the hook again on resume or compaction.
+  Copilot can lose that text at compaction. Hermes's default in-place compaction keeps the session;
+  its rotation mode has not been verified.
+
+Codex passes `CTXTRA_PROFILES` to its MCP proxy, also when empty. After upgrading, run
+`ctxtra setup --agent codex` again to update an older allow-list; `doctor` reports a missing variable.
+Muse's proxy uses the stored selection, like its hooks.
+
+Full rules: [spec.md](spec.md). Step-by-step cases: [scenarios.md](scenarios.md).
 
 ## Check
 
 ```bash
-ctxtra context files [DIR]     # files and skills a session in DIR gets; problems on stderr
+ctxtra context files [DIR]     # files and skills a session in DIR gets; errors on stderr
 ctxtra context show [DIR]      # the exact text the agent gets
 ctxtra context explain [DIR]   # every binding: matched or not, and why
-ctxtra doctor [DIR]            # config problems, setup state, Codex trust, recent hook runs
+ctxtra doctor [DIR]            # config errors, setup state, Codex trust, recent hook runs
 ```
 
 They exit with 1 when a session wouldn't get everything it should, and take `--json` (except
-`context show`). `doctor` checks every binding, also those that don't match DIR. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
+`context show`). `doctor` checks every binding, also those that don't match DIR. It checks a session once for
+each agent you set up, and each error names its agents, such as `(codex)`. `ctxtra help` lists every command; `ctxtra help COMMAND` shows one.
 
-If you maintain a source repository, `ctxtra source check DIR` checks its binding files the way users' sessions
-read them: their YAML and bindings, and that the files and skills they reference exist and are usable. It
-reads only DIR, not your config, and runs nothing, so it works in CI ([example](spec.md#check-a-source-repository)).
-It exits with 1 on an error; a glob that matches nothing is a warning. It doesn't check what the files say,
-or whether they fit a user's agent.
+If you maintain a source, `ctxtra source validate DIR` checks `DIR/ctxtra-source.yaml` without reading
+your config, trust records or credentials and without network access. It validates YAML, keys, names,
+MCP definitions and the files that collections name, as sessions would read them from a commit. It exits 1
+on errors and supports `--json`, so CI can run it.
+Sources need no manifest when users bind files directly by path.
 
-Every hook run is logged to `~/.ctxtra/log.jsonl`. Past 1 MiB, the log moves to `log.jsonl.1`, replacing the
+
+Every hook run is logged to `~/.local/state/ctxtra/log.jsonl`. Past 1 MiB, the log moves to `log.jsonl.1`, replacing the
 older one; `doctor` reads both. The hook never blocks a session: on any error it adds nothing and logs the
 error.
 
@@ -296,8 +527,11 @@ don't reach the session. ctxtra has an optional skill for this:
 ctxtra skill install ctxtra-follow
 ```
 
-Before the agent works in a folder outside the session folder, the skill tells it to run
-`ctxtra context show DIR --exclude-session SESSION_DIR --part 1`, once for each folder: the top of another repository, or a
+The session's text gives the exact command with its agent and profiles, for example
+`ctxtra context show DIR --agent claude-code --profile iam --exclude-session SESSION_DIR --part 1`.
+With no active profile, it starts with `CTXTRA_PROFILES=` so a later selection doesn't apply.
+Before the agent works in a folder outside the session folder, the skill tells it to run that command,
+once for each folder: the top of another repository, or a
 project folder in a repository with several. That prints only the files and skills the folder adds, not
 what the session has already (a file the session has from another folder is listed by name, so the agent
 knows it applies here too), and the agent follows them for its work there. Each file's header names the
@@ -311,7 +545,7 @@ session folder: a binding for `~/dev/mono/billing/**` doesn't reach a session st
 
 ## Skills as slash commands in Claude Code
 
-`ctxtra setup --agent claude` writes a plugin named `ctxtra` to `~/.claude/skills/ctxtra/` (or
+`ctxtra setup --agent claude-code` writes a plugin named `ctxtra` to `~/.claude/skills/ctxtra/` (or
 `$CLAUDE_CONFIG_DIR/skills/ctxtra/`). Claude Code loads a plugin from that folder as it is: nothing is
 installed from a marketplace. When a session starts, the plugin asks ctxtra for the skills bound to the
 session folder and adds a command for each. Type `/` to see them; their descriptions end with `(ctxtra)`.
@@ -323,6 +557,8 @@ as it reads any file.
 - They are commands, not Claude's own skills. Claude's `Skill` tool can't load them, and Claude doesn't apply
   frontmatter such as `allowed-tools`, `context: fork` or `disable-model-invocation`. Claude still reads a
   skill's `SKILL.md` on its own when a task needs it, as in the other agents.
+- Two bound skills with one name both reach the session. The first keeps `/release`, the next gets its source's
+  name in front: `/obs-team-release`.
 - A command that is already there wins: a built-in, your own skill or command, another plugin's. The bound
   skill with that name then has no command. Names other than letters, digits, `_` and `-` have none either.
 - A session has the commands of the skills bound when it started. A skill bound later gets its command in
@@ -336,55 +572,91 @@ as it reads any file.
   left alone: setup says so, and Claude Code gets no commands.
 
 `ctxtra setup --remove` removes the plugin. After an upgrade that added it, every ctxtra command reminds you
-to run `ctxtra setup --agent claude` until you do.
+to run `ctxtra setup --agent claude-code` until you do.
 
 ## MCP servers
 
 ctxtra gives your sessions MCP servers by folder, like instructions and skills, through one MCP server named
 `ctxtra-proxy`. Setup supports Claude Code, Codex, Cursor, OpenCode, Pi, Muse and Antigravity.
-No experimental environment variable is needed. Earlier versions named the entry `ctxtra`: run
-`ctxtra setup` to rename it. [spec.md](spec.md#mcp-servers) describes the format and limits.
+Setup adds the proxy even when you have no servers yet. Servers you bind later reach the next session
+without another setup. In Codex, a local server with a new `pass-env` variable needs
+`ctxtra setup --agent codex` again: Codex passes the proxy only the variables setup listed. The session
+message and `doctor` say so.
+[spec.md](spec.md#mcp-servers) describes the format and limits.
 
 For a server you declare yourself:
 
 ```bash
 ctxtra mcp add linear https://mcp.linear.app/mcp --notes 'Choose the work workspace'
-ctxtra binding add work-linear --dir '~/work/**' --mcp linear
-ctxtra setup
+ctxtra binding add work-linear --dir '~/work/**' --mcp-server linear
 ```
 
 Run add in your own terminal. It authorizes in your browser if needed; then start a new matching agent session.
-If another config already uses the same identity and target, add reuses its shared credentials without
+If credentials already exist for the same identity and target, add reuses them without
 authorizing again. It reports that reuse. If your definition declares secret names that have no stored value, add
 asks for those values only and adds them to the shared credentials. It keeps the stored values and the sign-in.
-Other configs send only the secrets they declare, so they don't change. Add rejects `--client-secret` and
+Servers receive only the secrets their definitions declare. Add rejects `--client-secret` and
 `--callback-port` in that case; add the definition without those flags, then use login to change the shared
 credentials.
 The definition, sign-in, binding and agent setup are separate. Adding another remote server needs its own sign-in
 and binding, but no new native agent entry. The model sees each upstream tool and description, with a prefix such
 as `linear__`, not a single opaque ctxtra tool.
 
-A source can supply definitions in its root `mcp-servers.yaml`, using `schema: ctxtra/v1` and an `mcp-servers` map.
-A server named `linear` in source `work` is `work/linear`. Its bindings use bare `linear`; your config can bind
-`work/linear` directly without including package bindings. Sources cannot borrow your config's servers or another
-source's sign-in, including trusted sources.
-
-Pinned definitions need your separate terminal approval before even an unauthenticated request or command startup:
+For fixed remote headers and OAuth scopes, repeat `--header NAME=VALUE` and `--scope SCOPE`:
 
 ```bash
-ctxtra mcp approve work/linear   # inspect and consent; connects to nothing
-ctxtra mcp login work/linear    # authorize this identity if needed
+ctxtra mcp add internal https://mcp.example.com/mcp --header 'X-Team=core' --scope read --scope write --no-login
+```
+
+These values are written to the config. Use `--secret-header NAME` for a header whose value should be
+stored encrypted. Quote values that contain spaces, punctuation or start with `!`.
+
+A source declares servers in top-level `ctxtra-source.yaml`, with `schema: ctxtra/source/v1` and an
+`mcp-servers` map. Your config selects a source's `linear` server as `work:linear`:
+
+```bash
+ctxtra binding add tracker --repo 'github.com/acme/**' --mcp-server work:linear
+```
+
+Sources do not define bindings or select other sources' servers.
+
+A server of a repo source needs your approval in your terminal before ctxtra contacts or starts it, also one
+without sign-in:
+
+```bash
+ctxtra mcp approve work:linear   # inspect and consent; connects to nothing
+ctxtra mcp login work:linear    # authorize this identity if needed
 ```
 
 Login offers that separate approval first if missing. Source-version acceptance, server approval, provider
 consent and each agent's tool permissions are different decisions. A no-auth server needs approval, not a browser.
-Config and trusted-path definitions need no extra approval. Trust only live source content you would run as your own
+Config and dir-source definitions need no extra approval. Trust only live source content you would run as your own
 configuration.
 
 Use `mcp list`, `context explain` and `mcp status` to check selection, sign-in and approval. Tools still use the
 short prefix `linear__`. If two identities with that prefix match one folder, the first binding wins and ctxtra
-reports the other. It never falls back to the other account if the winner fails or lacks approval. Narrow a global
-binding or use distinctly named config servers if you need both accounts in one session.
+reports the other. It never falls back to the other account if the winner fails or lacks approval. To get both,
+give one a new name in your config's `mcp-servers`:
+
+```yaml
+mcp-servers:
+  jira_iam: {use: 'iam-team:jira'}   # its tools are jira_iam__TOOL
+```
+
+The new name applies wherever the server comes from: your bindings, your collections, and a source's collection
+that adds it. `jira_iam` and `iam-team:jira` are then one server, served once. Its sign-in and approval stay with
+`iam-team:jira`, so a new name needs no new approval. Two names for one server are an error.
+
+Write that alias with:
+
+```bash
+ctxtra mcp add jira_iam --use iam-team:jira
+```
+
+This contacts no server and changes no sign-in or approval. Use `--dry-run` to preview it. The same
+definition or alias added again changes nothing.
+An identical collection or alias add succeeds even when its files or source server are no longer
+available. Use `ctxtra doctor` to check the current content.
 
 Review source updates carefully: commands, endpoints, inherited environment and targeting can change. Operational
 changes need approval again; notes or an unrelated commit do not. Accepting wider targeting can give an already
@@ -400,7 +672,7 @@ Setup keeps existing native entries for the same provider, so both tool sets can
 - Codex: add `default_tools_approval_mode = "approve"` to the `[mcp_servers.ctxtra-proxy]` table; setup keeps it.
 - Antigravity: an allow rule `mcp(ctxtra-proxy/*)`.
 
-ctxtra keeps the servers' secret values, such as an API token, encrypted in `~/.ctxtra/mcp`, with the key in
+ctxtra keeps the servers' secret values, such as an API token, encrypted in `~/.local/state/ctxtra/mcp`, with the key in
 your OS keychain. Without a keychain, for example on a Linux server, the key is a file there, and ctxtra warns
 that any process of yours can read the credentials.
 
@@ -427,18 +699,18 @@ ctxtra mcp logout linear_work               # deletes the sign-in on this machin
   when `--secrets` asks for new values. Start new sessions after switching accounts; login does not reset an agent's
   conversation or a provider's open session. Restart local servers after rotating environment secrets.
 - A shorter configured scope list does not revoke old permissions. Provider access and agent tool rules are separate.
-- Another config with the same identity, origin and target shares the sign-in. Add cannot silently replace its
-  credentials with another target; explicit login replacement asks first and affects all configs sharing that identity.
+- Agent sessions share the sign-in for an identity, origin and target. Add cannot silently replace its
+  credentials with another target; explicit login replacement asks first and affects new sessions using that identity.
   To replace after a refused add, declare the intended definition in your config, then run `login REF`.
   If the new endpoint needs neither sign-in nor secret values, login leaves the old credentials alone and reports
   how to delete the old sign-in with `logout REF`.
 - `logout` doesn't tell the provider or withdraw connection approval. Remove the grant in the provider's settings
   to end it there. `mcp remove` cannot edit package definitions. Source removal keeps credentials and prints explicit
-  cleanup commands; another config may still use them. Removing credentials also cancels pending logins for that
-  identity, including logins started from another config. A small, secret-free cancellation marker remains locally.
-- On another machine, restore source content, approve pinned servers there, sign in and run setup. Config and source
-  copies do not transfer credentials or machine-local approval. Source aliases and origins are part of the binding;
-  renaming a source or converting it to trusted requires a new sign-in, not copied refresh tokens.
+  cleanup commands. Removing credentials also cancels pending logins for that
+  identity, including logins started by another process. A small, secret-free cancellation marker remains locally.
+- On another machine, restore source content, approve repo-source servers there, sign in and run setup. Config and source
+  copies do not transfer credentials or machine-local approval. Source names and origins are part of the credential binding;
+  renaming a source or changing its origin requires a new sign-in, not copied refresh tokens.
 
 What to keep in mind:
 
@@ -449,7 +721,7 @@ What to keep in mind:
   reads it too.
 - ctxtra's MCP proxy sees every tool call and its result, and passes them on. Its log has neither, only
   which servers started and how calls failed.
-- Without a keychain, a backup of `~/.ctxtra/mcp` holds the key of your credentials too.
+- Without a keychain, a backup of `~/.local/state/ctxtra/mcp` holds the key of your credentials too.
 - A server under a certificate you trust yourself can use keys smaller than NIST's minimums. To refuse
   them, run ctxtra with `GODEBUG=fips140=on`: see [Key lengths](spec.md#key-lengths).
 - ctxtra will later sign in as an app described by a file on its own domain, which authorization servers
@@ -463,8 +735,8 @@ A session's servers are fixed when it starts; their tools can still change. ctxt
 waits for it: 1.5 seconds in Claude Code (later tools follow in its interactive mode), up to 8 in Pi, up to 10
 in the others. One slow server holds back the first tool list of all of them until then. A server that starts
 slower, such as one run with `npx`, can be missing from that session. In Codex, the
-`ctxtra` server is required: if the ctxtra binary moves, Codex doesn't start until you run `ctxtra setup` again.
-Logs are in `~/.ctxtra/log.jsonl`.
+`ctxtra-proxy` server is required: if the ctxtra binary moves, Codex doesn't start until you run `ctxtra setup` again.
+Logs are in `~/.local/state/ctxtra/log.jsonl`.
 
 ## Limits
 
@@ -475,7 +747,7 @@ Logs are in `~/.ctxtra/log.jsonl`.
   Non-Latin text counts more in Codex, Antigravity and Copilot: a CJK character is 3 bytes; an emoji counts 2
   characters in Claude Code and Muse. Muse's hooks count bytes as they are in the hook's JSON answer, so
   Muse fits less non-ASCII text, and less text with many quotes or backslashes. Above the limit,
-  whole files are dropped from the end, as with `budget.max-chars`; the message at session start, the log,
+  whole files are dropped from the end, as with `max-ctx-chars`; the message at session start, the log,
   `context explain` and `doctor` name them. Several agents cut or drop a large hook output, so ctxtra splits the
   text into labeled parts there: 40 hooks per event in Claude Code and Muse, a plugin callback per part in
   Hermes, an injected step per part in Antigravity. See [the spec](spec.md#capacity).
@@ -493,15 +765,14 @@ Logs are in `~/.ctxtra/log.jsonl`.
 - A subagent gets the files when it starts, so it can see a newer version than its parent.
 - Codex asks you to trust a hook again after every change to it, for example after the binary moved.
   `doctor` shows whether a trust record exists, but can't tell whether it is for the current hook.
-- Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Run setup with your chosen
-  `CTXTRA_CONFIG`: both use that recorded path when the variable is absent. Without a record, they use the
-  default config. Hooks use the default log path. The MCP entry copies `CTXTRA_LOG` at setup time. Muse cannot
-  inherit shell proxy or certificate settings, a Linux keychain session, or local servers' `env-pass` values.
-  Use explicit non-secret `env` values or stored `secret-env` values for local servers. Start a new Muse session
-  after signing in to an MCP server. To inspect Muse's recorded config with `context`, `doctor` or `mcp status`,
-  pass `--config FILE` or set `CTXTRA_CONFIG`; CLI diagnostics do not select it automatically.
-  A resumed Muse session runs the hook again, and
-  Muse replaces the earlier text with the current version of the files.
+- Muse Code (tested with 1.4.10) clears the environment for hooks and MCP servers. Setup records the four
+  XDG folder values in both entries. After changing one, run `ctxtra setup --agent muse`; `doctor` reports
+  stale values. Hooks use the log in the state folder. The MCP entry also copies `CTXTRA_LOG` at setup time.
+  Setup refreshes an existing proxy even if the new data folder has no downloaded sources yet.
+  Muse cannot inherit shell proxy or certificate settings, a Linux keychain session, or local servers'
+  `pass-env` values. Use explicit non-secret `env` values or stored `secret-env` values for local servers.
+  Start a new Muse session after signing in to an MCP server. A resumed session runs the hook again and
+  replaces the earlier text with the current files.
 - Devin: the hook goes into `~/.config/devin/config.json`, which Devin CLI and Devin Desktop's agent both
   read. Devin has no subagent hook. It allows comments in that file; `setup` leaves such a file alone. Devin
   also runs the hooks in `~/.claude/settings.json`: with both set up, Claude's hook adds nothing in Devin

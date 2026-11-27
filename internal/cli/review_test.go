@@ -3,35 +3,8 @@ package cli
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
-
-	"github.com/ctxtra/ctxtra/internal/config"
 )
-
-// Match blocks are compared as data, not by how they print: a remote pattern
-// named "every session" prints like global: true.
-func TestSelectorWarnings(t *testing.T) {
-	cfg := func(sel config.Selector) *config.Config {
-		return &config.Config{Bindings: []config.Binding{{Name: "b", Source: "/gen/b.yaml", Selector: sel}}}
-	}
-	cases := []struct {
-		old, new config.Selector
-		want     string
-	}{
-		{config.Selector{GitRepos: []config.GitRepo{{Remote: "every session"}}}, config.Selector{Global: true}, "now applies to every session"},
-		{config.Selector{GitRepos: []config.GitRepo{{Remote: "a, b"}}}, config.Selector{GitRepos: []config.GitRepo{{Remote: "a"}, {Remote: "b"}}}, "match changed"},
-		{config.Selector{Dirs: []string{"/x"}}, config.Selector{Dirs: []string{"/x"}}, ""},
-	}
-	for _, c := range cases {
-		var out strings.Builder
-		s := &sources{IO: IO{Out: &out}}
-		s.selectorWarnings(config.Source{}, cfg(c.old), cfg(c.new), "/gen", "/gen")
-		if c.want == "" && out.Len() > 0 || !strings.Contains(out.String(), c.want) {
-			t.Errorf("%v -> %v: %q", c.old, c.new, out.String())
-		}
-	}
-}
 
 // Added lines are numbered from the hunk headers. A content line that looks
 // like a header stays content, an empty line is context (as with
@@ -80,27 +53,5 @@ func TestSpans(t *testing.T) {
 		if s.has(n) != want {
 			t.Errorf("has(%d) = %v; spans %v", n, !want, s)
 		}
-	}
-}
-
-// An update that adds a server to a global binding: the review lists the
-// servers and warns about the new name.
-func TestMCPReview(t *testing.T) {
-	b := func(sel config.Selector, servers ...string) *config.Config {
-		return &config.Config{Bindings: []config.Binding{{Name: "all", Source: "/gen/b.yaml", Selector: sel, MCPListed: servers}}}
-	}
-	var out strings.Builder
-	s := &sources{IO: IO{Out: &out}}
-	s.mcpWarnings(b(config.Selector{Global: true}, "linear"), b(config.Selector{Global: true}, "linear", "github"), "/gen", "/gen")
-	got := out.String()
-	if !strings.Contains(got, "MCP servers: binding all in b.yaml names linear, github\n") ||
-		!strings.Contains(got, "warning: binding all in b.yaml adds the MCP server github: that package server would be in every session\n") ||
-		strings.Contains(got, "adds the MCP server linear") {
-		t.Errorf("%q", got)
-	}
-	out.Reset()
-	s.mcpWarnings(b(config.Selector{}), b(config.Selector{Dirs: []string{"/w/**"}}, "pg"), "/gen", "/gen")
-	if !strings.Contains(out.String(), "adds the MCP server pg: that package server would be for /w/**") {
-		t.Errorf("%q", out.String())
 	}
 }

@@ -1,4 +1,4 @@
-# ctxtra mcp add, list, show and remove, and binding add --mcp work
+# ctxtra mcp add, list, show and remove, and binding add --mcp-server work
 # without an opt-in variable.
 
 exec ctxtra --help
@@ -8,12 +8,12 @@ stdout 'no MCP servers'
 exec ctxtra mcp
 stdout 'Usage:'
 exec ctxtra binding add --help
-stdout '\-\-mcp REF'
-! exec ctxtra binding add w --dir '~/dev/**' --mcp pg
-stderr 'server pg is not in mcp-servers'
+stdout '\-\-mcp-server NAME'
+! exec ctxtra binding add w --dir '~/dev/**' --mcp-server pg
+stderr 'the config has no MCP server pg'
 exec ctxtra mcp add --help
-stdout 'ctxtra mcp add NAME \(URL \| -- COMMAND \[ARG\]...\)'
-stdout '--env-pass NAME'
+stdout 'ctxtra mcp add NAME \(URL \| -- COMMAND \[ARG\]... \| --use SOURCE:SERVER\)'
+stdout '--pass-env NAME'
 
 # Dry run: shows the change, writes and starts nothing.
 exec ctxtra mcp add gh --env TEAM=core --dry-run -- mcptest -tools create-issue
@@ -27,14 +27,14 @@ stdout '^added the MCP server gh to ~/.config/ctxtra/config.yaml: local, mcptest
 stdout '^tools sessions see:$'
 stdout '^  gh__echo$'
 stdout '^  gh__create_issue_[0-9a-f]{6} \(shortened from create-issue\)$'
-stdout 'ctxtra binding add gh --dir .* --mcp gh'
+stdout 'ctxtra binding add gh --dir .* --mcp-server gh'
 grep '^  gh:$' .config/ctxtra/config.yaml
-grep '^    env: \{TEAM: core\}$' .config/ctxtra/config.yaml
+grep '^      TEAM: core$' .config/ctxtra/config.yaml
 
 # A name that exists, a bad name, a relative program: nothing changes.
 cp .config/ctxtra/config.yaml before.yaml
 ! exec ctxtra mcp add gh -- mcptest
-stderr 'an MCP server named gh already exists'
+stderr 'a MCP server named gh already exists'
 ! exec ctxtra mcp add Bad-Name -- mcptest
 stderr 'server name "Bad-Name"'
 ! exec ctxtra mcp add rel -- ./bin/mcp
@@ -62,31 +62,26 @@ stdout '^  gh__env$'
 stderr 'no MCP server "nope"'
 
 # Bind a server to a folder; an undeclared name changes nothing.
-exec ctxtra binding add work --dir '~/dev/**' --mcp gh
-stdout '  MCP servers: gh'
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server gh
+stdout '^  MCP server  gh$'
 grep '^    mcp-servers:$' .config/ctxtra/config.yaml
 cp .config/ctxtra/config.yaml before.yaml
-! exec ctxtra binding add typo --dir '~/dev/**' --mcp gh_typo
-stderr 'server gh_typo is not in mcp-servers'
+! exec ctxtra binding add typo --dir '~/dev/**' --mcp-server gh_typo
+stderr 'the config has no MCP server gh_typo'
 cmp .config/ctxtra/config.yaml before.yaml
 
 # Remove a bound server: it goes, and the binding now names an unknown one.
 exec ctxtra mcp remove gh --dry-run
-stderr 'the binding work .* names gh, which would be unknown'
+stderr 'the binding work names gh, which is unknown now'
 exec ctxtra mcp remove gh
 stdout '^removed the MCP server gh from ~/.config/ctxtra/config.yaml$'
-stderr 'warning: a binding still names gh, which is now unknown'
+stderr 'warning: the binding work names gh, which is unknown now'
 ! grep '^  gh:$' .config/ctxtra/config.yaml
 ! exec ctxtra mcp remove gh
-stderr 'no MCP server "gh" in the config'
+stderr 'no MCP server named gh in the config'
 
-# source add shows the servers that a source's bindings name.
+# Config bindings select servers explicitly.
 mkdir dot
-cp dot.yaml dot/b.yaml
-exec ctxtra source add trusted-path dot --include b.yaml
-stdout '^    MCP servers: linear_work$'
-
--- dot.yaml --
-schema: ctxtra/v1
-bindings:
-  - {name: dotb, match: {dirs: ['~/dot/**']}, mcp-servers: [linear_work]}
+exec ctxtra source add --dir dot
+exec ctxtra binding add dotb --dir '~/dot/**' --mcp-server linear_work
+stdout '^  MCP server  linear_work$'

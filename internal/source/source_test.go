@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestFetchAndMaterialize(t *testing.T) {
 	if err != nil || got != first {
 		t.Fatalf("fetch: %s %v, want %s", got, err, first)
 	}
-	gen, err := r.Materialize(ctx, first)
+	gen, err := r.Materialize(ctx, first, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +73,11 @@ func TestFetchAndMaterialize(t *testing.T) {
 	if Exists(filepath.Join(gen, "link.md")) {
 		t.Error("a symlink entry was written")
 	}
-	if !Has(url, first) || gen != GenDir(url, first) {
-		t.Errorf("Has %v, gen %s", Has(url, first), gen)
+	if links, err := StoredSymlinks(gen); err != nil || !slices.Equal(links, []string{"link.md"}) {
+		t.Errorf("stored symlink paths: %v, %v", links, err)
+	}
+	if !Has(url, "", first) || gen != GenDir(url, "", first) {
+		t.Errorf("Has %v, gen %s", Has(url, "", first), gen)
 	}
 
 	// A new commit, then a force-push that removes it: the accepted commit
@@ -99,12 +103,13 @@ func TestFetchAndMaterialize(t *testing.T) {
 	}
 
 	// A fresh store, as on a new laptop: restore fetches exact commits.
-	os.RemoveAll(filepath.Join(os.Getenv("HOME"), ".ctxtra"))
+	os.RemoveAll(StoreDir())
+	os.RemoveAll(GitDir())
 	r = Open(url)
 	if err := r.FetchCommit(ctx, first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Materialize(ctx, first); err != nil {
+	if _, err := r.Materialize(ctx, first, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.FetchCommit(ctx, second); err == nil || !strings.Contains(err.Error(), "force-push") {
@@ -120,13 +125,13 @@ func TestTreeRefusesBadCommits(t *testing.T) {
 	if _, err := r.FetchBranch(ctx, "main"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Materialize(ctx, big); err == nil || !strings.Contains(err.Error(), "larger than") {
+	if _, err := r.Materialize(ctx, big, ""); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Errorf("big file: %v", err)
 	}
-	if Has(url, big) {
+	if Has(url, "", big) {
 		t.Error("a refused commit is in the store")
 	}
-	entries, _ := os.ReadDir(filepath.Dir(GenDir(url, big)))
+	entries, _ := os.ReadDir(filepath.Dir(GenDir(url, "", big)))
 	if len(entries) != 0 {
 		t.Errorf("leftovers in the store: %v", entries)
 	}
@@ -251,7 +256,7 @@ func TestSHA256(t *testing.T) {
 	if err != nil || len(c) != 64 || !ValidCommit(c) {
 		t.Fatalf("%q %v", c, err)
 	}
-	gen, err := r.Materialize(ctx, c)
+	gen, err := r.Materialize(ctx, c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +291,7 @@ func TestLargeCommit(t *testing.T) {
 	if _, err := r.FetchBranch(ctx, "main"); err != nil {
 		t.Fatal(err)
 	}
-	gen, err := r.Materialize(ctx, c)
+	gen, err := r.Materialize(ctx, c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +313,7 @@ func TestFetchHead(t *testing.T) {
 	if err != nil || got != first {
 		t.Fatalf("%s %v, want %s", got, err, first)
 	}
-	gen, err := r.Materialize(ctx, got)
+	gen, err := r.Materialize(ctx, got, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +326,8 @@ func TestFetchHead(t *testing.T) {
 		t.Errorf("detached: %s %v", got, err)
 	}
 	// Restore from the clone by commit ID.
-	os.RemoveAll(filepath.Join(h, ".ctxtra"))
+	os.RemoveAll(StoreDir())
+	os.RemoveAll(GitDir())
 	if err := Open(clone).FetchCommit(ctx, first); err != nil {
 		t.Errorf("restore from the clone: %v", err)
 	}
@@ -359,7 +365,7 @@ func TestClean(t *testing.T) {
 	testenv.Home(t)
 	old := time.Now().Add(-40 * 24 * time.Hour)
 	mk := func(url, commit string, mtime time.Time) string {
-		p := GenDir(url, commit)
+		p := GenDir(url, "", commit)
 		testenv.Write(t, filepath.Join(p, "a.md"), "a")
 		os.Chmod(filepath.Join(p, "a.md"), 0o400)
 		os.Chtimes(p, mtime, mtime)
@@ -393,12 +399,12 @@ func TestTouchWaitsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	err = Touch(GenDir("https://h/x", strings.Repeat("a", 40)), 100*time.Millisecond)
+	err = Touch(GenDir("https://h/x", "", strings.Repeat("a", 40)), 100*time.Millisecond)
 	unlock()
 	if err == nil || time.Since(start) > time.Second {
 		t.Errorf("Touch under Clean's lock: %v after %v", err, time.Since(start))
 	}
-	if err := Touch(GenDir("https://h/x", strings.Repeat("a", 40)), 0); err != nil {
+	if err := Touch(GenDir("https://h/x", "", strings.Repeat("a", 40)), 0); err != nil {
 		t.Errorf("Touch after: %v", err)
 	}
 }
@@ -445,18 +451,38 @@ func TestHead(t *testing.T) {
 	if Exists(r.dir) {
 		t.Error("Head created the source's repository")
 	}
-	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not on the remote") {
+	if _, err := r.Head(context.Background(), "nope"); err == nil || !strings.Contains(err.Error(), "the branch nope is not in ") {
 		t.Errorf("missing branch: %v", err)
 	}
 	if _, err := r.Head(context.Background(), "-x"); err == nil {
 		t.Error("an option as a branch")
 	}
-	// A local-git source: the clone's HEAD.
+	// A clone on this disk: its branch.
 	next := commit(t, dir, map[string]string{"b.md": "B"})
-	if got, err := Open(dir).Head(context.Background(), ""); err != nil || got != next {
+	if got, err := Open(dir).Head(context.Background(), "main"); err != nil || got != next {
 		t.Errorf("clone HEAD = %q, %v; want %q", got, err, next)
 	}
 	if _, err := Open("https://127.0.0.1:1/none").Head(context.Background(), "main"); err == nil {
 		t.Error("an unreachable remote")
+	}
+}
+
+// MaterializeAs writes the commit where the store has the other spelling
+// of the repository.
+func TestMaterializeAs(t *testing.T) {
+	dir, url := team(t)
+	first := commit(t, dir, map[string]string{"a.md": "A\n"})
+	ctx := context.Background()
+	r := Open(url)
+	if err := r.FetchCommit(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	other := url + "/."
+	gen, err := r.MaterializeAs(ctx, first, "", other)
+	if err != nil || gen != GenDir(other, "", first) || !Has(other, "", first) || Has(url, "", first) {
+		t.Fatalf("gen %s %v", gen, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(gen, "a.md")); string(b) != "A\n" {
+		t.Errorf("a.md: %q", b)
 	}
 }

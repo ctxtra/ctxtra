@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,4 +131,79 @@ func TestIdentifyTimeout(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("took %v", d)
 	}
+}
+
+// fakeGit puts a git first on PATH that runs script, with the real git as
+// $REAL.
+func fakeGit(t *testing.T, script string) {
+	t.Helper()
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	testenv.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\nREAL="+realGit+"\n"+script+"\n")
+	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":/usr/bin:/bin")
+}
+
+// Detect tells a folder outside git from one where git can't tell.
+func TestDetect(t *testing.T) {
+	t.Run("not a repository", func(t *testing.T) {
+		h := testenv.Home(t)
+		if r, err := Detect(h); r != nil || err != nil {
+			t.Errorf("got %+v, %v", r, err)
+		}
+	})
+	t.Run("a worktree whose metadata is gone", func(t *testing.T) {
+		h := testenv.Home(t)
+		r := testenv.Repo(t, filepath.Join(h, "main"), "git@github.com:acme/svc.git")
+		wt := filepath.Join(h, "wt")
+		testenv.Run(t, r, "git", "worktree", "add", "-q", wt)
+		if err := os.RemoveAll(filepath.Join(r, ".git", "worktrees")); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := Detect(wt); got != nil || err == nil {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("a .git file that isn't one", func(t *testing.T) {
+		h := testenv.Home(t)
+		testenv.Write(t, filepath.Join(h, "bad", ".git"), "garbage\n")
+		if got, err := Detect(filepath.Join(h, "bad")); got != nil || err == nil {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("missing git", func(t *testing.T) {
+		h := testenv.Home(t)
+		r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
+		t.Setenv("PATH", t.TempDir())
+		if got, err := Detect(r); got != nil || err == nil {
+			t.Errorf("got %+v, %v", got, err)
+		}
+		if got, err := Detect(h); got != nil || err == nil {
+			t.Errorf("outside git: got %+v, %v", got, err)
+		}
+	})
+	t.Run("remote query failure", func(t *testing.T) {
+		h := testenv.Home(t)
+		r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
+		fakeGit(t, "case \"$*\" in *remote*) echo 'fatal: bad config' >&2; exit 128;; esac\nexec $REAL \"$@\"")
+		if got, err := Detect(r); got != nil || err == nil || !strings.Contains(err.Error(), "bad config") {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		h := testenv.Home(t)
+		r := testenv.Repo(t, filepath.Join(h, "svc"), "git@github.com:acme/svc.git")
+		fakeGit(t, "exec sleep 10")
+		old := timeout
+		timeout = 300 * time.Millisecond
+		t.Cleanup(func() { timeout = old })
+		if got, err := Detect(r); got != nil || err == nil || !strings.Contains(err.Error(), "didn't answer") {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
 }

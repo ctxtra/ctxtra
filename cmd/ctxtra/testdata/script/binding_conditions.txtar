@@ -1,0 +1,119 @@
+# binding add writes every condition of a binding from flags: --dir, --repo
+# with --subdir, --repo-set, --profile and --agent, and --collection next to
+# the other content flags. It shows the binding as written, where it
+# applies, and what a session there gets.
+exec ctxtra source add --dir team --name iam-team
+stdout '^collections: essentials$'
+stdout '^repo sets: services$'
+stdout '^bind it, for example: ctxtra binding add iam-team --source iam-team --repo-set services --collection essentials$'
+cp .config/ctxtra/config.yaml empty.yaml
+
+# Profile-only binding from the command line.
+exec ctxtra binding add iam --profile iam --collection iam-team:essentials
+stdout '^added binding iam to ~/.config/ctxtra/config.yaml:$'
+stdout '^  - name: iam$'
+stdout '^    profiles:$'
+stdout '^      - iam$'
+stdout '^    collections:$'
+stdout '^      - iam-team:essentials$'
+! stdout 'location'
+stdout '^it applies in every session with iam active$'
+stdout '^a session there gets:$'
+stdout '^  file        iam-team:docs/conventions.md$'
+stdout '^  skill       release \(iam-team:skills/release/SKILL.md\)$'
+
+# The binding name is taken.
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra binding add iam --repo-set iam-team:services --collection iam-team:essentials
+stderr 'a binding named iam already exists'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# The same entry written differently.
+exec ctxtra binding add iam --collection iam-team:essentials --profile iam
+stdout '^the binding iam is in ~/.config/ctxtra/config.yaml already$'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# A bad flag.
+! exec ctxtra binding add iam2 --colection x
+stderr 'unknown flag: --colection'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# Binding for one agent.
+exec ctxtra binding add review --agent claude-code --skill 'iam-team:skills/*'
+stdout '^it applies in every session of claude-code$'
+! stdout 'location'
+
+# Showing what was added: the team's repositories.
+exec ctxtra binding add iam-repos --repo-set iam-team:services --collection iam-team:essentials
+stdout '^    location:$'
+stdout '^      repo-sets:$'
+stdout '^        - iam-team:services$'
+stdout '^it applies in sessions where its location matches$'
+stdout '^  file        iam-team:docs/conventions.md$'
+
+# Before another binding, and after.
+exec ctxtra binding add first --before iam --dir '~/dev/**' --instruction notes.md
+exec ctxtra binding add second --after iam --profile '!oncall' --agent '!cursor' --instruction notes.md
+stdout '^it applies in every session of every agent but cursor, without oncall active$'
+exec ctxtra binding list
+stdout -count=5 '^[a-z-]+: '
+exec sh -c 'ctxtra binding list | grep "^[a-z-]*:" | cut -d: -f1 | tr "\n" " "'
+stdout '^first iam second review iam-repos $'
+! exec ctxtra binding add third --before nope --instruction notes.md
+stderr 'no binding named nope in the config'
+! exec ctxtra binding add third --before iam --after review --instruction notes.md
+stderr 'a binding goes either --before or --after another, not both'
+
+# One part of a monorepo.
+exec ctxtra binding add billing --repo github.com/acme/mono --subdir 'services/billing/**' --instruction 'iam-team:services/billing.md'
+stdout '^      repos:$'
+stdout '^        - repo: github.com/acme/mono$'
+stdout '^          subdirs:$'
+stdout '^            - ''services/billing/\*\*''$'
+
+# Two repositories with --subdir, and none.
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra binding add x --repo github.com/acme/a --repo github.com/acme/b --subdir 'svc/**' --instruction notes.md
+stderr '--subdir needs exactly one --repo, whose subdirs it writes; for other shapes, give the binding with --file; nothing changed'
+! exec ctxtra binding add x --subdir 'svc/**' --instruction notes.md
+stderr '--subdir needs exactly one --repo'
+! exec ctxtra binding add x --repo '!github.com/acme/mono' --subdir 'svc/**' --instruction notes.md
+stderr 'put ! in subdirs'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# Mistakes in conditions are refused, and nothing changes.
+! exec ctxtra binding add x --agent claude-cod --instruction notes.md
+stderr 'unknown agent "claude-cod" \(known: '
+! exec ctxtra binding add x --profile 'on call' --instruction notes.md
+stderr 'profile "on call"'
+! exec ctxtra binding add x --repo-set nope --instruction notes.md
+stderr 'binding x: repo-sets nope can''t be read: the config has no repo set nope'
+! exec ctxtra binding add x --collection '!iam-team:essentials'
+stderr 'binding x: collections has only ! entries: there is no collection for them to remove'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# --dry-run shows the binding and changes nothing.
+exec ctxtra binding add dry --profile iam --instruction notes.md --dry-run
+stdout '^would add binding dry to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in every session with iam active$'
+stdout '^nothing changed \(--dry-run\)$'
+cmp .config/ctxtra/config.yaml before.yaml
+
+-- team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    skills: [skills/*]
+repo-sets:
+  services: [github.com/acme/iam-*]
+-- team/docs/conventions.md --
+CONVENTIONS
+-- team/services/billing.md --
+BILLING
+-- team/skills/release/SKILL.md --
+---
+description: Release a service.
+---
+-- notes.md --
+NOTES

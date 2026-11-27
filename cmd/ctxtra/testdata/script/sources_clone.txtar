@@ -1,134 +1,76 @@
-# A clone added as a git source is pinned, starting at the clone's committed
-# HEAD. Plain paths under the clone are then served from the source; later
-# updates follow the remote.
-
+# A local repository source follows its named branch and reads accepted
+# commits. Dirty edits never reach the session.
 gitrepo srv/team-ctx
 exec git clone -q $GITSRV/team-ctx dev/team-ctx
 cp local.md dev/team-ctx/jira-ticket.md
 cp local.md dev/team-ctx/tool.sh
 chmod 755 dev/team-ctx/tool.sh
 gitcommit dev/team-ctx
-exec ctxtra setup --agent claude
-
-exec ctxtra source add git dev/team-ctx --include bindings/billing.yaml
-stdout '^~/dev/team-ctx is a clone of https://127.0.0.1:\d+/team-ctx, added as source team-ctx \(pinned\)$'
-stdout 'checks use your git credentials; credential helpers or hardware keys may ask for approval or a touch'
-stdout '^starts at your local commit [0-9a-f]{7}; later updates follow origin/main \(remote not checked yet\)$'
-stdout '^included ctxtra://team-ctx/bindings/billing.yaml$'
-stdout '^    instructions: services-overview.md$'
-stdout 'read it from disk instead: ctxtra source trust team-ctx$'
-exec ctxtra source show team-ctx
-stdout '^  binding file: ctxtra://team-ctx/bindings/billing.yaml$'
-stdout '^  clone: ~/dev/team-ctx '
-
-# Your own binding keeps the plain path; it is served from the store, at
-# the committed version. Uncommitted edits are not used.
+exec ctxtra setup --agent claude-code
+exec ctxtra source add --repo $HOME/dev/team-ctx
+stdout '^fetched team-ctx: main at [0-9a-f]{7} \(~/dev/team-ctx\)$'
+stdout '^added source team-ctx: new commits apply after you accept them in ctxtra source update team-ctx$'
+stdout '^executable files: tool.sh$'
+! stdout 'checks use your git credentials'
+exec ctxtra source show team-ctx --json
+stdout '"kind": "repo"'
+stdout '"location": "~/dev/team-ctx"'
+stdout '"branch": "main"'
+stdout '"check_updates": true'
+grep '^    repo: ~/dev/team-ctx$' .config/ctxtra/config.yaml
+exec ctxtra binding add me --instruction team-ctx:jira-ticket.md
+exec ctxtra binding add team --dir ~/nowhere --instruction team-ctx:services-overview.md
 cp uncommitted.md dev/team-ctx/jira-ticket.md
-runhook claude SessionStart notes
-stdout 'Contents of .*/.ctxtra/store/.*/jira-ticket.md'
+runhook claude-code SessionStart notes
+stdout 'Contents of .*/.local/share/ctxtra/store/.*/jira-ticket.md'
 stdout 'LOCAL-COMMIT'
 ! stdout 'UNCOMMITTED'
 ! stdout 'ctxtra notices'
 exec ctxtra doctor notes
-stdout 'NOTE: ~/dev/team-ctx/jira-ticket.md is served from team-ctx; you can write it as ctxtra://team-ctx/jira-ticket.md'
+stdout 'source team-ctx: repo ~/dev/team-ctx, branch main'
 
-# Binding files are included all together, or none of them.
-! exec ctxtra source add git dev/team-ctx --include bindings/other.yaml --include bindings/missing.yaml
-stderr 'bindings/missing.yaml is not a file in the source team-ctx; nothing added'
-! grep 'other.yaml' .config/ctxtra/config.yaml
-
-# Another file of the clone is included from the source, at its commit.
-exec ctxtra binding-file add dev/team-ctx/bindings/other.yaml
-stdout '^included ctxtra://team-ctx/bindings/other.yaml$'
-exec ctxtra source add git dev/team-ctx
-stdout '^~/dev/team-ctx is a clone of https://.*, the source team-ctx:'
-! stdout 'doesn''t change'
-exec ctxtra source add git dev/team-ctx --check-updates=false
-stdout '--check-updates doesn''t change the source team-ctx, which exists; set check-updates: false on it in the config'
+# Repeated adds preserve both files, even with another requested name.
+cp .config/ctxtra/config.yaml before.yaml
+cp .config/ctxtra/ctxtra.lock before.lock
+exec ctxtra source add --repo $HOME/dev/team-ctx --name another
+stdout 'branch main, is the source team-ctx already'
+cmp .config/ctxtra/config.yaml before.yaml
+cmp .config/ctxtra/ctxtra.lock before.lock
+exec ctxtra source add --repo $HOME/dev/team-ctx --check-updates=false
+stdout 'is the source team-ctx already'
 exec ctxtra source show team-ctx --json
 stdout '"check_updates": true'
-
-# The clone moves: nothing changes.
-mv dev/team-ctx dev/moved
-runhook claude SessionStart notes
-stdout 'LOCAL-COMMIT'
-mv dev/moved dev/team-ctx
-
-# sync follows the remote, which doesn't have the local commit.
-stdin no.txt
-exec ctxtra-tty source update team-ctx
-stdout 'warning: [0-9a-f]{7} doesn''t continue [0-9a-f]{7}'
-stdout '^-LOCAL-COMMIT$'
-
-# A local-git source follows the clone's committed HEAD instead.
-exec ctxtra source add local-git dev/team-ctx --name team-ctx-dev
-stdout '^added source team-ctx-dev \(local-git: ~/dev/team-ctx at [0-9a-f]{7}\); updates follow the clone''s committed HEAD$'
-stdout '^executable files: tool.sh$'
-! stdout 'checks use your git credentials'
-grep '^    local-git: ~/dev/team-ctx$' .config/ctxtra/config.yaml
-exec ctxtra source show team-ctx-dev --json
-stdout '"check_updates": true'
 exec git clone -q dev/team-ctx dev/quiet
-exec ctxtra source add local-git dev/quiet --name quiet-dev --check-updates=false
+exec ctxtra source add --repo $HOME/dev/quiet --name quiet-dev --check-updates=false
 stdout '^update checks are off for quiet-dev \(check-updates: false\)$'
 exec ctxtra source show quiet-dev --json
 stdout '"check_updates": false'
 exec ctxtra source remove quiet-dev
+
 cp wip.md dev/team-ctx/services-overview.md
 gitcommit dev/team-ctx
 stdin yes.txt
-exec ctxtra-tty source update team-ctx-dev
-stdout '^team-ctx-dev: [0-9a-f]{7} -> [0-9a-f]{7} \(local HEAD, ~/dev/team-ctx\)$'
-stdout 'accepted team-ctx-dev'
+exec ctxtra-tty source update team-ctx
+stdout '^team-ctx: [0-9a-f]{7} -> [0-9a-f]{7} \(main, ~/dev/team-ctx\)$'
+stdout 'accepted team-ctx'
 exec ctxtra doctor notes
-stdout 'source team-ctx-dev: local-git ~/dev/team-ctx, follows its committed HEAD, pinned to [0-9a-f]{7} \(new commits apply after you accept them in ctxtra source update\), last fetched'
+stdout 'source team-ctx: repo ~/dev/team-ctx, branch main, at [0-9a-f]{7}'
 
-# Removing the source: its binding files go, your own references are
-# listed, and the clone's old paths are skipped, not read from disk.
+# Removing a source keeps bindings and reports each dangling reference.
 exec ctxtra source remove team-ctx --dry-run
-stdout '^would remove source team-ctx$'
-grep 'ctxtra://team-ctx/' .config/ctxtra/config.yaml
+stdout '^would remove source team-ctx from ~/.config/ctxtra/config.yaml$'
+grep 'team-ctx:' .config/ctxtra/config.yaml
 exec ctxtra source remove team-ctx
-stdout '^removed source team-ctx$'
-stdout '^removed binding file ctxtra://team-ctx/bindings/billing.yaml$'
-stdout '^removed binding file ctxtra://team-ctx/bindings/other.yaml$'
-stdout '^your bindings still use it:$'
-stdout '^  ~/.config/ctxtra/bindings.yaml:\d+  instructions: \[ctxtra://team-ctx/services-overview.md\]$'
-stdout '^  ~/.config/ctxtra/bindings.yaml:\d+  instructions: \[~/dev/team-ctx/jira-ticket.md\]$'
-! grep 'ctxtra://team-ctx/' .config/ctxtra/config.yaml
+stdout '^removed source team-ctx from ~/.config/ctxtra/config.yaml$'
+stderr '^warning: binding me still uses team-ctx:jira-ticket.md; that entry is an error until you remove it$'
+stderr '^warning: binding team still uses team-ctx:services-overview.md; that entry is an error until you remove it$'
+! grep '^  team-ctx:' .config/ctxtra/config.yaml
+! grep '^  team-ctx:' .config/ctxtra/ctxtra.lock
 ! exec ctxtra context files notes
-stderr '~/dev/team-ctx/jira-ticket.md: ~/dev/team-ctx was imported as the source team-ctx \(https://.*\), which is not in the config any more; skipped, not read from disk'
+stderr 'the config has no source team-ctx'
 ! stdout 'jira-ticket.md'
 
-# Removing a binding file, by its entry or its path.
-exec ctxtra binding-file remove .config/ctxtra/bindings.yaml --dry-run
-stdout '^would remove binding file bindings.yaml$'
-symlink cfg -> .config/ctxtra
-exec ctxtra binding-file remove cfg/bindings.yaml --dry-run
-stdout '^would remove binding file bindings.yaml$'
-exec ctxtra binding-file remove bindings.yaml
-stdout '^removed binding file bindings.yaml$'
-! exec ctxtra binding-file remove bindings.yaml
-stderr 'is not in the include list'
-
--- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include:
-  - bindings.yaml
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: me
-    match:
-      global: true
-    instructions: [~/dev/team-ctx/jira-ticket.md]
-  - name: team
-    match:
-      dirs: [~/nowhere]
-    instructions: [ctxtra://team-ctx/services-overview.md]
 -- notes/.keep --
--- no.txt --
-n
 -- yes.txt --
 y
 -- local.md --
@@ -141,17 +83,3 @@ WIP
 REMOTE
 -- srv/team-ctx/services-overview.md --
 overview
--- srv/team-ctx/bindings/billing.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: billing
-    match:
-      repos: [{remote: github.com/acme/billing}]
-    instructions: [../services-overview.md]
--- srv/team-ctx/bindings/other.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: other
-    match:
-      repos: [{remote: github.com/acme/other}]
-    instructions: [../services-overview.md]

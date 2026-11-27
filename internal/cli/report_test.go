@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
@@ -24,21 +25,20 @@ func TestShowSession(t *testing.T) {
 	for _, s := range []string{"deploy", "lint"} {
 		testenv.Write(t, filepath.Join(h, "skills", s, "SKILL.md"), "---\ndescription: "+s+" it.\n---\n")
 	}
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: me
-    match: {global: true}
     instructions: [~/ctx/me.md]
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/shared.md, ~/ctx/svc.md]
     skills: [~/skills/deploy]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/shared.md, ~/ctx/other.md]
     skills: [~/skills/deploy, ~/skills/lint]
   - name: third
-    match: {repos: [{remote: github.com/acme/third}]}
+    location: {repos: [github.com/acme/third]}
     instructions: [~/ctx/shared.md, ~/ctx/other.md, ~/ctx/svc.md, ~/ctx/third.md]
 `)
 
@@ -59,7 +59,7 @@ bindings:
 		}
 		// The file the session has from svc applies here too: listed
 		// without its text.
-		known := fmt.Sprintf("Files that ctxtra also adds for this repository, ~/dev/other, and all its worktrees, which this session already has:\n- %s (binding: other ", filepath.Join(h, "ctx", "shared.md"))
+		known := fmt.Sprintf("Files that ctxtra also adds for this repository, ~/dev/other, and all its worktrees, which this session already has:\n- %s (binding: other)", filepath.Join(h, "ctx", "shared.md"))
 		if !strings.Contains(out, known) {
 			t.Errorf("%v: no list of the files the session has\n%s", args, out)
 		}
@@ -78,28 +78,27 @@ bindings:
 
 	// A file the session has from a repository binding, which a global
 	// binding adds too: the session doesn't know that it applies here.
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/svc.md]
   - name: all
-    match: {global: true}
     instructions: [~/ctx/svc.md]
 `)
-	if _, out, _ := run("context", "show", other, "--exclude-session", svc); strings.Contains(out, "MARK-SVC") || !strings.Contains(out, "- "+filepath.Join(h, "ctx", "svc.md")+" (binding: all ") {
+	if _, out, _ := run("context", "show", other, "--exclude-session", svc); strings.Contains(out, "MARK-SVC") || !strings.Contains(out, "- "+filepath.Join(h, "ctx", "svc.md")+" (binding: all)") {
 		t.Errorf("global here, from a repository binding there:\n%s", out)
 	}
 	if _, out, _ := run("context", "show", other, "--exclude-session", h); !strings.Contains(out, "(nothing is added here beyond") {
 		t.Errorf("global here and there:\n%s", out)
 	}
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/shared.md]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/other.md]
 `)
 
@@ -140,13 +139,13 @@ bindings:
 	// A file over an agent's limit: sessions of that agent don't get it, so
 	// show gives its text.
 	testenv.Write(t, filepath.Join(h, "ctx", "big.md"), strings.Repeat("MARK-BIG line of a big file\n", 400_000/28))
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     instructions: [~/ctx/big.md]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/big.md]
 `)
 	if _, out, _ := run("context", "show", other, "--exclude-session", svc); !strings.Contains(out, "MARK-BIG") || strings.Contains(out, "Files that ctxtra also adds") {
@@ -165,10 +164,10 @@ func TestShowLongTitle(t *testing.T) {
 	esc := strings.Repeat("\x1b", 240)
 	file := filepath.Join(h, esc, esc, esc, "a.md")
 	testenv.Write(t, file, strings.Repeat("MARK-LONG line of a file\n", 30_000/25))
-	testenv.Config(t, h, `schema: ctxtra/v1
+	testenv.Config(t, h, `schema: ctxtra/config/v1
 bindings:
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: ["`+strings.ReplaceAll(file, "\x1b", `\e`)+`"]
 `)
 	for n := 1; ; n++ {
@@ -197,8 +196,8 @@ func TestAgentDropsSameNames(t *testing.T) {
 		{Path: filepath.Join(h, "b", "style.md"), Content: big},
 		{Path: filepath.Join(h, "b", "other.md"), Content: big},
 	}}
-	for _, d := range agentDrops(res) {
-		if d.Agent == "copilot" {
+	for _, d := range (report{}).agentDrops(res) {
+		if d.Agent == "github-copilot" {
 			if want := []string{"~/b/style.md", "other.md"}; !slices.Equal(d.Dropped, want) {
 				t.Errorf("dropped %v, want %v", d.Dropped, want)
 			}
@@ -206,4 +205,25 @@ func TestAgentDropsSameNames(t *testing.T) {
 		}
 	}
 	t.Error("copilot isn't over its limit")
+}
+
+// A result fit to its agent still lists that agent as over in --json, and
+// has its error once: the one fitting added.
+func TestAgentDropsFitted(t *testing.T) {
+	h := testenv.Home(t)
+	big := strings.Repeat("x", 100_000)
+	res := &resolve.Result{Files: []resolve.Hit{
+		{Path: filepath.Join(h, "a.md"), Content: big, Origin: "me"},
+		{Path: filepath.Join(h, "b.md"), Content: big, Origin: "me"},
+	}}
+	a, _ := registry.Get("github-copilot")
+	a.Delivery().Fit(res)
+	r := report{agent: "github-copilot"}
+	drops := r.agentDrops(res)
+	if len(drops) != 1 || !slices.Equal(drops[0].Dropped, []string{"b.md"}) {
+		t.Errorf("drops %+v", drops)
+	}
+	if errs := r.capacityErrors(res); len(errs) != 0 {
+		t.Errorf("errors %v", errs)
+	}
 }

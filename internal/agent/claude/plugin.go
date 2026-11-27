@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 
@@ -189,13 +190,13 @@ func setupPlugin(o agent.Options, r *agent.Report) error {
 // A folder that isn't ctxtra's is no notice: setup said so, and the hooks
 // work without it.
 func checkPlugin(bin string) []string {
-	repair := agent.Repair("claude")
+	repair := agent.Repair("claude-code")
 	if why, err := foreign(); err != nil {
 		return []string{agent.UnreadableNotice(pluginDir(), err)}
 	} else if why != "" {
 		return nil
 	}
-	notices, ours := extfile.CheckSetup(extfile.Ext{Path: Agent{}.PluginPath(), Agent: "claude", Noun: "plugin"}, bin, false)
+	notices, ours := extfile.CheckSetup(extfile.Ext{Path: Agent{}.PluginPath(), Agent: "claude-code", Noun: "plugin"}, bin, false)
 	if !ours {
 		if len(notices) > 0 {
 			return notices
@@ -213,7 +214,8 @@ func checkPlugin(bin string) []string {
 	return notices
 }
 
-// pluginAnswer is the skills of the session for the mod.
+// pluginAnswer is the skills of the session for the mod, by the name of
+// their command.
 func pluginAnswer(res *resolve.Result) any {
 	type skill struct {
 		Name        string `json:"name"`
@@ -223,11 +225,36 @@ func pluginAnswer(res *resolve.Result) any {
 	skills := []skill{}
 	if res != nil {
 		for _, h := range res.Skills {
-			skills = append(skills, skill{h.Name, h.Description, h.Path})
+			skills = append(skills, skill{commandName(res, h), h.Description, h.Path})
 		}
 	}
 	return map[string]any{"skills": skills}
 }
+
+// commandName is the slash command of skill h of res. As Claude Code names
+// the commands of added folders, the first skill with a name keeps it, and
+// a later one gets its source's name in front, or its binding's for a skill
+// outside sources. Claude Code's mods take only letters, digits, _ and - in
+// a name, so the two parts are joined with -: /obs-team-release.
+func commandName(res *resolve.Result, h resolve.Hit) string {
+	for _, s := range res.SameSkills {
+		if s.Other.Path != h.Path {
+			continue
+		}
+		prefix := h.Source
+		if prefix == "" {
+			prefix = h.Origin
+		}
+		name := commandChars.ReplaceAllString(prefix, "-") + "-" + h.Name
+		if len(name) > 64 {
+			name = name[:64]
+		}
+		return name
+	}
+	return h.Name
+}
+
+var commandChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 // Mod is the mod that runs bin.
 func Mod(bin string) string { return extfile.Content(extfile.Mod, bin, protocol, modBody) }
@@ -260,7 +287,7 @@ async function answer($) {
 	const path = await binary($);
 	if (!path) return {};
 	const stdin = JSON.stringify({ cwd: await $.session.cwd(), session_id: await $.session.id(), ctxtra_plugin: ` + strconv.Itoa(protocol) + ` });
-	const r = await $.process.run([path, "hook", "claude", "` + pluginEvent + `"], { stdin, timeoutMs: 10000 });
+	const r = await $.process.run([path, "hook", "claude-code", "` + pluginEvent + `", "--setup-version=1"], { stdin, timeoutMs: 10000 });
 	if (r.exitCode !== 0 || r.isStdoutTruncated) return {};
 	return JSON.parse(r.stdout) ?? {};
 }

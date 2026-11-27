@@ -54,13 +54,11 @@ type Config struct {
 	// Missing is the agent when its hook answer can show the user that the
 	// binary is gone; nil for none.
 	Missing agent.Missing
-	// Legacy is what a hook that an older version set up gets, from the hook
-	// and whether its handler has ContextLimit; nil when every older hook
-	// gets as much as a new one.
-	Legacy func(event string, h agent.Hook, limited bool) (agent.Delivery, bool)
 	// RepairNote follows the command that sets up the agent again, in
 	// Check's notices.
 	RepairNote string
+	// RecordXDG copies folder variables into the command for a cleared environment.
+	RecordXDG bool
 }
 
 func (c Config) key() string {
@@ -241,7 +239,7 @@ func (c Config) Status(bin string, known bool) agent.Status {
 		return agent.Status{State: "unreadable: " + err.Error()}
 	}
 	cmds := c.commands(data)
-	notices := c.check(data, cmds, bin, known)
+	notices := c.check(data, cmds, bin, known, true)
 	var evs []string
 	for _, ev := range c.Events {
 		if len(cmds[ev.Name]) > 0 {
@@ -259,15 +257,20 @@ func (c Config) Status(bin string, known bool) agent.Status {
 
 // Check is agent.Agent.Check for the hook file: the binaries the hooks
 // run, hooks of an older version, missing hooks, and hooks that are gone.
-func (c Config) Check(bin string, known bool) []string {
+func (c Config) Check(bin string, known bool) []string { return c.Notices(bin, known, false) }
+
+// Notices are Check's notices; detailed are those of Status, for doctor.
+func (c Config) Notices(bin string, known, detailed bool) []string {
 	data, err := c.load()
 	if err != nil {
 		return []string{agent.UnreadableNotice(c.Path, err)}
 	}
-	return c.check(data, c.commands(data), bin, known)
+	return c.check(data, c.commands(data), bin, known, detailed)
 }
 
-func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string, known bool) []string {
+// check has the notices about the hook file. detailed: the notice about
+// hooks of an earlier ctxtra counts them by event.
+func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string, known, detailed bool) []string {
 	repair := agent.Repair(c.Agent) + c.RepairNote
 	// Setup and --remove both leave such a file alone: only the user can
 	// end this notice.
@@ -284,32 +287,74 @@ func (c Config) check(data *jsonorder.Map, cmds map[string][]Command, bin string
 		return nil
 	}
 	out := agent.BinaryNotices("the hooks run", bins, bin, repair)
+	if c.RecordXDG {
+		for _, ev := range c.Events {
+			for _, cmd := range cmds[ev.Name] {
+				h, _ := agent.ParseCommand(cmd.Text, c.Missing)
+				for _, notice := range agent.XDGNotices("the hooks", c.Agent, h.Env) {
+					if !slices.Contains(out, notice) {
+						out = append(out, notice)
+					}
+				}
+			}
+		}
+	}
+	if n := c.earlier(cmds, detailed); n != "" {
+		out = append(out, n+"; "+repair)
+	}
 	for _, ev := range c.Events {
 		list := c.entries(data, ev.Name)
 		if len(cmds[ev.Name]) == 0 {
 			out = append(out, fmt.Sprintf("%s has no ctxtra hook; %s", ev.Name, repair))
 			continue
 		}
-		legacy := false
 		for _, cmd := range cmds[ev.Name] {
-			if c.Legacy == nil {
-				break
-			}
-			h, _ := agent.ParseCommand(cmd.Text, c.Missing)
-			limited := c.ContextLimit == 0 || limit(data, list, cmd) == fmt.Sprint(c.ContextLimit)
-			if old, ok := c.Legacy(ev.Name, h, limited); ok {
-				if n := agent.LegacyNotice(old, repair); !slices.Contains(out, n) {
-					out = append(out, n)
-				}
-				legacy = true
+			if c.ContextLimit > 0 && limit(data, list, cmd) != fmt.Sprint(c.ContextLimit) {
+				out = append(out, fmt.Sprintf("%s has a different additionalContextLimit; %s", ev.Name, repair))
 				break
 			}
 		}
-		if n, of, ok := c.slots(cmds[ev.Name]); !legacy && c.Slots > 0 && !ok {
+		if n, of, ok := c.slots(cmds[ev.Name]); c.Slots > 0 && !ok {
 			out = append(out, fmt.Sprintf("%s has %d of the %d ctxtra hooks; %s", ev.Name, n, of, repair))
 		}
 	}
 	return out
+}
+
+// earlier is the notice about the hooks in cmds that an earlier ctxtra
+// wrote, "" for none. One line for the file, as a setup of slots has
+// dozens of hooks; one hook keeps its position. detailed adds how many
+// each event has.
+func (c Config) earlier(cmds map[string][]Command, detailed bool) string {
+	var first Command
+	var firstEvent string
+	var events []string
+	total := 0
+	for _, ev := range c.Events {
+		n := 0
+		for _, cmd := range cmds[ev.Name] {
+			if h, _ := agent.ParseCommand(cmd.Text, c.Missing); !h.Current {
+				if total == 0 {
+					first, firstEvent = cmd, ev.Name
+				}
+				n++
+				total++
+			}
+		}
+		if n > 0 {
+			events = append(events, fmt.Sprintf("%d %s", n, ev.Name))
+		}
+	}
+	file := paths.Tilde(c.Path)
+	switch {
+	case total == 0:
+		return ""
+	case total == 1:
+		return fmt.Sprintf("%s hook %d:%d in %s is from an earlier ctxtra", firstEvent, first.Group, first.Handler, file)
+	case detailed:
+		return fmt.Sprintf("%d hooks in %s are from an earlier ctxtra (%s)", total, file, strings.Join(events, ", "))
+	}
+	return fmt.Sprintf("%d hooks in %s are from an earlier ctxtra", total, file)
 }
 
 // binaries are the binaries that cmds run, in file order.
@@ -406,6 +451,9 @@ func (c Config) wanted(bin string, ev Event) (entries []any, handler any) {
 
 // entry is one entry that runs cmd, and for a grouped layout its handler.
 func (c Config) entry(cmd string, ev Event) (entry, handler *jsonorder.Map) {
+	if c.RecordXDG {
+		cmd = agent.WithXDG(cmd)
+	}
 	entry = jsonorder.NewMap()
 	if c.Flat {
 		entry.Set("command", cmd)
@@ -549,11 +597,24 @@ func runsHook(cmd, agent string) bool {
 	unquote := strings.NewReplacer(`'`, "", `"`, "", `\`, "")
 	words := strings.FieldsFunc(cmd, func(r rune) bool { return strings.ContainsRune(" \t\n\r;&|()<>`", r) })
 	for i := 0; i+1 < len(words); i++ {
-		if unquote.Replace(words[i]) == "hook" && unquote.Replace(words[i+1]) == agent {
+		if unquote.Replace(words[i]) == "hook" && currentName(unquote.Replace(words[i+1])) == agent {
 			return true
 		}
 	}
 	return false
+}
+
+// currentName identifies commands written before the agent IDs changed.
+func currentName(name string) string {
+	switch name {
+	case "claude":
+		return "claude-code"
+	case "copilot":
+		return "github-copilot"
+	case "hermes":
+		return "hermes-agent"
+	}
+	return name
 }
 
 // updateMixed handles a group with our handler next to other tools'

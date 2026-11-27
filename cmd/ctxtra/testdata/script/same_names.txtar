@@ -1,0 +1,63 @@
+# Same names are not mistakes. Of two MCP servers named jira the session
+# gets the first, and ctxtra suggests a new name for the other; two skills
+# named release both reach the session, and Claude Code offers the second
+# as /obs-team-release. The session message, explain, mcp status and doctor
+# name both, and doctor doesn't fail for them.
+mkdir dev/app
+exec ctxtra setup --agent claude-code
+exec ctxtra source add --dir iam --name iam-team
+exec ctxtra source add --dir obs --name obs-team
+exec sh -c 'cat config-tail.yaml >> .config/ctxtra/config.yaml'
+
+# Two servers named jira.
+runhook claude-code SessionStart dev/app
+stdout 'MCP servers jira and iam-team:jira are both named jira; the session gets jira, the first in binding order; to get both, give iam-team:jira a new name in the config''s mcp-servers: jira_iam_team: \{use: ''iam-team:jira''\}'
+exec ctxtra context explain dev/app
+stdout 'MCP servers jira and iam-team:jira are both named jira; the session gets jira'
+exec ctxtra mcp status dev/app
+stdout 'MCP servers jira and iam-team:jira are both named jira; the session gets jira, .*jira_iam_team: \{use: ''iam-team:jira''\} \(binding b\)'
+exec ctxtra doctor dev/app
+stdout 'NOTICE: MCP servers jira and iam-team:jira are both named jira; the session gets jira'
+
+# Two release skills: the session's list has both, and the session message
+# and doctor name both.
+runhook claude-code SessionStart dev/app
+stdout 'iam/skills/release/SKILL.md'
+stdout 'obs/skills/release/SKILL.md'
+stdout 'two skills are named release: iam-team:skills/release \(binding b\) and obs-team:skills/release \(binding b\); the session gets both'
+exec ctxtra doctor dev/app
+stdout 'NOTICE: two skills are named release: iam-team:skills/release \(binding b\) and obs-team:skills/release \(binding b\); the session gets both'
+
+# Claude Code has /release and /obs-team-release.
+cd dev/app
+stdin $WORK/plugin.json
+exec ctxtra hook claude-code PluginStart --setup-version=1
+stdout '\{"name":"release","description":"IAM release","path":"[^"]*/iam/skills/release/SKILL.md"\},\{"name":"obs-team-release","description":"OBS release","path":"[^"]*/obs/skills/release/SKILL.md"\}'
+
+-- plugin.json --
+{"ctxtra_plugin": 1}
+-- config-tail.yaml --
+mcp-servers:
+  jira: {url: https://jira.me.example.com/mcp}
+bindings:
+  - name: a
+    mcp-servers: [jira]
+  - name: b
+    mcp-servers: ['iam-team:jira']
+    skills: ['iam-team:skills/*', 'obs-team:skills/*']
+-- iam/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  jira: {url: https://jira.iam.example.com/mcp}
+-- iam/skills/release/SKILL.md --
+---
+name: release
+description: IAM release
+---
+Release IAM.
+-- obs/skills/release/SKILL.md --
+---
+name: release
+description: OBS release
+---
+Release OBS.

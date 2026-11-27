@@ -18,7 +18,7 @@ func TestRun(t *testing.T) {
 	if _, err := Run(o); err == nil {
 		t.Error("unknown agent accepted")
 	}
-	o.Agents, o.Binary = []string{"claude"}, "ctxtra"
+	o.Agents, o.Binary = []string{"claude-code"}, "ctxtra"
 	if _, err := Run(o); err == nil {
 		t.Error("relative binary path accepted")
 	}
@@ -29,13 +29,13 @@ func TestRun(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	o.Agents, o.Binary = nil, "/bin/ctxtra"
 	r, err := Run(o)
-	if err != nil || len(r.Errors) > 0 || len(r.Agents) != 1 || r.Agents[0].Name() != "cursor" || len(r.Agents[0].Changes) != 1 || len(r.Changes) != 1 {
+	if err != nil || len(r.Errors) > 0 || len(r.Agents) != 1 || r.Agents[0].Name() != "cursor" || len(r.Agents[0].Changes) != 2 || len(r.Changes) != 2 {
 		t.Fatalf("report %+v, err %v", r, err)
 	}
 	if _, err := os.Stat(filepath.Join(h, ".cursor", "hooks.json")); !os.IsNotExist(err) {
 		t.Error("dry run wrote files")
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra")); !os.IsNotExist(err) {
 		t.Error("dry run wrote setup.json or its lock")
 	}
 }
@@ -51,7 +51,7 @@ func TestRunLocks(t *testing.T) {
 	}
 	done := make(chan error)
 	go func() {
-		o := Options{Agents: []string{"claude"}}
+		o := Options{Agents: []string{"claude-code"}}
 		o.Binary = "/bin/ctxtra"
 		_, err := Run(o)
 		done <- err
@@ -68,7 +68,7 @@ func TestRunLocks(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if s, ok, err := state.LoadSetups(); !ok || err != nil || !s.Known("claude", filepath.Join(h, ".claude", "settings.json")) {
+	if s, ok, err := state.LoadSetups(); !ok || err != nil || !s.Known("claude-code", filepath.Join(h, ".claude", "settings.json")) {
 		t.Errorf("setup.json %+v, %v, %v", s, ok, err)
 	}
 }

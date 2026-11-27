@@ -1,0 +1,40 @@
+# The user changes a source's address: after the update and a new approval,
+# its server's old sign-in is not used, and it needs sign-in again.
+env BROWSER=fakebrowser
+fakeauth
+mkdir dev/app
+expand manifest.yaml srv/team/ctxtra-source.yaml
+gitrepo srv/team
+exec ctxtra setup --agent claude-code
+exec ctxtra source add --repo $GITSRV/team
+stdin yes.txt
+exec ctxtra-tty mcp login team:jira
+stdout '^signed in to team:jira'
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server team:jira
+mcp dev/app
+stdout '^tool jira__list_issues'
+
+exec cp -R srv/team srv/moved
+exec sh -c 'sed -i.bak "s|/team$|/moved|" .config/ctxtra/config.yaml'
+grep '/moved$' .config/ctxtra/config.yaml
+stdin yes.txt
+exec ctxtra-tty source update team
+stdout 'a new source'
+stdout 'its MCP servers need approval and sign-in again'
+stdin yes.txt
+exec ctxtra-tty mcp approve team:jira
+mcp dev/app
+! stdout '^tool jira__'
+exec ctxtra mcp list
+stdout '^team:jira  remote, not signed in'
+exec ctxtra mcp status dev/app
+stdout 'team:jira  remote, .*, not signed in'
+stdout 'team:jira  missing: needs sign-in: the sign-in was for another address'
+
+-- yes.txt --
+y
+-- manifest.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  jira:
+    url: $FAKE_MCP

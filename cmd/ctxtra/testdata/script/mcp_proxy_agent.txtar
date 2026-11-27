@@ -1,0 +1,32 @@
+# The proxy names its agent: in a Claude Code session with a tool missing,
+# its message says to run ctxtra mcp status --agent claude-code, which shows
+# the server that a binding for Claude Code adds.
+mkdir dev/app
+mkdir .config/ctxtra
+cp config.yaml .config/ctxtra/config.yaml
+env MCP_AGENT=claude-code
+mcp dev/app
+stdout 'instructions: .*run `ctxtra mcp status --agent claude-code` in the session folder'
+stdout 'linear needed sign-in'
+
+# MCP servers for one agent: Codex's proxy doesn't serve linear.
+env MCP_AGENT=codex
+mcp dev/app
+! stdout 'linear'
+env MCP_AGENT=claude-code
+
+exec ctxtra mcp status dev/app --agent claude-code
+stdout '^  linear  remote, https://mcp.example.invalid'
+exec ctxtra mcp status dev/app
+stdout '^no MCP servers are bound to ~/dev/app$'
+
+-- config.yaml --
+schema: ctxtra/config/v1
+mcp-servers:
+  linear: {url: 'https://mcp.example.invalid/mcp'}
+bindings:
+  - name: tracker
+    agents: [claude-code]
+    mcp-servers: [linear]
+-- .local/state/ctxtra/mcp/state/linear.json --
+{"version":1,"name":"linear","needs_login":true,"reason":"the sign-in expired or was revoked"}

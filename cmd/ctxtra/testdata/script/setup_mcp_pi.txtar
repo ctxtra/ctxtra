@@ -12,7 +12,7 @@ cmp .pi/agent/mcp.json original.json
 exec ctxtra setup --agent pi
 stdout '~/.pi/agent/mcp.json'
 cmpenv .pi/agent/mcp.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 exec ctxtra setup --agent pi
 stdout 'is already set up for'
 
@@ -24,7 +24,7 @@ exec ctxtra setup --remove --agent pi
 grep '"other"' .pi/agent/mcp.json
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [pg-mcp]}
 -- original.json --
@@ -46,7 +46,8 @@ mcp-servers:
       "args": [
         "mcp",
         "proxy",
-        "pi"
+        "pi",
+        "--setup-version=1"
       ]
     }
   }

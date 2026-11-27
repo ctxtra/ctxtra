@@ -50,7 +50,7 @@ func onboard(stdio IO, agents []string, prompts bool) int {
 		{follow, "Work across multiple projects in one session?",
 			"The ctxtra-follow skill helps your agent pick up the instructions and skills you've configured for each project as your work moves between them."},
 	} {
-		if skillBound(offer.name) != nil {
+		if skillBound(offer.name) != "" {
 			continue
 		}
 		onboardSeparator(stdio.Out)
@@ -95,10 +95,10 @@ func onboardImport(stdio IO, in *bufio.Reader) int {
 	if unreadable(stdio, files) {
 		return 1
 	}
-	if skillBound(skill.Base) == nil {
+	if skillBound(skill.Base) == "" {
 		fmt.Fprintln(stdio.Out, "Agent-assisted import needs the ctxtra skill. To install it later: ctxtra skill install ctxtra")
 	}
-	if skillBound(skill.Base) == nil || len(launchers) == 0 {
+	if skillBound(skill.Base) == "" || len(launchers) == 0 {
 		fmt.Fprintln(stdio.Out, "To bring these into ctxtra later, run ctxtra import.")
 		return 0
 	}

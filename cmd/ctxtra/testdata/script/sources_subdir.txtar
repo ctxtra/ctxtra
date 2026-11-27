@@ -1,0 +1,132 @@
+# A folder of a repository: subdir is the source's top. Its manifest, its
+# SOURCE:PATH references and the update review are under it, the lock
+# records it, and another subdir is a new source.
+
+gitrepo srv/agent-context
+exec git -C srv/agent-context branch next
+exec ctxtra setup --agent claude-code
+
+# Add one team's folder: named after the repository and the folder's last
+# part, with the manifest of that folder, not the repository's.
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/billing
+stdout '^fetched agent-context-billing: main at [0-9a-f]{7} '
+stdout '^warning: new MCP server agent-context-billing:ledger '
+! stdout 'root-server'
+grep '^    subdir: teams/billing$' .config/ctxtra/config.yaml
+grep '^    subdir: teams/billing$' .config/ctxtra/ctxtra.lock
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/obs/
+stdout '^fetched agent-context-obs: main at '
+stdout '^it has no ctxtra-source.yaml; its files:\n  rules.md\n'
+grep '^    subdir: teams/obs$' .config/ctxtra/config.yaml
+
+# The same folder again is the same source; a name another source has is
+# an error that changes nothing and asks for --name.
+cp .config/ctxtra/config.yaml before.yaml
+exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/billing --name other
+stdout ', branch main, subdir teams/billing, is the source agent-context-billing already$'
+! exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/iam --name agent-context-obs
+stderr 'the name agent-context-obs is taken by the source for repo .*, branch main, subdir teams/obs; choose another name with --name'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# One team's folder of a shared repository: billing's skills, not iam's.
+# Two folders of one commit are kept apart in the store.
+exec ctxtra binding add billing --skill 'agent-context-billing:skills/*' --instruction agent-context-obs:rules.md
+runhook claude-code SessionStart notes
+stdout '<name>invoice</name>'
+stdout 'OBS_RULES'
+! stdout 'login'
+stdout 'store/[0-9a-f]{16}/[0-9a-f]{40}/skills/invoice/SKILL.md'
+
+# Commits to other teams' folders: nothing new, for the update check and
+# for source update.
+cp v2/iam.md srv/agent-context/teams/iam/skills/login/notes.md
+gitcommit srv/agent-context
+exec ctxtra check-updates
+stdout '^agent-context-billing: no new commits \(checked .*\)$'
+runhook claude-code SessionStart notes
+! stdout 'new commits'
+exec ctxtra source update agent-context-billing --dry-run
+stdout '^agent-context-billing: up to date: main at [0-9a-f]{7} changes nothing under teams/billing since [0-9a-f]{7}$'
+
+# A commit under the folder is new; the review shows paths from the
+# source's top.
+cp v2/invoice.md srv/agent-context/teams/billing/skills/invoice/SKILL.md
+gitcommit srv/agent-context
+exec ctxtra check-updates
+stdout '^agent-context-billing: new commits'
+exec ctxtra source update agent-context-billing --dry-run
+stdout '^\+\+\+ b/skills/invoice/SKILL.md$'
+stdout '^\+description: Invoices, twice\.$'
+! stdout 'teams/iam'
+
+# Another branch with the same files: the review says nothing changed
+# under the folder, and on accept the lock has the new branch.
+exec sh -c 'sed -i.bak "s/branch: main/branch: next/" .config/ctxtra/config.yaml'
+! exec ctxtra context files notes
+stderr 'source agent-context-billing: ctxtra.lock has a commit accepted for another branch, tag or rev; run `ctxtra source update agent-context-billing`'
+stdin yes.txt
+exec ctxtra-tty source update agent-context-billing
+stdout '^ctxtra.lock has [0-9a-f]{7} accepted for branch main; the config now says branch next$'
+stdout '^nothing changed under teams/billing$'
+stdout '^accepted agent-context-billing '
+grep -count=1 '^    branch: next$' .config/ctxtra/ctxtra.lock
+runhook claude-code SessionStart notes
+stdout '<description>Invoices.</description>'
+
+# subdir changed: the source is inactive until a review, which shows the
+# folder as a new source, not as a diff of the same commit.
+exec sh -c 'sed -i.bak "s|subdir: teams/billing|subdir: teams|" .config/ctxtra/config.yaml'
+! exec ctxtra context files notes
+stderr 'source agent-context-billing: ctxtra.lock has a commit accepted for another subdir; run `ctxtra source update agent-context-billing` to review it'
+exec ctxtra source update agent-context-billing --dry-run
+stdout '^agent-context-billing: a new source: repo .*, branch next, subdir teams at [0-9a-f]{7}; ctxtra.lock has [0-9a-f]{7} accepted for repo .*, branch next, subdir teams/billing$'
+stdout '^its MCP servers need approval and sign-in again$'
+stdout '^  added    iam/skills/login/SKILL.md$'
+! stdout ' -> '
+
+# subdir is never followed as a symlink, and a missing folder is an
+# error; neither changes anything.
+symlink srv/agent-context/linked -> teams/billing
+gitcommit srv/agent-context
+cp .config/ctxtra/config.yaml before.yaml
+cp .config/ctxtra/ctxtra.lock before.lock
+! exec ctxtra source add --repo $GITSRV/agent-context --subdir linked
+stderr 'subdir linked is a blob, not a folder'
+! exec ctxtra source add --repo $GITSRV/agent-context --subdir teams/none
+stderr 'has no folder teams/none'
+cmp .config/ctxtra/config.yaml before.yaml
+cmp .config/ctxtra/ctxtra.lock before.lock
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+-- notes/.keep --
+-- yes.txt --
+y
+-- srv/agent-context/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  root-server: {url: 'https://root.example/mcp'}
+-- srv/agent-context/teams/billing/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+mcp-servers:
+  ledger: {url: 'https://ledger.example/mcp'}
+-- srv/agent-context/teams/billing/skills/invoice/SKILL.md --
+---
+description: Invoices.
+---
+Run invoices.
+-- srv/agent-context/teams/iam/skills/login/SKILL.md --
+---
+description: Log in.
+---
+Log in.
+-- srv/agent-context/teams/obs/rules.md --
+OBS_RULES
+-- v2/iam.md --
+more iam
+-- v2/invoice.md --
+---
+description: Invoices, twice.
+---
+Run invoices.

@@ -15,7 +15,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/netguard"
 	"github.com/ctxtra/ctxtra/internal/mcp/oauth"
@@ -125,8 +124,8 @@ func printSignInResult(out io.Writer, s upstream.Server, res *oauth.Result) {
 // a server removed or changed meanwhile gets no credentials.
 func stillDeclared(s upstream.Server) func(save func() error) error {
 	return func(save func() error) error {
-		return config.WithLock(func() error {
-			cur, ok := config.Load(paths.ConfigPath(), newReader()).MCPServer(s.ID)
+		return withLock(func() error {
+			cur, ok := findServer(s.ID)
 			if !ok || creds.Fingerprint(cur) != creds.Fingerprint(s) {
 				return fmt.Errorf("%s was removed or changed while you signed in; nothing was saved", s.ID)
 			}
@@ -206,10 +205,9 @@ func (a *app) mcpLogin(name string, withSecrets bool, o signInOptions) int {
 		fmt.Fprintf(a.Err, "ctxtra mcp login: %v\n", err)
 		return 1
 	}
-	cfg := config.Load(paths.ConfigPath(), newReader())
-	s, ok := cfg.MCPServer(name)
+	s, ok := findServer(name)
 	if !ok {
-		return fail(fmt.Errorf("no MCP server %q in %s", name, paths.Tilde(cfg.File)))
+		return fail(fmt.Errorf("no MCP server %q in %s or the manifests of its sources", name, paths.Tilde(paths.ConfigPath())))
 	}
 	if err := a.requireMCPApproval(s); err != nil {
 		return fail(err)
@@ -313,15 +311,14 @@ the config.`,
 		Args:    exactly("NAME"),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			name := args[0]
-			if err := config.CheckMCPRef(name); err != nil {
+			if err := checkServerRef(name); err != nil {
 				return err
 			}
-			cfg := config.Load(paths.ConfigPath(), newReader())
-			s, ok := cfg.MCPServer(name)
+			s, ok := findServer(name)
 			if !ok {
-				s = upstream.Server{ID: config.MCPServerID(name), Name: name}
+				s = upstream.Server{ID: name, Name: name}
 			}
-			if err := config.WithLock(func() error { return openStore().Logout(s) }); err != nil {
+			if err := withLock(func() error { return openStore().Logout(s) }); err != nil {
 				fmt.Fprintf(a.Err, "ctxtra mcp logout: %v\n", err)
 				return exitCode(1)
 			}

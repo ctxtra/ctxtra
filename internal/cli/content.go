@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/ctxtra/ctxtra/internal/config"
-	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/risk"
 	"github.com/ctxtra/ctxtra/internal/source"
 )
@@ -130,32 +128,35 @@ func (s *sources) contentCheck(src string) *contentCheck {
 	return &contentCheck{s: s, src: src, checker: risk.NewChecker()}
 }
 
-// read is a file of a generation, and whether it can be checked. A file that
-// can't be read is treated as one that can't be checked.
-func read(gen, p string) ([]byte, bool) {
-	data, err := fsutil.ReadBounded(filepath.Join(gen, filepath.FromSlash(p)), source.MaxFileBytes)
+// read is a file of a source's files, and whether it can be checked. A file
+// that can't be read is treated as one that can't be checked.
+func read(files fs.FS, p string) ([]byte, bool) {
+	if fi, err := fs.Stat(files, p); err != nil || !fi.Mode().IsRegular() || fi.Size() > source.MaxFileBytes {
+		return nil, false
+	}
+	data, err := fs.ReadFile(files, p)
 	return data, err == nil && risk.Text(data)
 }
 
-// walkGen calls fn for each regular file of a generation, by its path in the
-// commit.
-func walkGen(gen string, fn func(rel string)) {
-	_ = filepath.WalkDir(gen, func(p string, d fs.DirEntry, err error) error {
+// walkFiles calls fn for each regular file of a source's files, by its path
+// from the source's top.
+func walkFiles(files fs.FS, fn func(rel string)) {
+	_ = fs.WalkDir(files, ".", func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.Type().IsRegular() {
-			fn(filepath.ToSlash(must(filepath.Rel(gen, p))))
+			fn(p)
 		}
 		return nil
 	})
 }
 
-// known records the URLs of the files of gen that use selects: in the
-// accepted commit, so that its URLs aren't new.
-func (c *contentCheck) known(gen string, use func(rel string) bool) {
-	walkGen(gen, func(rel string) {
+// known records the URLs of the files that use selects: in the accepted
+// commit, so that its URLs aren't new.
+func (c *contentCheck) known(files fs.FS, use func(rel string) bool) {
+	walkFiles(files, func(rel string) {
 		if !use(rel) {
 			return
 		}
-		if data, ok := read(gen, rel); ok {
+		if data, ok := read(files, rel); ok {
 			c.checker.Known(data)
 		}
 	})
@@ -199,10 +200,10 @@ func (c *contentCheck) newExecutable(w io.Writer, ch source.Change, print bool) 
 	}
 }
 
-// printDiff prints a diff of files in gen with the content warnings of its
-// added lines, each after its line. Only files in check are read: the
-// regular files the diff shows.
-func (c *contentCheck) printDiff(w io.Writer, d string, gen string, check map[string]bool) {
+// printDiff prints a diff of files with the content warnings of its added
+// lines, each after its line. Only files in check are read: the regular
+// files the diff shows.
+func (c *contentCheck) printDiff(w io.Writer, d string, files fs.FS, check map[string]bool) {
 	added := map[string]*spans{}
 	var order []string
 	walkDiff(d, func(l diffLine) {
@@ -218,7 +219,7 @@ func (c *contentCheck) printDiff(w io.Writer, d string, gen string, check map[st
 	findings := map[string]map[int][]risk.Finding{}
 	notes := map[string]string{}
 	for _, p := range order {
-		data, ok := read(gen, p)
+		data, ok := read(files, p)
 		if !ok {
 			notes[p] = notCheckedWhy
 			c.diag("notice", p+": "+notCheckedWhy)
@@ -249,18 +250,20 @@ func (c *contentCheck) printDiff(w io.Writer, d string, gen string, check map[st
 	})
 }
 
-// checkAdded prints the content warnings of the files that the config uses
-// from the source name at commit, whose files are in gen, now that it is
-// added: the first version of a source is accepted without a review.
-func (s *sources) checkAdded(name, commit, gen string) {
-	u := &used{files: map[string]bool{}}
-	u.add(config.LoadAt(s.file, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes), name, commit), gen)
+// checkAdded prints the content warnings of the files that new source
+// name offers, whose files are in snap: every file of its manifest's
+// collections, and the files that the config's bindings already use from
+// it. The first version of a source is accepted without a review.
+func (s *sources) checkAdded(env *resolve.Env, name string, snap *source.Snapshot) {
+	cat := env.Catalog.WithFiles(name, snap, reviewTop(name))
+	u := usedFrom(env, cat, name)
+	u.addOffered(env, cat, name)
 	c := s.contentCheck(name)
-	walkGen(gen, func(rel string) {
+	walkFiles(snap, func(rel string) {
 		if !u.has(rel) {
 			return
 		}
-		data, ok := read(gen, rel)
+		data, ok := read(snap, rel)
 		if !ok {
 			c.diag("notice", rel+": "+notCheckedWhy)
 			fmt.Fprintf(s.Out, "note: %s: %s\n", source.Sanitize(rel), notCheckedWhy)
@@ -274,4 +277,5 @@ func (s *sources) checkAdded(name, commit, gen string) {
 			fmt.Fprintf(s.Out, "note: %s: %d content warnings; the first %d are shown\n", source.Sanitize(rel), n, maxWarnings)
 		}
 	})
+	s.printErrors(name, u, &used{})
 }

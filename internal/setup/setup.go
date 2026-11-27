@@ -14,9 +14,9 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/state"
 )
 
@@ -24,27 +24,26 @@ import (
 type Options struct {
 	Agents []string // empty: every agent found on this machine
 	agent.Options
-	// MCP is what the config says about MCP servers: whether agents get
-	// ctxtra's MCP entry. Remove removes the entry either way.
+	// MCP supplies the environment names local servers need.
 	MCP MCPConfig
 }
 
 // MCPConfig is what setup needs from the config about MCP servers.
 type MCPConfig struct {
-	Want    bool     // the config declares a server
-	EnvPass []string // every local server's env-pass names
+	EnvPass []string // every local server's pass-env names
 }
 
-// LoadMCP reads the config the way sessions do ($CTXTRA_CONFIG or the
-// default file).
-func LoadMCP() MCPConfig {
-	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	cfg.LoadMCPCatalog()
-	m := MCPConfig{Want: len(cfg.MCPServers) > 0}
-	for _, s := range cfg.MCPServers {
+// LoadMCP reads the config the way sessions do. The error is the
+// resolve.FatalError of a config or lock that can't be used as a whole:
+// setup then knows nothing of its servers.
+func LoadMCP() (MCPConfig, error) {
+	env := resolve.Load(paths.ConfigPath(), registry.Names())
+	servers, _ := env.Catalog.AllServers()
+	m := MCPConfig{}
+	for _, s := range servers {
 		m.EnvPass = append(m.EnvPass, s.EnvPass...)
 	}
-	return m
+	return m, env.Fatal()
 }
 
 // MCPKey is the key of an agent's MCP entry in setup.json.
@@ -101,7 +100,7 @@ func Run(o Options) (Report, error) {
 		n := len(r.Changes)
 		err := a.Setup(o.Options, &r.Report)
 		if m, ok := a.(agent.MCPAgent); ok && err == nil {
-			err = m.MCP().SetupMCP(agent.MCPOptions{Options: o.Options, Want: o.MCP.Want, EnvPass: o.MCP.EnvPass}, &r.Report)
+			err = m.MCP().SetupMCP(agent.MCPOptions{Options: o.Options, Want: true, EnvPass: o.MCP.EnvPass}, &r.Report)
 		}
 		r.Agents = append(r.Agents, Agent{a, slices.Clone(r.Changes[n:]), err})
 		if err != nil {
@@ -111,7 +110,7 @@ func Run(o Options) (Report, error) {
 		done = append(done, a)
 	}
 	if !o.DryRun {
-		r.Record = record(o.Remove, o.MCP.Want, done)
+		r.Record = record(o.Remove, done)
 	}
 	return r, nil
 }
@@ -119,7 +118,7 @@ func Run(o Options) (Report, error) {
 // record adds to setup.json the agents that this run set up, or removes
 // those it removed, and every agent found on this machine. A broken
 // setup.json is replaced.
-func record(remove, mcp bool, done []agent.Agent) error {
+func record(remove bool, done []agent.Agent) error {
 	s, _, err := state.LoadSetups()
 	if err != nil {
 		s = state.Setups{}
@@ -129,13 +128,12 @@ func record(remove, mcp bool, done []agent.Agent) error {
 			s.Uninstall(a.Name(), a.ConfigPath())
 		} else {
 			s.Install(a.Name(), a.ConfigPath())
-			s.SetConfig(a.Name(), a.ConfigPath(), paths.ConfigPath())
 		}
 		if m, ok := a.(agent.MCPAgent); ok {
 			switch {
 			case remove:
 				s.Uninstall(MCPKey(a.Name()), m.MCP().MCPPath())
-			case mcp:
+			default:
 				s.Install(MCPKey(a.Name()), m.MCP().MCPPath())
 			}
 		}

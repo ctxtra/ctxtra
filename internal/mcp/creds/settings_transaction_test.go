@@ -8,17 +8,20 @@ import (
 	"testing"
 
 	"github.com/zalando/go-keyring"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/edit"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/testenv"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 func TestSettingsFailureRestoresConfigAndSharedCredentials(t *testing.T) {
 	for _, stage := range []string{"generations", "credentials"} {
 		t.Run(stage, func(t *testing.T) {
 			h := testenv.Home(t)
-			file := testenv.Config(t, h, config.NewConfig)
+			file := testenv.Config(t, h, config.NewFile)
 			keyring.MockInit()
 			s := &Store{Dir: t.TempDir()}
 			if _, err := s.EnsureKey(); err != nil {
@@ -43,7 +46,13 @@ func TestSettingsFailureRestoresConfigAndSharedCredentials(t *testing.T) {
 			}
 			secret := "new"
 			wroteConfig := false
-			err = config.EditWithCommit(file, func(old []byte) ([]byte, error) { return append(old, []byte("# committed config\n")...), nil }, func(write func() error) error {
+			files := edit.Files{Config: file, Mutex: filepath.Join(h, "config.lock"), Backups: filepath.Join(h, "backups")}
+			add := func(tx *edit.Tx) error {
+				_, err := tx.Config.Add(config.MCPServers, "shared", &yaml.Node{Kind: yaml.MappingNode,
+					Content: []*yaml.Node{yamlx.Text("url"), yamlx.Text("https://example.com/mcp")}}, config.Place{})
+				return err
+			}
+			err = files.RunCommit(add, func(write func() error) error {
 				_, err := s.CommitSettings(srv, WriteGuard{ExpectedGeneration: &generation}, &Settings{ClientSecret: &secret}, func() error {
 					if err := write(); err != nil {
 						return err
@@ -59,7 +68,7 @@ func TestSettingsFailureRestoresConfigAndSharedCredentials(t *testing.T) {
 			}
 			after, _ := os.ReadFile(s.recordPath(srv.ID, version))
 			cfg, _ := os.ReadFile(file)
-			if !bytes.Equal(before, after) || string(cfg) != config.NewConfig {
+			if !bytes.Equal(before, after) || string(cfg) != config.NewFile {
 				t.Fatal("failed settings save changed config or shared credentials")
 			}
 		})

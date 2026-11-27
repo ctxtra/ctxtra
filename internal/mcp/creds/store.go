@@ -64,7 +64,7 @@ type Store struct {
 	id *age.X25519Identity
 }
 
-// Open is the store in ~/.ctxtra/mcp.
+// Open is the store in ~/.local/state/ctxtra/mcp.
 func Open() *Store { return &Store{Dir: filepath.Join(paths.StateDir(), "mcp")} }
 
 func (s *Store) now() time.Time {

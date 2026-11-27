@@ -1,0 +1,22 @@
+# A binding that would make the config larger than ctxtra reads is refused,
+# with --dry-run too, and the config stays as it was: sessions would read
+# nothing from it.
+mkdir .config/ctxtra
+exec sh -c 'printf "schema: ctxtra/config/v1\n# " > .config/ctxtra/config.yaml; head -c 4193900 /dev/zero | tr "\0" x >> .config/ctxtra/config.yaml; echo >> .config/ctxtra/config.yaml'
+cp .config/ctxtra/config.yaml before.yaml
+exec sh -c 'printf "profiles: [" > entry.yaml; for i in $(seq 200); do printf "a, "; done >> entry.yaml; printf "a]\ninstructions: [../../notes.md]\n" >> entry.yaml'
+
+! exec ctxtra binding add too-large --file entry.yaml --dry-run
+stderr 'the result would have \d+ bytes, more than the 4194304 that ctxtra reads; nothing changed'
+cmp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra binding add too-large --file entry.yaml
+stderr 'more than the 4194304 that ctxtra reads; nothing changed'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# A small binding still fits.
+exec ctxtra binding add small --instruction notes.md
+exec ctxtra binding list
+stdout '^small: every session$'
+
+-- notes.md --
+NOTES

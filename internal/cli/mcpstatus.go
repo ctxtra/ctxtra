@@ -5,28 +5,33 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxtra/ctxtra/internal/agent/registry"
 	"github.com/ctxtra/ctxtra/internal/mcp/netguard"
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/term"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 func (a *app) mcpStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var agentName string
+	c := &cobra.Command{
 		Use:   "status [DIR]",
 		Short: "Show the MCP servers of a folder, and why a session has no tools of one",
 		Long: `Show the MCP servers bound to DIR (the current folder by default) with their
 sign-in state, and what the last session started there got from each: its
-tools in time, later, or none, and why. Reads local files only.`,
+tools in time, later, or none, and why. With --agent, for a session of that
+agent: without it, bindings with agents don't apply. Reads local files only.`,
 		Example: `  ctxtra mcp status
-  ctxtra mcp status ~/dev/app`,
+  ctxtra mcp status ~/dev/app --agent claude-code`,
 		Args: atMost(1),
 		RunE: a.run(func(_ *cobra.Command, args []string) error {
 			dir, _ := os.Getwd()
@@ -36,35 +41,66 @@ tools in time, later, or none, and why. Reads local files only.`,
 			if abs, err := filepath.Abs(dir); err == nil {
 				dir = abs
 			}
-			return code(a.mcpStatus(dir))
+			if agentName != "" {
+				if _, ok := registry.Get(agentName); !ok {
+					return fmt.Errorf("unknown agent %q (one of: %s)", agentName, strings.Join(registry.Names(), ", "))
+				}
+			}
+			return code(a.mcpStatus(dir, agentName))
 		}),
 	}
+	c.Flags().StringVar(&agentName, "agent", "", "for a session of `AGENT`, as its MCP proxy resolves it")
+	return c
 }
 
-func (a *app) mcpStatus(dir string) int {
+func (a *app) mcpStatus(dir, agentName string) int {
 	out := term.Writer{W: a.Out}
-	res, cfg := resolve.Session(dir, paths.ConfigPath())
-	for i, binding := range cfg.Bindings {
-		if !res.Trace[i].Matched {
-			continue
-		}
-		for _, ref := range binding.MCPListed {
-			id := ref
-			if binding.MCPScope != "" {
-				id = binding.MCPScope + "/" + ref
-			}
-			if !slices.Contains(binding.MCPServers, id) {
-				fmt.Fprintf(out, "unavailable MCP reference %q in binding %s; see ctxtra doctor\n", ref, binding.ID())
-			}
+	env := loadEnv()
+	active := profile.Current()
+	fmt.Fprintf(out, "profiles: %s\n", active)
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: agentName, Profiles: active})
+	// A session of a known agent gets what fits in it.
+	if ag, ok := registry.Get(agentName); ok {
+		ag.Delivery().Fit(res)
+	}
+	shown := 0
+	for _, e := range res.Errors {
+		if e.Err.Part.Kind == "MCP server" || e.Err.Mistake == yamlx.OverCapacity {
+			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
+			shown++
 		}
 	}
+	capacity := (report{IO: a.IO, agent: agentName, profiles: active}).capacityErrors(res)
+	for _, e := range capacity {
+		fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e)
+	}
+	for _, t := range res.Trace {
+		if !t.Matched {
+			continue
+		}
+		for _, e := range t.Errors {
+			fmt.Fprintf(out, "error: %s; see ctxtra doctor\n", e.Err)
+			shown++
+		}
+		for _, u := range t.Unavailable {
+			fmt.Fprintf(out, "binding %s uses source %s, which can't be read; see ctxtra doctor\n", t.Origin, u)
+		}
+	}
+	if n := len(res.Errors) - shown; n > 0 {
+		fmt.Fprintf(out, "error: sessions here have %d more errors; see ctxtra doctor\n", n)
+	}
+	// 1 when a session here wouldn't get all it should.
+	exit := status(res)
+	if len(capacity) > 0 {
+		exit = 1
+	}
 	servers := res.MCPServers
-	for _, conflict := range res.MCPConflicts {
-		fmt.Fprintf(out, "  %s shadowed by %s (tool prefix %s, binding %s); no fallback\n", conflict.Loser, conflict.Winner, conflict.Prefix, conflict.Origin)
+	for _, c := range res.MCPConflicts {
+		fmt.Fprintf(out, "  %s (binding %s)\n", c.Notice(), c.Origin)
 	}
 	if len(servers) == 0 {
 		fmt.Fprintf(out, "no MCP servers are bound to %s\n", paths.Tilde(dir))
-		return 0
+		return exit
 	}
 	rec, ok, err := sessionstatus.Read(dir)
 	if err != nil {
@@ -72,11 +108,15 @@ func (a *app) mcpStatus(dir string) int {
 	}
 	fmt.Fprintf(out, "MCP servers of %s:\n", paths.Tilde(dir))
 	for _, s := range servers {
-		fmt.Fprintf(out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approvalState(s.Server))
+		approval := approvalState(s.Server)
+		if approval == "approval needed" {
+			approval += ": run ctxtra mcp approve " + s.ID
+		}
+		fmt.Fprintf(out, "  %s  %s, %s\n    binding: %s; tool prefix: %s; %s\n", s.ID, shortServer(s.Server), signIn(s.Server), s.Origin, s.Name, approval)
 	}
 	if !ok {
 		fmt.Fprintln(out, "\nno session has started here with ctxtra's MCP proxy yet")
-		return 0
+		return exit
 	}
 	fmt.Fprintf(out, "\nthe last session here (%s, %s):\n", rec.Agent, rec.Started.Local().Format(time.DateTime))
 	own := fmt.Sprintf("; ctxtra's own start took %.2f s", float64(rec.ResolveMs)/1000)
@@ -103,7 +143,7 @@ func (a *app) mcpStatus(dir string) int {
 			fmt.Fprintf(out, "  %s  missing: %s%s\n", s.Name, s.Reason, credTime(s))
 		}
 	}
-	return 0
+	return exit
 }
 
 // credTime is the part of a server's start that ctxtra spent reading its

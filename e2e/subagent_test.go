@@ -28,9 +28,9 @@ func TestSubagent(t *testing.T) {
 	})
 }
 
-// global is a binding file with one binding that adds files to every session.
+// global is a config with one binding that adds files to every session.
 func global(name string, files ...string) string {
-	y := "schema: ctxtra/v1\nbindings:\n  - name: " + name + "\n    match: {global: true}\n    instructions:\n"
+	y := "schema: ctxtra/config/v1\nbindings:\n  - name: " + name + "\n    instructions:\n"
 	for _, f := range files {
 		y += "      - " + f + "\n"
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/mcpentry"
+	"github.com/ctxtra/ctxtra/internal/paths"
 )
 
 var _ agent.MCPAgent = Agent{}
@@ -14,7 +15,7 @@ var _ agent.MCPAgent = Agent{}
 func (a Agent) MCP() agent.MCPHost {
 	return mcpentry.Config{Agent: a.Name(), Path: a.ConfigPath(), Servers: []string{"mcpServers"},
 		Extra:    []mcpentry.KV{{Key: "type", Value: "stdio"}, {Key: "mode", Value: "optional"}},
-		Env:      []string{"CTXTRA_LOG", "CTXTRA_NO_UPDATE_CHECK"},
+		Env:      append([]string{"CTXTRA_LOG", "CTXTRA_NO_UPDATE_CHECK"}, paths.XDGVars...),
 		EnvPaths: []string{"CTXTRA_LOG"},
 		Defaults: []mcpentry.KV{{Key: "schema_version", Value: 1}}}
 }

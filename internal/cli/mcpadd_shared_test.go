@@ -34,8 +34,8 @@ func TestMCPAddReusesSharedCredentialsWithoutPromptsOrAuthorization(t *testing.T
 				w.WriteHeader(http.StatusBadRequest)
 			}))
 			t.Cleanup(server.Close)
-			testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '"+server.URL+"'}\n")
-			file := testenv.Config(t, h, "schema: ctxtra/v1\n# second config\n")
+			testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: '"+server.URL+"'}\n")
+			file := testenv.Config(t, h, "schema: ctxtra/config/v1\n# second config\n")
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: server.URL}
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {
@@ -83,7 +83,7 @@ func TestMCPAddRefusesExplicitSharedSettingsChanges(t *testing.T) {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
-			file := testenv.Config(t, h, "schema: ctxtra/v1\n")
+			file := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}
 			store := openStore()
 			if _, err := store.EnsureKey(); err != nil {
@@ -102,7 +102,7 @@ func TestMCPAddRefusesExplicitSharedSettingsChanges(t *testing.T) {
 			input := strings.NewReader("config-B-secret\n")
 			var output bytes.Buffer
 			args := append([]string{"mcp", "add", "shared", srv.URL, "--no-login"}, flags...)
-			if n := Run(args, IO{In: input, Out: &output, Err: &output}, "test"); n != 1 || !strings.Contains(output.String(), "shared by other configs and agents") {
+			if n := Run(args, IO{In: input, Out: &output, Err: &output}, "test"); n != 1 || !strings.Contains(output.String(), "shared by agent sessions") {
 				t.Fatalf("shared settings change not refused: %d, %s", n, &output)
 			}
 			afterCredentials, _ := os.ReadFile(files[0])

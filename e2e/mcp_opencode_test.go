@@ -30,16 +30,16 @@ func TestMCPOpenCodeService(t *testing.T) {
 		}
 		probe := probeBinary(t)
 		s := mcpSession(t, a, func(s *Session) string {
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   alpha: {command: [` + probe + `, mcp, -log, ` + s.Path("alpha.jsonl") + `]}
   beta: {command: [` + probe + `, mcp, -log, ` + s.Path("beta.jsonl") + `]}
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     mcp-servers: [alpha]
   - name: billing
-    match: {repos: [{remote: github.com/acme/mono, subpath: services/billing/**}]}
+    location: {repos: [{repo: github.com/acme/mono, subdirs: [services/billing/**]}]}
     mcp-servers: [beta]
 `
 		})
@@ -115,7 +115,7 @@ bindings:
 		if st, _ := service("status"); !strings.Contains(st, strconv.Itoa(port)) {
 			t.Errorf("the service isn't running on port %d:\n%s", port, st)
 		}
-		dirs := proxyDirs(t, s.Path(".ctxtra/log.jsonl"))
+		dirs := proxyDirs(t, s.Path(".local/state/ctxtra/log.jsonl"))
 		for _, want := range []string{realPath(wt), realPath(billing)} {
 			if !slices.Contains(dirs, want) {
 				t.Errorf("no proxy started in %s; started in %v", want, dirs)

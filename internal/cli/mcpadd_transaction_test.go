@@ -18,8 +18,8 @@ import (
 func TestMCPAddConfigFailurePreservesSharedCredentials(t *testing.T) {
 	h := testenv.Home(t)
 	keyring.MockInit()
-	file := testenv.Config(t, h, "schema: ctxtra/v1\n# second config\n")
-	testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp, client-id: old-app}\n")
+	file := testenv.Config(t, h, "schema: ctxtra/config/v1\n# second config\n")
+	testenv.Write(t, filepath.Join(h, "first-config.yaml"), "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: https://example.com/mcp, client-id: old-app}\n")
 	srv := upstream.Server{ID: "shared", Name: "shared", URL: "https://example.com/mcp"}
 	store := openStore()
 	if _, err := store.EnsureKey(); err != nil {

@@ -23,10 +23,12 @@ type Approval struct {
 	Allowed     bool   `json:"allowed"`
 }
 
-// Fingerprint covers operational settings, identity and origin, not notes
-// or the source commit. JSON orders map keys deterministically.
+// Fingerprint covers operational settings, identity and origin, not notes,
+// the source commit or the name the config serves a source's server under:
+// a new name for SOURCE:SERVER keeps its approval. JSON orders map keys
+// deterministically.
 func Fingerprint(srv upstream.Server) string {
-	srv.Notes = ""
+	srv.Notes, srv.Name = "", ""
 	data, _ := json.Marshal(struct {
 		Version int
 		Server  upstream.Server
@@ -72,6 +74,28 @@ func (s *Store) readApproval(srv upstream.Server) (Approval, error) {
 		return Approval{}, nil
 	}
 	return a, nil
+}
+
+// Declined is what Unapproved says of a server whose approval the user
+// declined.
+const Declined = "its approval was declined on this machine"
+
+// Unapproved is why srv, a pinned server, may not start: "" when it is
+// approved on this machine. It reads local files only, never a key.
+func (s *Store) Unapproved(srv upstream.Server) string {
+	a, err := s.Approval(srv)
+	switch {
+	case err != nil:
+		return "its approval can't be read: " + err.Error()
+	case a.Allowed:
+		return ""
+	case a.Version != 0:
+		return Declined
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, "approval", fileID(srv.ID)+".json")); err == nil {
+		return "its definition changed since it was approved on this machine"
+	}
+	return "it isn't approved on this machine"
 }
 
 // DecideApproval durably records consent or decline under its approval

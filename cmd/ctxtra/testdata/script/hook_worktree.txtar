@@ -2,11 +2,11 @@
 # config order, in a worktree outside the project folder. Claude, Codex and
 # Muse show the user a summary at session start, not for subagents.
 
-exec ctxtra setup --agent claude --agent codex --agent pi --agent opencode --agent muse --agent antigravity --agent hermes --agent dsh
+exec ctxtra setup --agent claude-code --agent codex --agent pi --agent opencode --agent muse --agent antigravity --agent hermes-agent --agent dsh
 gitrepo dev/svc git@github.com:Acme/Svc.git
 exec git -C dev/svc worktree add -q -b feature ../../elsewhere/svc-feature
 
-runhook claude SessionStart elsewhere/svc-feature
+runhook claude-code SessionStart elsewhere/svc-feature
 stdout '"hookEventName":"SessionStart"'
 stdout 'CTXMARK-WORK.*CTXMARK-SVC.*CTXMARK-PERSONAL'
 ! stdout 'CTXMARK-OTHER'
@@ -14,7 +14,7 @@ stdout 'for this repository, ~/dev/svc, and all its worktrees'
 stdout '<name>deploy</name>'
 stdout '"systemMessage":"✓ ctxtra added 3 instructions and 1 skill\\nInstructions:\\n  local\\n  - ~/ctx/work.md\\n  - ~/ctx/svc.md\\n  - ~/ctx/me.md\\nSkills:\\n  local\\n  - deploy"'
 
-runhook claude SubagentStart elsewhere/svc-feature
+runhook claude-code SubagentStart elsewhere/svc-feature
 stdout '"hookEventName":"SubagentStart"'
 stdout 'CTXMARK-WORK.*CTXMARK-SVC.*CTXMARK-PERSONAL'
 ! stdout 'systemMessage'
@@ -51,7 +51,7 @@ stdout '^\{"injectSteps":\[\{"systemMessage":\{"systemMessage":".*CTXMARK-WORK.*
 ! stdout '✓ ctxtra added'
 
 # Hermes gets files and the skill list as text, like Claude, in parts.
-runhook hermes pre_llm_call elsewhere/svc-feature
+runhook hermes-agent pre_llm_call elsewhere/svc-feature
 stdout '^\{"chunks":\["Contents of [^"]*/ctx/work.md.*CTXMARK-WORK.*CTXMARK-SVC.*CTXMARK-PERSONAL.*<name>deploy</name>'
 ! stdout 'systemMessage|CTXMARK-SKILLBODY'
 
@@ -64,19 +64,19 @@ stdout 'CTXMARK-WORK.*CTXMARK-SVC.*CTXMARK-PERSONAL'
 
 # A repo the bindings don't select gets only the global file.
 gitrepo dev/other git@github.com:someone/other.git
-runhook claude SessionStart dev/other
+runhook claude-code SessionStart dev/other
 stdout 'CTXMARK-PERSONAL'
 ! stdout 'CTXMARK-WORK|CTXMARK-SVC|deploy'
 
 # Every run is logged, with the session folder and what it got.
-exec cat .ctxtra/log.jsonl
-stdout '"harness":"claude","event":"SessionStart","dir":"[^"]*/elsewhere/svc-feature","repo":"[^"]*/dev/svc","files":\["[^"]*/ctx/work.md"'
-stdout '"harness":"claude","event":"SubagentStart"'
+exec cat .local/state/ctxtra/log.jsonl
+stdout '"harness":"claude-code","event":"SessionStart","dir":"[^"]*/elsewhere/svc-feature","repo":"[^"]*/dev/svc","files":\["[^"]*/ctx/work.md"'
+stdout '"harness":"claude-code","event":"SubagentStart"'
 stdout '"harness":"codex","event":"SessionStart"'
 stdout '"harness":"pi","event":"before_agent_start"'
 stdout '"harness":"opencode","event":"context"'
 stdout '"harness":"antigravity","event":"SessionStart","dir":"[^"]*/elsewhere/svc-feature"'
-stdout '"harness":"hermes","event":"pre_llm_call"'
+stdout '"harness":"hermes-agent","event":"pre_llm_call"'
 stdout '"harness":"dsh","event":"startup"'
 stdout '"harness":"dsh","event":"subagent"'
 
@@ -87,35 +87,25 @@ exec git -C elsewhere/svc-feature status --porcelain
 ! stdout .
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include:
-  - work.yaml
-  - me.yaml
--- .config/ctxtra/work.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: acme
-    match:
+    location:
       repos:
-        - remote: github.com/acme/**
+        - github.com/acme/**
     instructions: [~/ctx/work.md]
     skills: [~/skills/deploy]
   - name: svc
-    match:
+    location:
       dirs: [~/dev/svc]
     instructions: [~/ctx/svc.md]
   - name: not-here
-    match:
+    location:
       repos:
-        - remote: github.com/acme/svc
-          subpath: services/**
+        - repo: github.com/acme/svc
+          subdirs: [services/**]
     instructions: [~/ctx/other.md]
--- .config/ctxtra/me.yaml --
-schema: ctxtra/v1
-bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/ctx/me.md]
 -- ctx/work.md --
 CTXMARK-WORK

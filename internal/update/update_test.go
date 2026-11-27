@@ -15,19 +15,25 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/lock"
 	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
-func load(t *testing.T, path string) *config.Config {
+// load is what the checks need from the config at path.
+func load(t *testing.T, path string) Config {
 	t.Helper()
-	cfg := config.Load(path, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	if len(cfg.Problems) > 0 {
-		t.Fatalf("problems %v", cfg.Problems)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return cfg
+	cfg := config.Parse(data, config.Options{})
+	if len(cfg.Errors) > 0 {
+		t.Fatalf("errors %v", cfg.Errors)
+	}
+	return FromConfig(cfg, nil)
 }
 
 func TestNewer(t *testing.T) {
@@ -242,18 +248,19 @@ func TestRun(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	accepted := headOf()
+	headOf()
 	testenv.Write(t, filepath.Join(dir, "b.md"), "B")
 	testenv.Run(t, dir, "git", "add", "-A")
 	testenv.Run(t, dir, "git", "commit", "-q", "-m", "b")
 	next := headOf()
 	release(t, 200, `{"tag_name": "v0.3.0"}`)
-	cfg := load(t, testenv.Config(t, h, `schema: ctxtra/v1
+	cfg := load(t, testenv.Config(t, h, `schema: ctxtra/config/v1
 sources:
-  team: {git: '`+url+`', branch: main, commit: '`+accepted+`'}
-  gone: {git: 'https://127.0.0.1:1/gone', branch: main, check-updates: true}
-  quiet: {git: 'https://127.0.0.1:1/quiet', branch: main, check-updates: false}
-  local: {local-git: '`+dir+`'}
+  team: {repo: '`+url+`', branch: main}
+  gone: {repo: 'https://127.0.0.1:1/gone', branch: main, check-updates: true}
+  quiet: {repo: 'https://127.0.0.1:1/quiet', branch: main, check-updates: false}
+  local: {repo: '`+dir+`', branch: main}
+  own: {dir: '`+dir+`'}
 `))
 	results, err := Run(context.Background(), cfg, "v0.2.3", nil)
 	if err != nil {
@@ -270,17 +277,17 @@ sources:
 	if r := st.Ctxtra; r.Latest != "v0.3.0" || r.Checked.IsZero() || r.Attempt.IsZero() || r.Error != "" {
 		t.Errorf("release state %+v", r)
 	}
-	if e := st.Get(source.ID(url), url, "main"); e.Head != next || e.Checked.IsZero() || e.Error != "" || !e.LastCheck.IsZero() {
+	if e := st.Get(source.ID(url), url, "branch main"); e.Head != next || e.Checked.IsZero() || e.Error != "" || !e.LastCheck.IsZero() {
 		t.Errorf("team state %+v", e)
 	}
-	if e := st.Get(source.ID(dir), dir, ""); e.Head != next || e.Error != "" {
+	if e := st.Get(source.ID(dir), dir, "branch main"); e.Head != next || e.Error != "" {
 		t.Errorf("local state %+v", e)
 	}
-	gone := st.Get(source.ID("https://127.0.0.1:1/gone"), "https://127.0.0.1:1/gone", "main")
+	gone := st.Get(source.ID("https://127.0.0.1:1/gone"), "https://127.0.0.1:1/gone", "branch main")
 	if gone.Error == "" || gone.Head != "" || !gone.Checked.IsZero() || gone.Attempt.IsZero() {
 		t.Errorf("failed check state %+v", gone)
 	}
-	if e := st.Get(source.ID("https://127.0.0.1:1/quiet"), "https://127.0.0.1:1/quiet", "main"); !e.Attempt.IsZero() {
+	if e := st.Get(source.ID("https://127.0.0.1:1/quiet"), "https://127.0.0.1:1/quiet", "branch main"); !e.Attempt.IsZero() {
 		t.Errorf("a source with checks disabled was checked: %+v", e)
 	}
 
@@ -310,7 +317,7 @@ func TestStartDue(t *testing.T) {
 	at := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	now = func() time.Time { return at }
 	t.Cleanup(func() { spawn, now = oldSpawn, oldNow })
-	cfgPath := testenv.Config(t, h, "schema: ctxtra/v1\n")
+	cfgPath := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 	want := func(name, version string, args ...string) {
 		t.Helper()
 		n := len(started)
@@ -324,7 +331,7 @@ func TestStartDue(t *testing.T) {
 			t.Errorf("%s: started %q, want %q", name, started[n:], args)
 		}
 	}
-	release := []string{"check-updates", "--background", "--config", cfgPath, "--release"}
+	release := []string{"check-updates", "--background", "--release"}
 	want("first session", "v0.2.3", release...)
 	want("second session", "v0.2.3")
 	at = at.Add(59 * time.Minute)
@@ -337,22 +344,23 @@ func TestStartDue(t *testing.T) {
 	want(EnvOff, "v0.2.3")
 	t.Setenv(EnvOff, "")
 	want("a dev build without source checks", "dev")
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\n")
-	want("check-updates: false", "v0.2.3")
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n")
+	want("check-releases: false", "v0.2.3")
 	// A config that can't be used is no consent to a check: its
-	// check-updates: false may be what failed.
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\nbudget: {max-chars: -1}\n")
-	if err := StartDue(config.Load(cfgPath, fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes)), "v0.2.3"); err != nil || len(started) != 2 {
+	// check-releases: false may be what failed.
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n: [\n")
+	data, _ := os.ReadFile(cfgPath)
+	if err := StartDue(FromConfig(config.Parse(data, config.Options{}), nil), "v0.2.3"); err != nil || len(started) != 2 {
 		t.Errorf("an ignored config: %q, %v", started, err)
 	}
 
 	// A source with check-updates on is due on its own, also in a dev build,
 	// and the check checks only that source.
-	cfgPath = testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  team: {git: 'https://h/team', branch: main}\n")
-	want("a source to check", "dev", "check-updates", "--background", "--config", cfgPath, "--source", "team")
+	cfgPath = testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  team: {repo: 'https://h/team', branch: main}\n")
+	want("a source to check", "dev", "check-updates", "--background", "--source", "team")
 	want("the source was just claimed", "dev")
 	at = at.Add(Interval)
-	want("both due", "v0.2.3", "check-updates", "--background", "--config", cfgPath, "--release", "--source", "team")
+	want("both due", "v0.2.3", "check-updates", "--background", "--release", "--source", "team")
 
 	// A check that can't start says so, for doctor.
 	spawn = func([]string) error { return fmt.Errorf("no such file") }
@@ -361,7 +369,7 @@ func TestStartDue(t *testing.T) {
 		t.Error("a failed start is no error")
 	}
 	st := state.Load()
-	if e := st.Get(source.ID("https://h/team"), "https://h/team", "main"); e.Error != "can't start the check: no such file" || st.Ctxtra.Error != e.Error {
+	if e := st.Get(source.ID("https://h/team"), "https://h/team", "branch main"); e.Error != "can't start the check: no such file" || st.Ctxtra.Error != e.Error {
 		t.Errorf("failed start: source %q, release %q", e.Error, st.Ctxtra.Error)
 	}
 	want("failed start is throttled", "v0.2.3")
@@ -382,9 +390,9 @@ func TestStartDue(t *testing.T) {
 
 	// Saving the error doesn't make the session wait for a held lock, also
 	// with many sources.
-	many := "schema: ctxtra/v1\nsources:\n"
+	many := "schema: ctxtra/config/v1\nsources:\n"
 	for i := range 20 {
-		many += fmt.Sprintf("  s%d: {git: 'https://h/s%d', branch: main, check-updates: true}\n", i, i)
+		many += fmt.Sprintf("  s%d: {repo: 'https://h/s%d', branch: main, check-updates: true}\n", i, i)
 	}
 	cfgPath = testenv.Config(t, h, many)
 	var unlock func()
@@ -430,7 +438,7 @@ func TestClaimOrder(t *testing.T) {
 
 func TestReleaseNotice(t *testing.T) {
 	h := testenv.Home(t)
-	on := load(t, testenv.Config(t, h, "schema: ctxtra/v1\n"))
+	on := load(t, testenv.Config(t, h, "schema: ctxtra/config/v1\n"))
 	st := state.State{Ctxtra: state.Release{Latest: "v0.3.0"}}
 	if got := ReleaseNotice(on, st, "v0.2.3"); got != "ctxtra update v0.3.0 is available - "+Releases {
 		t.Errorf("newer: %q", got)
@@ -456,9 +464,9 @@ func TestReleaseNotice(t *testing.T) {
 	if got := ReleaseNotice(on, st, "v0.2.3"); got != "ctxtra update v0.3.0 is available - https://github.com/ctxtra/ctxtra/releases\nrun `go install github.com/ctxtra/ctxtra/cmd/ctxtra@latest` to update." {
 		t.Errorf("Go: %q", got)
 	}
-	off := load(t, testenv.Config(t, h, "schema: ctxtra/v1\ncheck-updates: false\n"))
+	off := load(t, testenv.Config(t, h, "schema: ctxtra/config/v1\ncheck-releases: false\n"))
 	if got := ReleaseNotice(off, st, "v0.2.3"); got != "" {
-		t.Errorf("check-updates: false: %q", got)
+		t.Errorf("check-releases: false: %q", got)
 	}
 
 	// A release candidate is offered only to a ctxtra from the ctxtra-rc
@@ -537,5 +545,90 @@ func TestRecordDropsSupersededResults(t *testing.T) {
 	clock = at.Add(-time.Hour)
 	if !Record(&c, clock, nil) || c.Error != "" {
 		t.Errorf("after the clock went back: %+v", c)
+	}
+}
+
+// Update checks follow the lock's entries: a moved tag is new, a rev has
+// nothing to check, and commits that change only other folders than a
+// source's subdir are nothing new.
+func TestRunTagsRevsAndSubdirs(t *testing.T) {
+	h := testenv.Home(t)
+	dir := testenv.Repo(t, filepath.Join(h, "srv", "team"), "")
+	url := testenv.GitServer(t, filepath.Join(h, "srv")) + "/team"
+	commitFiles := func(files map[string]string) string {
+		t.Helper()
+		for p, c := range files {
+			testenv.Write(t, filepath.Join(dir, filepath.FromSlash(p)), c)
+		}
+		testenv.Run(t, dir, "git", "add", "-A")
+		testenv.Run(t, dir, "git", "commit", "-q", "-m", "x")
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	first := commitFiles(map[string]string{"teams/billing/a.md": "A", "teams/iam/b.md": "B"})
+	testenv.Run(t, dir, "git", "tag", "-a", "v1", "-m", "x")
+	path := testenv.Config(t, h, `schema: ctxtra/config/v1
+check-releases: false
+sources:
+  billing: {repo: '`+url+`', branch: main, subdir: teams/billing}
+  tagged: {repo: '`+url+`', tag: v1}
+  pinned: {repo: '`+url+`', rev: `+first+`}
+`)
+	entry := func(name, ref string) string {
+		e := "  " + name + ":\n    repo: " + url + "\n    " + ref + "\n"
+		if name == "billing" {
+			e += "    subdir: teams/billing\n"
+		}
+		return e + "    commit: " + first + "\n"
+	}
+	testenv.Write(t, lock.Path(path), "schema: ctxtra/lock/v1\nsources:\n"+entry("billing", "branch: main")+entry("pinned", "rev: "+first)+entry("tagged", "tag: v1"))
+	data, _ := os.ReadFile(path)
+	c := config.Parse(data, config.Options{})
+	ldata, _ := os.ReadFile(lock.Path(path))
+	l := lock.Parse(ldata)
+	if len(c.Errors) > 0 || len(l.Errors) > 0 {
+		t.Fatalf("errors %v %v", c.Errors, l.Errors)
+	}
+	cfg := FromConfig(c, l)
+	var names []string
+	for _, s := range cfg.Sources {
+		names = append(names, s.Name)
+	}
+	if strings.Join(names, " ") != "billing tagged" {
+		t.Fatalf("checked %q: a rev has nothing to check", names)
+	}
+	get := func(name string) state.Source {
+		return state.Load().Get(StateKey(c.Source(name)))
+	}
+
+	// Commits to other teams' folders: nothing new.
+	other := commitFiles(map[string]string{"teams/iam/b.md": "B2"})
+	if _, err := Run(context.Background(), cfg, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if e := get("billing"); e.Head != other || e.New(first) {
+		t.Errorf("other folder: %+v", e)
+	}
+	if e := get("tagged"); e.Head != first || e.New(first) {
+		t.Errorf("tag not moved: %+v", e)
+	}
+	// A commit under subdir is new; a moved tag is new.
+	under := commitFiles(map[string]string{"teams/billing/a.md": "A2"})
+	testenv.Run(t, dir, "git", "tag", "-f", "-a", "v1", "-m", "moved")
+	if _, err := Run(context.Background(), cfg, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if e := get("billing"); e.Head != under || !e.New(first) {
+		t.Errorf("subdir changed: %+v", e)
+	}
+	if e := get("tagged"); e.Head != under || !e.New(first) {
+		t.Errorf("tag moved: %+v", e)
+	}
+	// State about another subdir of the same branch is kept apart.
+	if e := state.Load().Get(source.ID(url), url, Follows(config.Ref{Kind: config.Branch, Name: "main"}, "teams/iam")); e.Head != "" {
+		t.Errorf("another subdir: %+v", e)
 	}
 }

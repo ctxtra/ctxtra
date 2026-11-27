@@ -1,0 +1,59 @@
+# The update review keeps every item the bindings reference before content
+# reads and parsing filter it, and reports the resolver's own errors: a
+# matched skill whose SKILL.md is invalid, and an exclusion that a commit
+# leaves with nothing to exclude.
+
+gitrepo srv/team
+exec ctxtra source add --repo $GITSRV/team
+expand overlap.yaml .config/ctxtra/config.yaml
+exec ctxtra context files notes
+! stderr .
+
+# A new skill that the binding matches, with a SKILL.md without a
+# description: its full diff, and the error a session would report.
+mkdir srv/team/skills/bad
+cp bad.md srv/team/skills/bad/SKILL.md
+gitcommit srv/team
+exec ctxtra source update --dry-run
+stdout '^  error: binding skills: team:skills/bad/SKILL.md: frontmatter has no description'
+stdout '^\+\+\+ b/skills/bad/SKILL.md$'
+stdout '^\+name: bad$'
+! stdout 'no changes in files you use'
+! stdout 'also changed'
+
+# Two exclusions that both match before the update: after a.md is gone,
+# !team:a.md excludes nothing, which is new.
+rm srv/team/a.md
+gitcommit srv/team
+exec ctxtra source update --dry-run
+stdout '^  error: line \d+: binding notes: !team:a.md excludes nothing'
+! stdout '!team:\*.md excludes nothing'
+
+-- overlap.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+sources:
+  team:
+    repo: $GITSRV/team
+    branch: main
+bindings:
+  - name: notes
+    instructions: ['team:*.md', '!team:*.md', '!team:a.md', 'team:keep/k.md']
+  - name: skills
+    skills: ['team:skills/*']
+-- notes/.keep --
+-- bad.md --
+---
+name: bad
+---
+Body.
+-- srv/team/a.md --
+A
+-- srv/team/b.md --
+B
+-- srv/team/keep/k.md --
+K
+-- srv/team/skills/good/SKILL.md --
+---
+description: Good.
+---

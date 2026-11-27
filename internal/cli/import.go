@@ -73,7 +73,7 @@ func runImport(stdio IO, start string, dryRun, prompts bool) int {
 		case !prompts:
 			fmt.Fprintln(stdio.Err, "ctxtra import: --start needs a terminal (or leave out --no-input): the agent works with you there")
 			return 1
-		case skillBound(skill.Base) == nil:
+		case skillBound(skill.Base) == "":
 			fmt.Fprintln(stdio.Err, "ctxtra import: the agent follows the ctxtra skill: install it first with ctxtra skill install ctxtra")
 			return 1
 		}
@@ -139,7 +139,7 @@ func importNext(stdio IO, files []importFile, launchers []agent.Agent, backup st
 get them: it merges the rules that repeat and shows you the result. It empties
 the files only if you agree.
 `)
-	if skillBound(skill.Base) == nil {
+	if skillBound(skill.Base) == "" {
 		fmt.Fprintln(stdio.Out, "The agent follows the ctxtra skill; install it first: ctxtra skill install ctxtra")
 	}
 	if len(launchers) > 0 {
@@ -150,7 +150,7 @@ the files only if you agree.
 		fmt.Fprintf(stdio.Out, "To start one: %s\n", strings.Join(cmds, ", or "))
 		return 0
 	}
-	if skillBound(skill.Base) != nil {
+	if skillBound(skill.Base) != "" {
 		if _, err := skill.Write(skill.Base); err != nil {
 			fmt.Fprintf(stdio.Err, "ctxtra import: write the ctxtra skill: %v\n", err)
 			return 1
@@ -210,8 +210,7 @@ func unreadable(stdio IO, files []importFile) bool {
 // hasInstructions reports whether a binding of the config adds instruction
 // files.
 func hasInstructions() bool {
-	cfg := config.Load(paths.ConfigPath(), fsutil.NewReader(config.MaxFileBytes, config.MaxSessionBytes))
-	return slices.ContainsFunc(cfg.Bindings, func(b config.Binding) bool { return len(b.Instructions) > 0 })
+	return slices.ContainsFunc(loadEnv().Config.Bindings, func(b *config.Binding) bool { return len(b.Instructions) > 0 })
 }
 
 // backupFiles copies the files to a new folder in paths.BackupDir, each in
@@ -291,9 +290,9 @@ func runAgent(bin string, args []string, dir string) error {
 }
 
 // pathVars are the variables with a path that ctxtra and the agents read
-// (a test checks them against testenv.AgentVars). XDG_CONFIG_HOME isn't
-// one: a relative value is ignored, by ctxtra too, and stays so.
-var pathVars = []string{"CTXTRA_CONFIG", "CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
+// (a test checks them against testenv.AgentVars). XDG folder values stay
+// as written: relative values are ignored.
+var pathVars = []string{"CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
 	"PI_CODING_AGENT_DIR", "OPENCODE_CONFIG_DIR", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR"}
 
 // absEnv is env with the relative paths in pathVars made absolute: the

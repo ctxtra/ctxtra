@@ -1,83 +1,54 @@
-# source trust converts a pinned source in place into a trusted one that
-# reads your clone. source add trusted-path adds a separate trusted source,
-# and the pinned one stays.
-
+# Reviewed commits and an explicitly trusted live folder are independent.
 gitrepo srv/dotfiles
 gitrepo srv/team-ctx
 gitrepo srv/other
 exec git clone -q $GITSRV/dotfiles dev/dotfiles
 exec git clone -q $GITSRV/team-ctx dev/team-ctx
 
-# Dotfiles added as a pinned source by mistake, then converted.
-exec ctxtra source add git dev/dotfiles --include ctxtra/work.yaml
-stdout 'added as source dotfiles'
-exec ctxtra source trust dotfiles --dry-run
-stdout '^would convert source dotfiles to trusted-path ~/dev/dotfiles'
-grep 'git: .*dotfiles' .config/ctxtra/config.yaml
-exec ctxtra source trust dotfiles
-stdout '^converted source dotfiles to trusted-path ~/dev/dotfiles: its files are read from disk now, changes apply right away$'
-grep '^    trusted-path: ~/dev/dotfiles$' .config/ctxtra/config.yaml
-! grep 'git: .*dotfiles' .config/ctxtra/config.yaml
-grep 'ctxtra://dotfiles/ctxtra/work.yaml' .config/ctxtra/config.yaml
+exec ctxtra source add --repo $HOME/dev/dotfiles
+stdout 'added source dotfiles'
+! exec ctxtra source trust dotfiles --dry-run
+stderr 'is a repo source'
+grep 'repo: ~/dev/dotfiles' .config/ctxtra/config.yaml
+exec ctxtra source add --dir dev/dotfiles --name dotfiles-live
+exec ctxtra source trust dotfiles-live --dry-run
+stdout '^would trust dotfiles-live with the remotes '
+! exists .local/state/ctxtra/trusted-dirs.json
+exec ctxtra source trust dotfiles-live
+stdout '^trusted dotfiles-live: ~/dev/dotfiles is read live while its repository has the remotes '
+grep '^    dir: ~/dev/dotfiles$' .config/ctxtra/config.yaml
+grep '^    repo: ~/dev/dotfiles$' .config/ctxtra/config.yaml
+exec ctxtra binding add work --instruction dotfiles-live:work.md
 cp live.md dev/dotfiles/work.md
-! exec ctxtra context files notes
+exec ctxtra context files notes
 stdout '^.*/dev/dotfiles/work.md$'
-! exec ctxtra context show notes
-stdout 'LIVE-EDIT'
-! exec ctxtra source trust dotfiles
-stderr 'is a trusted-path source already'
-
-# The team repository: a separate trusted source for editing it live.
-exec ctxtra source add git dev/team-ctx --include bindings/billing.yaml
-cp live.md dev/team-ctx/services-overview.md
-exec ctxtra source add trusted-path dev/team-ctx --name team-ctx-live
-stdout '^added source team-ctx-live \(trusted-path: ~/dev/team-ctx\); changes apply right away$'
-stdout '^note: ~/dev/team-ctx/... paths in your bindings were served from the pinned source team-ctx and are now read from disk$'
-grep 'git: .*team-ctx' .config/ctxtra/config.yaml
-# ctxtra://team-ctx stays pinned; a plain path is now live.
 exec ctxtra context show notes
-stdout 'Contents of .*/.ctxtra/store/.*/services-overview.md'
+stdout 'LIVE-EDIT'
+
+exec ctxtra source add --repo $HOME/dev/team-ctx
+exec ctxtra binding add pinned --instruction team-ctx:services-overview.md
+cp live.md dev/team-ctx/services-overview.md
+exec ctxtra source add --dir dev/team-ctx --name team-ctx-live
+stdout '^added source team-ctx-live: dir ~/dev/team-ctx, read live; changes apply to new sessions right away$'
+exec ctxtra source trust team-ctx-live
+grep 'repo: ~/dev/team-ctx' .config/ctxtra/config.yaml
+exec ctxtra binding add own --instruction dev/team-ctx/jira-ticket.md
+exec ctxtra context show notes
+stdout 'Contents of .*/.local/share/ctxtra/store/.*/services-overview.md'
 stdout 'Contents of .*/dev/team-ctx/jira-ticket.md'
 
-# Without a known clone, trust needs the folder to read.
-exec ctxtra source add git $GITSRV/other
+exec ctxtra source add --repo $GITSRV/other
 ! exec ctxtra source trust other
-stderr 'no clone of other is known; name the folder of yours: ctxtra source trust other DIR'
-exec ctxtra source trust other dev/dotfiles --dry-run
-stderr '^warning: ~/dev/dotfiles is not a clone of https://'
+stderr 'is a repo source'
 
--- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-include: [bindings.yaml]
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: me
-    match:
-      global: true
-    instructions: [~/dev/team-ctx/jira-ticket.md]
 -- notes/.keep --
 -- live.md --
 LIVE-EDIT
 -- srv/dotfiles/work.md --
 work
--- srv/dotfiles/ctxtra/work.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: work
-    match:
-      global: true
-    instructions: [../work.md]
 -- srv/team-ctx/jira-ticket.md --
 jira
 -- srv/team-ctx/services-overview.md --
 overview
--- srv/team-ctx/bindings/billing.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: billing
-    match:
-      global: true
-    instructions: [../services-overview.md]
 -- srv/other/a.md --
 other

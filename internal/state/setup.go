@@ -14,42 +14,14 @@ import (
 
 // Setups is setup.json: where setup set up each agent, and every agent it
 // found on this machine. Notices use it to find missing setups and new
-// agents. Configs records which ctxtra config each agent's last setup used.
+// agents.
 type Setups struct {
 	// Installed is the config paths where setup set up each agent, absolute.
-	Installed map[string][]string    `json:"installed"`
-	Detected  []string               `json:"detected"`
-	Configs   map[string]SetupConfig `json:"configs,omitempty"`
+	Installed map[string][]string `json:"installed"`
+	Detected  []string            `json:"detected"`
 }
 
-// SetupConfig associates a ctxtra config with the agent config that setup wrote.
-type SetupConfig struct {
-	AgentPath string `json:"agent_path"`
-	Path      string `json:"path"`
-}
-
-// SessionConfig uses an explicit override first, then the agent's recorded
-// config. A missing config is not replaced with another account's config.
-func SessionConfig(agent string) string {
-	if os.Getenv("CTXTRA_CONFIG") == "" {
-		if s, _, err := LoadSetups(); err == nil {
-			if c, ok := s.Configs[agent]; ok && filepath.IsAbs(c.Path) && filepath.IsAbs(c.AgentPath) && s.Known(agent, c.AgentPath) {
-				return c.Path
-			}
-		}
-	}
-	return paths.ConfigPath()
-}
-
-// SetConfig records the config used by a successful setup.
-func (s *Setups) SetConfig(agent, agentPath, path string) {
-	if s.Configs == nil {
-		s.Configs = map[string]SetupConfig{}
-	}
-	s.Configs[agent] = SetupConfig{AgentPath: abs(agentPath), Path: abs(path)}
-}
-
-// SetupsPath is ~/.ctxtra/setup.json.
+// SetupsPath is ~/.local/state/ctxtra/setup.json.
 func SetupsPath() string { return filepath.Join(paths.StateDir(), "setup.json") }
 
 // SetupsLock is held for a whole setup run, its changes of agent configs
@@ -103,9 +75,6 @@ func (s *Setups) Install(agent, path string) {
 
 // Uninstall records that setup removed agent's setup at path.
 func (s *Setups) Uninstall(agent, path string) {
-	if c, ok := s.Configs[agent]; ok && c.AgentPath == abs(path) {
-		delete(s.Configs, agent)
-	}
 	left := slices.DeleteFunc(s.Installed[agent], func(p string) bool { return filepath.Clean(p) == abs(path) })
 	if len(left) == 0 {
 		delete(s.Installed, agent)

@@ -8,20 +8,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // Home gives the test its own HOME and clears every variable that could
 // point at the real user's files. It returns the home folder.
-func Home(t *testing.T) string {
+func Home(t testing.TB) string {
 	t.Helper()
 	h, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", h)
-	for _, k := range AgentVars {
+	for _, k := range slices.Concat(AgentVars, AgentSessionVars) {
 		t.Setenv(k, "")
 	}
 	// Git variables that point git at another repository, index or config:
@@ -31,6 +32,9 @@ func Home(t *testing.T) string {
 		t.Setenv(k, "") // restores the old value after the test
 		os.Unsetenv(k)
 	}
+	// Set, even empty, it would replace the stored profile selection.
+	t.Setenv("CTXTRA_PROFILES", "")
+	os.Unsetenv("CTXTRA_PROFILES")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_AUTHOR_NAME", "t")
@@ -44,9 +48,12 @@ func Home(t *testing.T) string {
 // config folder reads (a test in internal/agent/registry checks the code
 // against this list).
 var AgentVars = []string{
-	"CTXTRA_CONFIG", "CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR",
-	"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR",
+	"CTXTRA_LOG", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "PI_CODING_AGENT_DIR",
+	"OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HERMES_HOME", "DSH_HOME", "DEVIN_PROJECT_DIR",
 }
+
+// AgentSessionVars are native session identities that tests must not inherit.
+var AgentSessionVars = []string{"MUSE_SESSION_ID"}
 
 // GitLocationVars are cleared by Home. gitrepo clears the same list for
 // production git calls (a test checks that the lists match).
@@ -57,7 +64,7 @@ var GitLocationVars = []string{
 }
 
 // Write creates path with content, and its parent folders.
-func Write(t *testing.T, path, content string) {
+func Write(t testing.TB, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -92,7 +99,7 @@ func Repo(t *testing.T, dir, remote string) string {
 }
 
 // Config writes the config file and returns its path.
-func Config(t *testing.T, home, yaml string) string {
+func Config(t testing.TB, home, yaml string) string {
 	t.Helper()
 	p := filepath.Join(home, ".config", "ctxtra", "config.yaml")
 	Write(t, p, yaml)

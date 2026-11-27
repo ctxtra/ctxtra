@@ -15,10 +15,10 @@ import (
 // importFile is, per agent, a user-level instruction file that ctxtra
 // import moves. Hermes has none: its run moves Claude Code's.
 var importFile = map[string]string{
-	"claude": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md", "pi": ".pi/agent/AGENTS.md",
-	"opencode": ".config/opencode/AGENTS.md", "copilot": ".copilot/copilot-instructions.md",
+	"claude-code": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md", "pi": ".pi/agent/AGENTS.md",
+	"opencode": ".config/opencode/AGENTS.md", "github-copilot": ".copilot/copilot-instructions.md",
 	"antigravity": ".gemini/GEMINI.md", "muse": ".config/muse/AGENTS.md", "dsh": ".dsh/AGENTS.md",
-	"hermes": ".claude/CLAUDE.md",
+	"hermes-agent": ".claude/CLAUDE.md",
 }
 
 // ctxtra import --start in a terminal starts the agent's interactive app
@@ -30,7 +30,7 @@ func TestImportTUI(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
 		tmux := tmuxBin(t)
 		s := newSession(t, a)
-		if a.Name() == "claude" {
+		if a.Name() == "claude-code" {
 			// First-run onboarding checks Anthropic's servers even with a mock model.
 			s.Write(".claude/.claude.json", `{"hasCompletedOnboarding":true,"customApiKeyResponses":{"approved":["sk-e2e-mock"],"rejected":[]}}`)
 		}
@@ -38,8 +38,8 @@ func TestImportTUI(t *testing.T) {
 		s.Marked(file, "own")
 		owner := a.Name()
 		agents := []string{a.Name()}
-		if a.Name() == "hermes" {
-			owner = "claude"
+		if a.Name() == "hermes-agent" {
+			owner = "claude-code"
 			agents = append(agents, owner)
 		}
 		// Set up once without a terminal first, so that the agent's config
@@ -76,16 +76,16 @@ func TestImportTUI(t *testing.T) {
 			text = s.Run(t.TempDir(), driver.Options{Prompt: printedPrompt(t, tui)}).First(mock.Main).text
 		}
 		for _, want := range []string{
-			`Use the ctxtra skill (~/.ctxtra/skills/ctxtra/SKILL.md), task "Import existing instructions".`,
+			`Use the ctxtra skill (~/.local/share/ctxtra/skills/ctxtra/SKILL.md), task "Import existing instructions".`,
 			"- ~/" + file + " (",
-			"ctxtra backed them up to ~/.ctxtra/backups/import-",
+			"ctxtra backed them up to ~/.local/state/ctxtra/backups/import-",
 			"Set up and change ctxtra", // the skill's description, from the hook
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("the first request lacks %q:\n%s", want, clip(text, 4000))
 			}
 		}
-		backups, _ := filepath.Glob(s.Path(".ctxtra/backups/import-*/" + owner + "/" + file))
+		backups, _ := filepath.Glob(s.Path(".local/state/ctxtra/backups/import-*/" + owner + "/" + file))
 		if len(backups) != 1 {
 			t.Fatalf("backups %v", backups)
 		}

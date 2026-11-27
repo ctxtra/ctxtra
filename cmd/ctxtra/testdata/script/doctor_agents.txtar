@@ -1,0 +1,60 @@
+# Doctor checks each agent: with Claude Code and Codex set up, it checks the
+# config for each of them, shows what each one's sessions get, and names the
+# agent of each error.
+mkdir dev/app
+exec ctxtra setup --agent claude-code
+exec ctxtra setup --agent codex
+mkdir .config/ctxtra
+cp bindings.yaml .config/ctxtra/config.yaml
+
+! exec ctxtra doctor dev/app
+stdout '^  ERROR: ~/.config/ctxtra/config.yaml: line \d+: binding codex-only: ~/gone.md is not a file; the entry is left out \(codex\)$'
+stdout '^  ERROR: .*binding both: ~/missing.md is not a file; the entry is left out \(claude-code, codex\)$'
+stdout '^  claude-code:$'
+stdout '^    file: .*/claude.md \(\d+ chars, claude-only\)$'
+stdout '^  codex:$'
+stdout '^    file: .*/codex.md \(\d+ chars, codex-only\)$'
+! stdout 'agent: none'
+
+! exec ctxtra doctor --json dev/app
+stdout '"agent": "claude-code",\s+"files": \[\s+\{\s+"path": "[^"]*/me.md"'
+stdout '"message": ".*~/gone.md is not a file; the entry is left out \(codex\)"'
+
+# Sessions that get the same are shown once, with their agents.
+cp same.yaml .config/ctxtra/config.yaml
+# Codex hasn't trusted the hooks here, so doctor still exits 1.
+! exec ctxtra doctor dev/app
+stdout '^  agents: claude-code, codex$'
+stdout '^  file: .*/me.md \(\d+ chars, me\)$'
+
+# Without a set-up agent, doctor checks a session of no agent.
+exec ctxtra setup --remove --agent claude-code
+exec ctxtra setup --remove --agent codex
+exec ctxtra doctor dev/app
+stdout '^  agent: none set up: bindings with agents don''t apply$'
+
+-- me.md --
+me
+-- claude.md --
+claude
+-- codex.md --
+codex
+-- bindings.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/me.md]
+  - name: claude-only
+    agents: [claude-code]
+    instructions: [~/claude.md]
+  - name: codex-only
+    agents: [codex]
+    instructions: [~/codex.md, ~/gone.md]
+  - name: both
+    agents: [claude-code, codex]
+    instructions: [~/missing.md, ~/me.md]
+-- same.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/me.md]

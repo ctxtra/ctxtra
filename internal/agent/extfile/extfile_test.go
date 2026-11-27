@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -16,11 +15,11 @@ import (
 func TestProtocol(t *testing.T) {
 	h := testenv.Home(t)
 	ts := Content(TypeScript, filepath.Join(h, "go", "bin", "ctxtra"), 1, "const bin = %s;\n")
-	if want := "// @ctxtra-managed\n// binary: $HOME/go/bin/ctxtra\n// protocol: 1\nconst bin = join(homedir(), \"go/bin/ctxtra\");\n"; ts != want {
+	if want := "// @ctxtra-managed\n// binary: $HOME/go/bin/ctxtra\n// protocol: 1\n// --setup-version=1\nconst bin = join(homedir(), \"go/bin/ctxtra\");\n"; ts != want {
 		t.Errorf("content:\n%s\nwant:\n%s", ts, want)
 	}
 	py := Content(Python, "/opt/ctxtra", 3, "BIN = %s\nx = {\"ctxtra_plugin\": 9}\n")
-	if !strings.HasPrefix(py, "# @ctxtra-managed\n# binary: /opt/ctxtra\n# protocol: 3\nBIN = \"/opt/ctxtra\"\n") {
+	if !strings.HasPrefix(py, "# @ctxtra-managed\n# binary: /opt/ctxtra\n# protocol: 3\n# --setup-version=1\nBIN = \"/opt/ctxtra\"\n") {
 		t.Errorf("python content:\n%s", py)
 	}
 	noLine := func(s string) string {
@@ -51,11 +50,10 @@ func TestProtocol(t *testing.T) {
 }
 
 // CheckSetup tells about the binary that the extension runs, its protocol,
-// an older protocol that gets less, and an extension that is gone.
+// earlier entries, and an extension that is gone.
 func TestCheckSetup(t *testing.T) {
 	h := testenv.Home(t)
-	e := Ext{Path: filepath.Join(h, "ext", "ctxtra.ts"), Agent: "pi", Noun: "extension",
-		Legacy: func(v int) (agent.Delivery, bool) { return agent.Delivery{Title: "Pi", Capacity: 9000}, v < 1 }}
+	e := Ext{Path: filepath.Join(h, "ext", "ctxtra.ts"), Agent: "pi", Noun: "extension"}
 	if n, ours := CheckSetup(e, "", false); n != nil || ours {
 		t.Errorf("not set up: %q, %v", n, ours)
 	}
@@ -68,23 +66,20 @@ func TestCheckSetup(t *testing.T) {
 	}
 	testenv.Write(t, e.Path, "// @ctxtra-managed\nconst bin = 1;\n")
 	if n, _ := CheckSetup(e, "", false); !slices.Equal(n, []string{
+		"~/ext/ctxtra.ts is from an earlier ctxtra; run ctxtra setup --agent pi",
 		"~/ext/ctxtra.ts doesn't say which binary it runs; run ctxtra setup --agent pi",
 		"~/ext/ctxtra.ts doesn't say its protocol version; run ctxtra setup --agent pi",
 	}) {
 		t.Errorf("unknown version: %q", n)
 	}
-	testenv.Write(t, e.Path, Content(TypeScript, filepath.Join(h, "gone", "ctxtra"), 0, "const bin = %s;\n"))
-	if n, _ := CheckSetup(e, "", false); len(n) != 2 ||
-		n[1] != "set up by an older ctxtra, with Pi's limit of 9,000 characters; run ctxtra setup --agent pi" {
-		t.Errorf("older protocol: %q", n)
-	}
+
 }
 
 // A plugin with CRLF line ends, as a checkout or an editor may write it,
 // still says its binary and protocol: no notice.
 func TestCRLF(t *testing.T) {
 	for _, c := range testenv.Clients(t) {
-		if c.ID != "0.1" || c.Protocol == 0 {
+		if c.ID != "current" || c.Protocol == 0 {
 			continue
 		}
 		h := testenv.Home(t)
@@ -96,7 +91,7 @@ func TestCRLF(t *testing.T) {
 		c.Load(t, h, bin)
 		var plugin string
 		filepath.WalkDir(h, func(p string, d fs.DirEntry, err error) error {
-			if ext := filepath.Ext(p); err == nil && (ext == ".ts" || ext == ".mjs" || ext == ".py") {
+			if ext := filepath.Ext(p); err == nil && (ext == ".js" || ext == ".ts" || ext == ".mjs" || ext == ".py") {
 				plugin = p
 			}
 			return err

@@ -2,30 +2,30 @@
 # file, is idempotent, backs up what it changes, and --remove restores the
 # original file. Claude gets 40 hooks per event, one per part of the text.
 
-exec ctxtra setup --dry-run --agent claude
+exec ctxtra setup --dry-run --agent claude-code
 stdout '^Setup would change these files:$'
 cmp .claude/settings.json original.json
 
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 stdout '^ctxtra is set up for Claude Code:$'
 cp .claude/settings.json got.json
 slots got.json
 cmpenv got.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 stdout 'is already set up for'
 
 exec ctxtra doctor
-stdout 'claude: set up for \[SessionStart SubagentStart\], runs .*/ctxtra \(ok\)'
+stdout 'claude-code: set up for \[SessionStart SubagentStart\], runs .*/ctxtra \(ok\)'
 ! stdout 'of the 40 ctxtra hooks'
 ! stderr .
 
-exec ctxtra setup --remove --agent claude
+exec ctxtra setup --remove --agent claude-code
 stdout '^ctxtra is removed from Claude Code:$'
 cmp .claude/settings.json original.json
 
-exec ctxtra setup --remove --agent claude
+exec ctxtra setup --remove --agent claude-code
 stdout 'isn''t set up for'
 
 -- .claude/settings.json --
@@ -98,7 +98,7 @@ stdout 'isn''t set up for'
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude SessionStart --slot 0 --of 40; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\":\\\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude with the new binary\\\"}\"; fi'",
+            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude-code SessionStart --slot 0 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{\\\"systemMessage\\\":\\\"ctxtra: the ctxtra binary that this hook runs is missing; reinstall ctxtra, or run ctxtra setup --agent claude-code with the new binary\\\"}\"; fi'",
             "timeout": 10
           }
         ]
@@ -108,7 +108,7 @@ stdout 'isn''t set up for'
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude SessionStart --slot 1..39 --of 40; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude-code SessionStart --slot 1..39 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
             "timeout": 10
           }
         ]
@@ -129,7 +129,7 @@ stdout 'isn''t set up for'
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude SubagentStart --slot 0..39 --of 40; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
+            "command": "/bin/sh -c 'f=\"${BIN}\"; if [ -x \"${$}f\" ]; then exec \"${$}f\" hook claude-code SubagentStart --slot 0..39 --of 40 --setup-version=1; else /bin/cat >/dev/null 2>&1; echo \"{}\"; fi'",
             "timeout": 10
           }
         ]

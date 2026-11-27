@@ -5,10 +5,8 @@
 // accept. None of it changes what a session gets: losing it loses the
 // notices.
 //
-// mappings.json holds the folders of imported clones (see Mapping), and
-// configs.json the config files add and sync used. They change what a
-// session gets, so they are kept apart, and a broken file is reported,
-// never rewritten.
+// mappings.json holds the folders of imported clones (see Mapping). It
+// changes what a session gets, so a broken file is reported, never rewritten.
 package state
 
 import (
@@ -23,16 +21,25 @@ import (
 
 const maxBytes = 1 << 20
 
-// Source is the state of one pinned source, by its store ID and branch. URL
-// and Branch tell whether the entry is still about the source in the
-// config.
+// Source is the state of one pinned source, by its store ID and what it
+// follows: its branch or tag, and its subdir. URL and Follows tell whether
+// the entry is still about the source in the config.
 type Source struct {
 	URL       string    `json:"url"`
-	Branch    string    `json:"branch"`
-	LastCheck time.Time `json:"lastCheck,omitzero"`  // the last fetch of the branch that worked
+	Follows   string    `json:"follows"`
+	LastCheck time.Time `json:"lastCheck,omitzero"`  // the last fetch of the branch or tag that worked
 	Dismissed string    `json:"dismissed,omitempty"` // the last commit the user didn't accept
 	Check
-	Head string `json:"head,omitempty"` // the branch's commit at Checked
+	Head string `json:"head,omitempty"` // the branch's or tag's commit at Checked
+	// Unchanged is a commit whose files under the source's subdir are
+	// those of Head: commits that change only other folders are not new.
+	Unchanged string `json:"unchanged,omitempty"`
+}
+
+// New reports whether Head is a commit the user hasn't seen: not accepted,
+// not dismissed, and with other files than the accepted commit.
+func (e Source) New(accepted string) bool {
+	return e.Head != "" && e.Head != accepted && e.Head != e.Dismissed && (accepted == "" || e.Unchanged != accepted)
 }
 
 // Check is the result of the update checks of one thing: a source or ctxtra
@@ -55,7 +62,7 @@ type State struct {
 	Ctxtra  Release           `json:"ctxtra,omitzero"`
 }
 
-// Path is ~/.ctxtra/state.json.
+// Path is ~/.local/state/ctxtra/state.json.
 func Path() string { return filepath.Join(paths.StateDir(), "state.json") }
 
 // Load reads the state. A missing or broken file is an empty state.
@@ -72,29 +79,24 @@ func Load() State {
 	return s
 }
 
-// key is per store ID and branch: two sources can follow two branches of
-// one repository.
-func key(id, branch string) string { return id + "@" + branch }
+// key is per store ID and what the source follows: two sources can follow
+// two branches of one repository, or two folders of one branch.
+func key(id, follows string) string { return id + "@" + follows }
 
-// Get is the state of the source id that follows branch, if it is about
+// Get is the state of the source id that follows follows, if it is about
 // url.
-func (s State) Get(id, url, branch string) Source {
-	e := s.Sources[key(id, branch)]
-	if e.URL != url || e.Branch != branch {
-		return Source{URL: url, Branch: branch}
+func (s State) Get(id, url, follows string) Source {
+	e := s.Sources[key(id, follows)]
+	if e.URL != url || e.Follows != follows {
+		return Source{URL: url, Follows: follows}
 	}
 	return e
 }
 
 // Update changes the entry of the source id under a lock and writes the
 // file atomically.
-func Update(id, url, branch string, change func(*Source)) error {
-	return update(func(s *State) error {
-		e := s.Get(id, url, branch)
-		change(&e)
-		s.Sources[key(id, branch)] = e
-		return nil
-	})
+func Update(id, url, follows string, change func(*Source)) error {
+	return UpdateWithin(0, id, url, follows, change)
 }
 
 // UpdateRelease changes what the state knows about ctxtra's releases.
@@ -120,23 +122,23 @@ func ChangeWithin(wait time.Duration, change func(*State)) error {
 	})
 }
 
-// Put sets the entry of the source id that follows e.Branch.
-func (s State) Put(id string, e Source) { s.Sources[key(id, e.Branch)] = e }
+// Put sets the entry of the source id that follows e.Follows.
+func (s State) Put(id string, e Source) { s.Sources[key(id, e.Follows)] = e }
 
 // UpdateWithin is Update that waits at most wait for the lock, or without a
 // limit when wait is 0.
-func UpdateWithin(wait time.Duration, id, url, branch string, change func(*Source)) error {
+func UpdateWithin(wait time.Duration, id, url, follows string, change func(*Source)) error {
 	return updateWithin(wait, func(s *State) error {
-		e := s.Get(id, url, branch)
+		e := s.Get(id, url, follows)
 		change(&e)
-		s.Sources[key(id, branch)] = e
+		s.Sources[key(id, follows)] = e
 		return nil
 	})
 }
 
 // Claim is a source to claim a check of, by the arguments of Get. Name is
 // the caller's, returned with the claims.
-type Claim struct{ Name, ID, URL, Branch string }
+type Claim struct{ Name, ID, URL, Follows string }
 
 // ClaimChecks records a check attempt for ctxtra (when release) and for each
 // source whose last attempt is at least interval old, and returns what it
@@ -162,10 +164,10 @@ func ClaimChecks(release bool, srcs []Claim, now func() time.Time, interval, wai
 	}
 	var claimed []Claim
 	for _, c := range srcs {
-		e := s.Get(c.ID, c.URL, c.Branch)
+		e := s.Get(c.ID, c.URL, c.Follows)
 		if due(e.Check) {
 			e.Attempt = at
-			s.Sources[key(c.ID, c.Branch)] = e
+			s.Sources[key(c.ID, c.Follows)] = e
 			claimed = append(claimed, c)
 		}
 	}
@@ -176,8 +178,6 @@ func ClaimChecks(release bool, srcs []Claim, now func() time.Time, interval, wai
 }
 
 func lockPath() string { return filepath.Join(paths.StateDir(), "state.lock") }
-
-func update(change func(*State) error) error { return updateWithin(0, change) }
 
 func updateWithin(wait time.Duration, change func(*State) error) error {
 	lock := fsutil.Lock

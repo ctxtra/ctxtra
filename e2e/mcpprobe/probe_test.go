@@ -1,10 +1,10 @@
-// Package mcpprobe is an experiment for the MCP proxy (CTX-31): it runs real
+// Package mcpprobe is an experiment for the MCP proxy: it runs real
 // agents against the mock model with ctxtra set up and a stdio MCP test
 // server (./probe) registered, and records what the hook and the MCP server
 // each see: the folder, the process chain, the MCP client capabilities and
 // roots, and the MCP tool names that reach the model.
 //
-//	go test -count=1 ./mcpprobe -v -out DIR [-agents claude,codex]
+//	go test -count=1 ./mcpprobe -v -out DIR [-agents claude-code,codex]
 //
 // Each agent's home folder and a JSON record per scenario are kept in
 // DIR/<agent>. Nothing is asserted: failures are data.
@@ -34,7 +34,7 @@ import (
 
 var (
 	outFlag    = flag.String("out", "", "results folder (required)")
-	agentsFlag = flag.String("agents", "claude,codex,pi,opencode,muse,antigravity", "agents to run")
+	agentsFlag = flag.String("agents", "claude-code,codex,pi,opencode,muse,antigravity", "agents to run")
 	scenFlag   = flag.String("scenarios", "top,sub,worktree,resume,resume-elsewhere,concurrent", "scenarios to run")
 	runTimeout = flag.Duration("run-timeout", 3*time.Minute, "timeout of one agent run")
 	listDelay  = flag.Duration("list-delay", 0, "the probe answers its first tool list after this long")
@@ -130,22 +130,21 @@ func (e *env) prepare() {
 	for _, m := range []string{"REPO", "SUBDIR", "SUBPATH", "OTHERREPO", "GLOBAL"} {
 		f.Marked("ctx/"+strings.ToLower(m)+".md", m)
 	}
-	f.Config(`schema: ctxtra/v1
+	f.Config(`schema: ctxtra/config/v1
 bindings:
   - name: repo
-    match: {repos: [{remote: "github.com/acme/**"}]}
+    location: {repos: ["github.com/acme/**"]}
     instructions: [~/ctx/repo.md]
   - name: subdir
-    match: {dirs: [~/dev/svc/sub]}
+    location: {dirs: [~/dev/svc/sub]}
     instructions: [~/ctx/subdir.md]
   - name: subpath
-    match: {repos: [{remote: "github.com/acme/svc", subpath: "sub/**"}]}
+    location: {repos: [{repo: "github.com/acme/svc", subdirs: ["sub/**"]}]}
     instructions: [~/ctx/subpath.md]
   - name: other
-    match: {repos: [{remote: "github.com/other/**"}]}
+    location: {repos: ["github.com/other/**"]}
     instructions: [~/ctx/otherrepo.md]
   - name: global
-    match: {global: true}
     instructions: [~/ctx/global.md]
 `)
 	// The hooks run home/bin/ctxtra, a wrapper that records the hook's
@@ -209,12 +208,12 @@ func (e *env) mcpArgs() []string {
 func (e *env) register() {
 	a := e.mcpArgs()
 	switch e.name {
-	case "claude":
+	case "claude-code":
 		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "-s", "user", "probe", "--"}, a...)...)
 	case "codex":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 	case "pi":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 		// Direct exposure: the tools are declared to the model, so their names can be seen.
 		p := e.f.Path(".pi/agent/mcp.json")
 		var cfg map[string]any
@@ -248,7 +247,7 @@ func (e *env) perRun() {
 	case "opencode":
 		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 	case "antigravity":
-		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "probe", "--"}, a...)...)
+		e.runCmd("register", e.f.Home, nil, e.bin, append([]string{"mcp", "add", "--global", "probe", "--"}, a...)...)
 		// Headless agy denies MCP calls without an allow rule.
 		rule := "mcp(probe/*)"
 		if e.perm {
@@ -309,7 +308,7 @@ func (e *env) command(dir, url, prompt string, resume bool, deferred bool) (*exe
 		args = append(append(args[:len(args)-1:len(args)-1], xs...), last)
 	}
 	switch e.name {
-	case "claude":
+	case "claude-code":
 		if !deferred { // all MCP tools in the tool list, not behind ToolSearch
 			cmd.Env = append(cmd.Env, "ENABLE_TOOL_SEARCH=false")
 		}
@@ -442,7 +441,7 @@ func (e *env) runAgent(label, dir string, resume bool, script ...mock.Step) *Run
 		ri.Mentions = slices.Compact(ri.Mentions)
 		r.Requests = append(r.Requests, ri)
 	}
-	if e.name == "claude" {
+	if e.name == "claude-code" {
 		if id := regexp.MustCompile(`"session_id":"([^"]+)"`).FindStringSubmatch(stdout.String()); id != nil {
 			e.mu.Lock()
 			e.claudeID["last"] = id[1]

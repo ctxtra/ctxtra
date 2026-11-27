@@ -34,7 +34,11 @@ func setupHooks(stdio IO, o setup.Options) int {
 			fmt.Fprintln(stdio.Err, "warning:", w)
 		}
 	}
-	o.MCP = setup.LoadMCP()
+	mcp, err := setup.LoadMCP()
+	if err != nil {
+		return failEnv(stdio, "setup", false, err)
+	}
+	o.MCP = mcp
 	r, err := setup.Run(o)
 	if err != nil {
 		fmt.Fprintf(stdio.Err, "ctxtra setup: %v\n", err)
@@ -124,10 +128,10 @@ const follow = "ctxtra-follow"
 // skills no binding adds, and import while no binding adds instructions.
 func nextSteps(stdio IO) {
 	var steps [][2]string
-	if skillBound(skill.Base) == nil {
+	if skillBound(skill.Base) == "" {
 		steps = append(steps, [2]string{"ctxtra skill install ctxtra", "let your agents set up and change ctxtra for you"})
 	}
-	if skillBound(follow) == nil {
+	if skillBound(follow) == "" {
 		steps = append(steps, [2]string{"ctxtra skill install " + follow, "agents get your bindings for other folders they work in"})
 	}
 	if !hasInstructions() {

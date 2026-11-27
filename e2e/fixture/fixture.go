@@ -19,7 +19,7 @@ type Fixture struct {
 	t    testing.TB
 	Home string
 	Bin  string // the ctxtra binary under test
-	// Extra are more variables for every process, such as CTXTRA_CONFIG.
+	// Extra are more variables for every process, such as XDG_CONFIG_HOME.
 	Extra []string
 }
 
@@ -36,9 +36,9 @@ func New(t testing.TB, bin, dir string) *Fixture {
 	}
 	f := &Fixture{t: t, Home: home, Bin: bin}
 	f.mkdir("tmp")
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\n")
+	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/config/v1\ncheck-releases: false\n")
 	t.Cleanup(func() {
-		if _, err := os.Stat(f.Path(".ctxtra/state.json")); !os.IsNotExist(err) {
+		if _, err := os.Stat(f.Path(".local/state/ctxtra/state.json")); !os.IsNotExist(err) {
 			t.Errorf("fixture created update-check state: %v", err)
 		}
 	})
@@ -124,11 +124,9 @@ func (f *Fixture) Clean(rels ...string) {
 	}
 }
 
-// Config writes the ctxtra config, which includes one binding file with
-// the given content.
+// Config writes the ctxtra config with release checks disabled.
 func (f *Fixture) Config(bindings string) {
-	f.Write(".config/ctxtra/config.yaml", "schema: ctxtra/v1\ncheck-updates: false\ninclude: [bindings.yaml]\n")
-	f.Write(".config/ctxtra/bindings.yaml", bindings)
+	f.Write(".config/ctxtra/config.yaml", strings.Replace(bindings, "schema: ctxtra/config/v1\n", "schema: ctxtra/config/v1\ncheck-releases: false\n", 1))
 }
 
 // Env is the minimal environment for every process in the fixture: no
@@ -171,13 +169,12 @@ func (f *Fixture) Ctxtra(args ...string) string {
 type LogEntry struct {
 	Harness, Event, Dir, Repo, Source, Error string
 	AgentType                                string `json:"agent_type"`
-	Files, Skills, Missing, Dropped          []string
-	Problems                                 []string
+	Files, Skills, Dropped, Errors           []string
 }
 
 // Log is ctxtra's hook log in the home folder.
 func (f *Fixture) Log() []LogEntry {
-	fh, err := os.Open(f.Path(".ctxtra/log.jsonl"))
+	fh, err := os.Open(f.Path(".local/state/ctxtra/log.jsonl"))
 	if err != nil {
 		return nil
 	}
@@ -186,9 +183,12 @@ func (f *Fixture) Log() []LogEntry {
 	sc := bufio.NewScanner(fh)
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
-		var e LogEntry
-		if json.Unmarshal(sc.Bytes(), &e) == nil {
-			out = append(out, e)
+		var e struct {
+			LogEntry
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) == nil && e.Kind == "" {
+			out = append(out, e.LogEntry)
 		}
 	}
 	return out

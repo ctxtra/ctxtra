@@ -288,7 +288,7 @@ def team_sync(theme):
     b.append(f'<text x="{gx+20}" y="{mid+5}" font-family="{MONO}" font-size="15" fill="{c["TEXT"]}" text-anchor="middle">'
              f'<tspan fill="{c["AMBER"]}" font-weight="700">WARNING</tspan> scope widened → <tspan fill="{c["RED"]}" font-weight="700">N</tspan>, keep def5678</text>')
     b.append(f'<text x="56" y="{h-36}" font-size="17" fill="{c["MUTED"]}">ctxtra keeps its own copy, so you need no clone. Sessions never fetch. '
-             f'<tspan font-family="{MONO}" fill="{c["TEXT"]}">ctxtra source restore</tspan> gives a new laptop exactly the accepted commits.</text>')
+             f'<tspan font-family="{MONO}" fill="{c["TEXT"]}">ctxtra source download</tspan> gives a new laptop exactly the accepted commits.</text>')
     write(f"team-sync-{theme}.svg", "\n".join(b), w, h,
           "A team repository is pinned to a commit; new commits reach your sessions only after you accept them in ctxtra source update")
 
@@ -486,7 +486,7 @@ def story(theme):
     for text, a, z in [("ctxtra hooks into every agent you use.", 0, t_personal),
                        ("Your own instructions reach every session.", t_personal, t_acme),
                        ("Bind more by folder or Git remote. Worktrees match too.", t_acme, t_team),
-                       ("Add your team's package. It brings its own bindings.", t_team, t_edit - 0.2),
+                       ("Add a team source, then bind the files you need.", t_team, t_edit - 0.2),
                        ("Edit a file once. Every matching session gets it, in every agent.", t_edit - 0.2, t_update - 0.2),
                        ("Team files stay at the commit you accepted, until you take the update.", t_update - 0.2, t_clean - 0.2),
                        ("Nothing is written into your repos.", t_clean - 0.2, T)]:

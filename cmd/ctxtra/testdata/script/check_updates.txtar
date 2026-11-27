@@ -5,16 +5,17 @@
 
 gitrepo srv/team-ctx
 gitrepo srv/plain
-exec ctxtra setup --agent claude
+exec ctxtra setup --agent claude-code
 
 # source add says whether sessions check the source.
-exec ctxtra source add git $GITSRV/plain --check-updates=false
+exec ctxtra source add --repo $GITSRV/plain --check-updates=false
 stdout '^update checks are off for plain \(check-updates: false\)$'
 ! stdout 'checks use your git credentials'
-exec ctxtra source add git $GITSRV/team-ctx --include bindings/billing.yaml
-stdout '^sessions check team-ctx for new commits at most once an hour and tell you when there are some \(check-updates: true\)$'
+exec ctxtra source add --repo $GITSRV/team-ctx
+stdout '^sessions check team-ctx for new commits at most once an hour and tell you when there are some$'
 stdout 'checks use your git credentials; credential helpers or hardware keys may ask for approval or a touch'
 stdout 'To turn checks off, set check-updates: false on this source'
+exec ctxtra binding add billing --instruction team-ctx:services-overview.md
 grep '^    check-updates: false$' .config/ctxtra/config.yaml
 exec ctxtra source show team-ctx --json
 stdout '"check_updates": true'
@@ -25,23 +26,23 @@ stdout '"check_updates": false'
 exec ctxtra check-updates
 stdout '^team-ctx: no new commits \(checked \d{4}-\d\d-\d\d \d\d:\d\d\)$'
 ! stdout 'plain|ctxtra'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-OVERVIEW'
 ! stdout 'ℹ'
 
 # A new commit is no notice until a check finds it.
 cp new-overview.md srv/team-ctx/services-overview.md
 gitcommit srv/team-ctx
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'ℹ'
 exec ctxtra check-updates
 stdout '^team-ctx: new commits \(checked .*\); run `ctxtra source update team-ctx` to review them$'
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout '\\n\\nℹ team-ctx has new commits on main\\n  run `ctxtra source update team-ctx` to review them.'
 stdout 'CTXMARK-OVERVIEW'
 ! stdout 'CTXMARK-NEW'
 exec ctxtra doctor notes
-stdout '^ctxtra .*: release check off \(check-updates: false\)$'
+stdout '^ctxtra .*: release check off \(check-releases: false\)$'
 stdout '^  source team-ctx: .*; new commits \(checked .*\); run `ctxtra source update team-ctx` to review them$'
 stdout '^  NOTICE: team-ctx has new commits on main; run `ctxtra source update team-ctx` to review them.$'
 stdout '^  source plain: .*; update checks off \(remove check-updates: false to turn them on\)$'
@@ -49,17 +50,17 @@ stdout '^  source plain: .*; update checks off \(remove check-updates: false to 
 # Accepting the commit ends the notice.
 stdin yes.txt
 exec ctxtra-tty source update team-ctx
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 stdout 'CTXMARK-NEW'
 ! stdout 'ℹ'
 
 # Results that can't be saved are shown from the check, and the command fails.
-rm .ctxtra/state.lock
-mkdir .ctxtra/state.lock
+rm .local/state/ctxtra/state.lock
+mkdir .local/state/ctxtra/state.lock
 ! exec ctxtra check-updates
 stdout '^team-ctx: no new commits \(checked '
-stderr 'can''t save the results in ~/.ctxtra/state.json, so sessions won''t show them'
-rm .ctxtra/state.lock
+stderr 'can''t save the results in ~/.local/state/ctxtra/state.json, so sessions won''t show them'
+rm .local/state/ctxtra/state.lock
 
 # A check that fails says why, and is no notice.
 mv srv/team-ctx srv/moved
@@ -67,28 +68,23 @@ mv srv/team-ctx srv/moved
 stdout '^team-ctx: can''t check: git ls-remote: '
 exec ctxtra doctor notes
 stdout '^  source team-ctx: .*; the last check for new commits failed: git ls-remote: '
-runhook claude SessionStart notes
+runhook claude-code SessionStart notes
 ! stdout 'ℹ'
 
 # With every check off, there is nothing to check.
-exec ctxtra check-updates --config off.yaml
-stdout '^nothing to check: the config has check-updates: false, and no source has update checks enabled$'
+cp off.yaml .config/ctxtra/config.yaml
+exec ctxtra check-updates
+stdout '^nothing to check: the config has check-releases: false, and no repo source has update checks on$'
 
 -- .config/ctxtra/config.yaml --
-schema: ctxtra/v1
-check-updates: false
-include:
-  - bindings.yaml
--- .config/ctxtra/bindings.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
+check-releases: false
 bindings:
   - name: me
-    match:
-      global: true
     instructions: [~/notes/me.md]
 -- off.yaml --
-schema: ctxtra/v1
-check-updates: false
+schema: ctxtra/config/v1
+check-releases: false
 -- notes/me.md --
 mine
 -- yes.txt --
@@ -97,12 +93,5 @@ y
 CTXMARK-NEW
 -- srv/team-ctx/services-overview.md --
 CTXMARK-OVERVIEW
--- srv/team-ctx/bindings/billing.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: billing
-    match:
-      global: true
-    instructions: [../services-overview.md]
 -- srv/plain/README.md --
 plain

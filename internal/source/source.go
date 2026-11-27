@@ -1,10 +1,11 @@
 // Package source fetches git sources and keeps the accepted commits of each
 // one in ctxtra's store.
 //
-// Each source has a bare repository in ~/.ctxtra/git and, for each accepted
-// commit, a generation in ~/.ctxtra/store: the commit's regular files, written
-// once and never changed. Sessions read only generations; only the commands
-// that fetch (add, sync) run git with network access.
+// Each source has a bare repository in ~/.cache/ctxtra/git and, for each accepted
+// commit, a generation in ~/.local/share/ctxtra/store: the commit's regular
+// files and the paths of omitted symlinks, written once and never changed.
+// Sessions read only generations; only the commands that fetch (add,
+// update, download) run git with network access.
 //
 // Git runs as the user's git, so ssh keys and credential helpers work, but
 // only with the https and ssh transports, without hooks or submodules, and
@@ -51,6 +52,14 @@ const (
 // maxRepoBytes limits a source's repository, history included. A variable
 // for tests.
 var maxRepoBytes int64 = 1 << 30
+
+// LimitRepoBytes sets the limit of a repository with its history to n, for
+// the tests of other packages, and returns what restores it.
+func LimitRepoBytes(n int64) (restore func()) {
+	old := maxRepoBytes
+	maxRepoBytes = n
+	return func() { maxRepoBytes = old }
+}
 
 // Limits on what one git command prints.
 const (
@@ -102,35 +111,46 @@ func CheckBranch(b string) error {
 	return nil
 }
 
-// ID names a source's data in the store. It comes from the source's remote:
-// the git URL, or the absolute path of a clone for a local-git source. A
+// ID names a source's repository in the cache. It comes from the source's
+// remote: the git URL, or the absolute path of a clone on this machine. A
 // source whose remote changes never uses data of the old one.
-func ID(remote string) string {
+func ID(remote string) string { return storeID(remote, "") }
+
+// storeID names the files of one folder of a repository in the store:
+// two sources of one repository with another subdir never share them.
+func storeID(remote, subdir string) string {
 	kind := "git"
 	if filepath.IsAbs(remote) {
 		kind = "path"
 	}
-	sum := sha256.Sum256([]byte(kind + "\x00" + remote))
+	key := kind + "\x00" + remote
+	if subdir != "" {
+		key += "\x00" + subdir
+	}
+	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:8])
 }
 
 // StoreDir holds the generations; GitDir the bare repositories.
-func StoreDir() string { return filepath.Join(paths.StateDir(), "store") }
-func GitDir() string   { return filepath.Join(paths.StateDir(), "git") }
+func StoreDir() string { return filepath.Join(paths.DataDir(), "store") }
+func GitDir() string   { return filepath.Join(paths.CacheDir(), "git") }
 
-// GenDir is the generation of commit: a folder with the commit's files.
-func GenDir(url, commit string) string { return filepath.Join(StoreDir(), ID(url), commit) }
+// GenDir is the generation of commit: a folder with the files of the
+// commit's folder subdir ("" for the whole commit), which is its top.
+func GenDir(url, subdir, commit string) string {
+	return filepath.Join(StoreDir(), storeID(url, subdir), commit)
+}
 
 // Has reports whether the generation of commit is in the store. A generation
 // is published by renaming a complete folder, so one that exists is complete.
-func Has(url, commit string) bool {
-	st, err := os.Stat(GenDir(url, commit))
+func Has(url, subdir, commit string) bool {
+	st, err := os.Stat(GenDir(url, subdir, commit))
 	return err == nil && st.IsDir()
 }
 
 // Repo is the bare repository of one source.
 type Repo struct {
-	URL    string // a git URL, or the absolute path of a clone (local-git)
+	URL    string // a git URL, or the absolute path of a clone
 	dir    string
 	fileOK bool // the file transport is allowed, for a fetch from a clone
 }
@@ -141,7 +161,7 @@ func Open(remote string) *Repo {
 	return &Repo{URL: remote, dir: filepath.Join(GitDir(), ID(remote)+".git")}
 }
 
-// local reports whether the source follows a clone on this disk.
+// local reports whether the repository is a clone on this disk.
 func (r *Repo) local() bool { return filepath.IsAbs(r.URL) }
 
 // options keep git from running anything from the repository or the
@@ -274,17 +294,13 @@ func (r *Repo) DefaultBranch(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("%s has no default branch; choose one with --branch", r.URL)
 }
 
-// Head is the commit that branch points to on the remote, or, for a
-// local-git source, the commit HEAD points to in the clone. It reads only
-// refs: nothing is fetched or stored.
+// Head is the commit that branch points to in the repository, a remote or
+// a clone on this disk. It reads only refs: nothing is fetched or stored.
 func (r *Repo) Head(ctx context.Context, branch string) (string, error) {
-	ref := "HEAD"
-	if !r.local() {
-		if err := CheckBranch(branch); err != nil {
-			return "", err
-		}
-		ref = "refs/heads/" + branch
+	if err := CheckBranch(branch); err != nil {
+		return "", err
 	}
+	ref := "refs/heads/" + branch
 	out, err := r.git(ctx, false, nil, "ls-remote", "--", r.URL, ref)
 	if err != nil {
 		return "", err
@@ -295,10 +311,7 @@ func (r *Repo) Head(ctx context.Context, branch string) (string, error) {
 			return id, nil
 		}
 	}
-	if r.local() {
-		return "", fmt.Errorf("%s has no commit at HEAD", r.URL)
-	}
-	return "", fmt.Errorf("the branch %s is not on the remote", branch)
+	return "", fmt.Errorf("the branch %s is not in %s", branch, r.URL)
 }
 
 // ensure creates the bare repository with the object format of from, the
@@ -389,7 +402,7 @@ func (r *Repo) FetchHead(ctx context.Context, from string) (string, error) {
 // private ref is its own: another ctxtra may fetch another branch at the
 // same time.
 func (r *Repo) fetchRef(ctx context.Context, from, ref string) (string, error) {
-	tmp := "refs/ctxtra/fetched/" + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid())
+	tmp := "refs/ctxtra/fetched/" + uniq()
 	if err := r.fetch(ctx, from, "+"+ref+":"+tmp); err != nil {
 		return "", err
 	}
@@ -398,9 +411,14 @@ func (r *Repo) fetchRef(ctx context.Context, from, ref string) (string, error) {
 	return commit, err
 }
 
+// uniq is a name no other fetch uses at the same time.
+func uniq() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid())
+}
+
 // errRepoSize is a fetch that makes the repository larger than
 // maxRepoBytes.
-var errRepoSize = errors.New("the repository with its history is larger than ctxtra's limit")
+var errRepoSize = errors.New("the repository with its history is over ctxtra's limit of 1 GiB")
 
 // lock keeps other ctxtra processes from fetching into the repository at
 // the same time: git fails on the locks of concurrent ref updates.
@@ -408,9 +426,9 @@ func (r *Repo) lock() (func(), error) {
 	return fsutil.Lock(r.dir + ".lock")
 }
 
-// fetch fetches refspec from from, and stops git when the repository grows
+// fetch fetches refspecs from from, and stops git when the repository grows
 // over maxRepoBytes.
-func (r *Repo) fetch(ctx context.Context, from, refspec string) error {
+func (r *Repo) fetch(ctx context.Context, from string, refspecs ...string) error {
 	limit := maxRepoBytes
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -431,8 +449,8 @@ func (r *Repo) fetch(ctx context.Context, from, refspec string) error {
 			}
 		}
 	}()
-	_, err := r.git(ctx, true, nil, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
-		"--", from, refspec)
+	_, err := r.git(ctx, true, nil, append([]string{"fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
+		"--", from}, refspecs...)...)
 	close(done)
 	<-stopped
 	if err == nil && dirSize(r.dir) > limit {
@@ -678,13 +696,20 @@ func CheckPath(p string) error {
 	return nil
 }
 
-// Materialize writes the generation of commit unless it is in the store,
-// and keeps commit with a ref so that git never deletes it. It returns the
-// generation's folder. The files are written into a new private folder,
-// which is renamed into place only when complete.
-func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
-	dst := GenDir(r.URL, commit)
-	if Has(r.URL, commit) {
+// Materialize writes the generation of commit's folder subdir unless it is
+// in the store, and keeps commit with a ref so that git never deletes it. It
+// returns the generation's folder. The whole commit must be within the
+// limits, also with subdir. The files are written into a new private
+// folder, which is renamed into place only when complete.
+func (r *Repo) Materialize(ctx context.Context, commit, subdir string) (string, error) {
+	return r.MaterializeAs(ctx, commit, subdir, r.URL)
+}
+
+// MaterializeAs is Materialize into the store folder of address store, an
+// equivalent spelling of the repository: where the lock's address has it.
+func (r *Repo) MaterializeAs(ctx context.Context, commit, subdir, store string) (string, error) {
+	dst := GenDir(store, subdir, commit)
+	if Has(store, subdir, commit) {
 		if err := Touch(dst, TouchWait); err != nil { // a fresh time keeps Clean away until the config names it
 			return "", err
 		}
@@ -693,9 +718,9 @@ func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
 	if c, err := r.commit(ctx, commit); err != nil || c != commit {
 		return "", fmt.Errorf("commit %s is not in ctxtra's copy of %s", Short(commit), r.URL)
 	}
-	entries, _, err := r.Tree(ctx, commit)
+	entries, skipped, err := r.Files(ctx, commit, subdir)
 	if err != nil {
-		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
+		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return "", err
@@ -708,7 +733,10 @@ func (r *Repo) Materialize(ctx context.Context, commit string) (string, error) {
 	if err := r.writeFiles(ctx, tmp, entries); err != nil {
 		return "", fmt.Errorf("%s at %s: %w", r.URL, Short(commit), err)
 	}
-	if err := os.Rename(tmp, dst); err != nil && !Has(r.URL, commit) {
+	if err := writeSymlinks(tmp, skipped); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, dst); err != nil && !Has(store, subdir, commit) {
 		return "", err
 	}
 	if err := Touch(dst, TouchWait); err != nil {
@@ -791,6 +819,8 @@ type Clone struct {
 	Remotes  map[string]string // name: URL
 	Upstream string            // the remote of the current branch's upstream, "" when none
 	Branch   string            // the upstream's branch on that remote
+	// Current is the branch checked out, "" when HEAD is detached.
+	Current string
 }
 
 // InspectClone reads the clone that dir is in. It runs git in the clone
@@ -827,6 +857,7 @@ func InspectClone(ctx context.Context, dir string) (Clone, error) {
 		}
 	}
 	if b, err := run("symbolic-ref", "-q", "--short", "HEAD"); err == nil && b != "" {
+		c.Current = b
 		up, _ := run("for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", "--", "refs/heads/"+b)
 		if remote, ref, ok := strings.Cut(up, "\x00"); ok && remote != "" {
 			c.Upstream, c.Branch = remote, strings.TrimPrefix(ref, "refs/heads/")

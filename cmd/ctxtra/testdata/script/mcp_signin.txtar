@@ -9,7 +9,7 @@ fakeauth account=me@example.com
 # Dry run: no sign-in, nothing stored.
 exec ctxtra-tty mcp add linear_work $FAKE_MCP --dry-run
 stdout 'would add the MCP server linear_work'
-! exists .ctxtra/mcp
+! exists .local/state/ctxtra/mcp
 
 # Add: the browser signs in, the tools follow.
 exec ctxtra-tty mcp add linear_work $FAKE_MCP --notes 'the work workspace'
@@ -31,12 +31,12 @@ stderr 'already signed in to https://127.0.0.1:[0-9]+ as linear_work'
 stderr 'private window'
 
 # The proxy calls the tool with the stored token.
-exec ctxtra binding add work --dir '~/dev/**' --mcp linear_work
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server linear_work
 mkdir dev/app
 mcp dev/app linear_work__list_issues_073b9f
 stdout '^tool linear_work__list_issues_[0-9a-f]{6}:'
 stdout '^result: CTXMARK-ISSUES$'
-exec cat .ctxtra/log.jsonl
+exec cat .local/state/ctxtra/log.jsonl
 stdout '"event":"connect","server":"linear_work","tools":1'
 ! stdout 'at-[0-9]'
 
@@ -61,5 +61,5 @@ mcp dev/app
 stdout '^tool linear_work__list_issues'
 
 # No credential value reaches the output or the state files.
-! grep 'at-[0-9]' .ctxtra/mcp/state/linear_work.json
-! grep 'rt-[0-9]' .ctxtra/mcp/state/linear_work.json
+! grep 'at-[0-9]' .local/state/ctxtra/mcp/state/linear_work.json
+! grep 'rt-[0-9]' .local/state/ctxtra/mcp/state/linear_work.json

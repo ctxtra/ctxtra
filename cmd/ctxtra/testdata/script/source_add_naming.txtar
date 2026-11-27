@@ -1,0 +1,49 @@
+# Adding a source: an explicit branch, the default one unless --branch,
+# --tag or --rev is given; a name from the repository; an already added
+# source; and a name that another source has.
+
+gitrepo srv/iam-ctx
+gitrepo srv/other/iam-ctx
+exec git -C srv/iam-ctx branch next
+
+# Add with the default branch: the config gets the branch, the lock the
+# commit.
+exec ctxtra source add --repo $GITSRV/iam-ctx --name iam
+grep '^  iam:\n    repo: https://127.0.0.1:\d+/iam-ctx\n    branch: main$' .config/ctxtra/config.yaml
+grep '^  iam:\n    repo: https://127.0.0.1:\d+/iam-ctx\n    branch: main\n    commit: [0-9a-f]{40}$' .config/ctxtra/ctxtra.lock
+
+# A README run twice, also in another form of the address: exit 0, the
+# source is already added as iam, and nothing changes.
+cp .config/ctxtra/config.yaml before.yaml
+cp .config/ctxtra/ctxtra.lock before.lock
+exec ctxtra source add --repo $GITSRV/iam-ctx
+stdout ', branch main, is the source iam already$'
+exec ctxtra source add --repo $GITSRV/iam-ctx/ --name another
+stdout ', branch main, is the source iam already$'
+cmp .config/ctxtra/config.yaml before.yaml
+cmp .config/ctxtra/ctxtra.lock before.lock
+
+# Another branch of the same repository is another source.
+exec ctxtra source add --repo $GITSRV/iam-ctx --branch next
+stdout '^added source iam-ctx: '
+cp .config/ctxtra/config.yaml before.yaml
+
+# The name is taken by a source for another repository: exit 1, pass
+# --name, and the config is unchanged.
+! exec ctxtra source add --repo $GITSRV/other/iam-ctx
+stderr 'the name iam-ctx is taken by the source for repo https://.*/iam-ctx, branch next; choose another name with --name'
+cmp .config/ctxtra/config.yaml before.yaml
+exec ctxtra source add --repo $GITSRV/other/iam-ctx --name other-iam
+stdout '^added source other-iam: '
+
+# A name that starts with a digit is refused.
+! exec ctxtra source add --repo $GITSRV/iam-ctx --tag v0 --name 2024-notes
+stderr 'choose a name with --name'
+
+-- .config/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
+-- srv/iam-ctx/rules.md --
+rules
+-- srv/other/iam-ctx/rules.md --
+other

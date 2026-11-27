@@ -1,0 +1,129 @@
+# The update review shows what a commit changes in the repo sets that
+# bindings use in location: entries it adds or removes, sets it removes,
+# errors in them, and a warning for an entry that matches every repository
+# of a host.
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+
+# A set gets broad.
+cp broad.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^repo set services adds github.com/\*\* and removes github.com/acme/iam-\*; binding iam-repos uses it$'
+stdout '^repo set services: github.com/\*\* matches every repository on github.com; binding iam-repos uses it$'
+! stdout 'repo set unused'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "notice",\s+"message": "iam-team: repo set services adds github.com/\*\* and removes github.com/acme/iam-\*; binding iam-repos uses it"'
+stdout '"severity": "warning",\s+"message": "iam-team: repo set services: github.com/\*\* matches every repository on github.com; binding iam-repos uses it"'
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+
+# Errors in a set in use.
+cp folder.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^repo set services adds ~/work/\*\*; binding iam-repos uses it$'
+stdout 'error: .*repo set services: ~/work/\*\* is a folder; a set lists repositories only'
+! stdout 'matches every repository'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "error",\s+"message": "iam-team: iam-team:ctxtra-source.yaml: line 3: repo set services: ~/work/\*\* is a folder; a set lists repositories only; the entry is left out \(binding iam-repos\)"'
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+
+# A set in use that its errors leave out.
+cp broken-clients.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout 'error: .*repo set clients: unknown key "wrong".* \(binding work\)$'
+stdout 'error: .*binding work: repo-sets !iam-team:clients can''t be read: the repo set clients of source iam-team has errors; binding work is left out$'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "error",\s+"message": "iam-team: iam-team:ctxtra-source.yaml: line 4: repo set clients: unknown key \\"wrong\\".* \(binding work\)"'
+stdout '"severity": "error",\s+"message": "iam-team: line \d+: binding work: repo-sets !iam-team:clients can''t be read: the repo set clients of source iam-team has errors; binding work is left out"'
+
+# An excluded set disappears.
+cp no-clients.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^repo set clients is removed; binding work excludes it; once the commit is accepted, work is left out$'
+stdout 'error: .*binding work: repo-sets !iam-team:clients can''t be read: source iam-team has no repo set clients; binding work is left out'
+! stdout 'repo set services'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "warning",\s+"message": "iam-team: repo set clients is removed; binding work excludes it; once the commit is accepted, work is left out"'
+
+# A set in use disappears.
+cp no-services.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^repo set services is removed; binding iam-repos uses it; once the commit is accepted, it matches nothing for iam-repos$'
+
+# An accepted set that its errors left out becomes usable: its entries are
+# new.
+cp broken-services.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+cp fixed-services.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^repo set services can be read now and adds github.com/\*\*; binding iam-repos uses it$'
+stdout '^repo set services: github.com/\*\* matches every repository on github.com; binding iam-repos uses it$'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "notice",\s+"message": "iam-team: repo set services can be read now and adds github.com/\*\*; binding iam-repos uses it"'
+stdout '"severity": "warning",\s+"message": "iam-team: repo set services: github.com/\*\* matches every repository on github.com; binding iam-repos uses it"'
+
+-- yes.txt --
+y
+-- bindings.yaml --
+bindings:
+  - name: iam-repos
+    location: {repo-sets: ['iam-team:services']}
+    instructions: [~/ctx/me.md]
+  - name: work
+    location: {repo-sets: ['!iam-team:clients']}
+    instructions: [~/ctx/me.md]
+-- ctx/me.md --
+ME
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/acme/iam-*]
+  clients: [github.com/acme/client-*]
+  unused: [github.com/acme/web]
+-- broad.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**]
+  clients: [github.com/acme/client-*]
+  unused: [github.com/**]
+-- folder.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**, ~/work/**]
+  clients: [github.com/acme/client-*]
+-- no-clients.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**, ~/work/**]
+-- no-services.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  clients: [github.com/acme/client-*]
+-- broken-clients.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**, ~/work/**]
+  clients: [{repo: github.com/acme/client-*, wrong: x}]
+-- broken-services.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**, {repo: github.com/acme/other, wrong: x}]
+  clients: [github.com/acme/client-*]
+-- fixed-services.yaml --
+schema: ctxtra/source/v1
+repo-sets:
+  services: [github.com/**]
+  clients: [github.com/acme/client-*]

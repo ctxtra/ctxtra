@@ -27,7 +27,8 @@ func setupNotices(w io.Writer) {
 			paths.Tilde(state.SetupsPath()))
 	}
 	bin := running()
-	mcp := setup.LoadMCP()
+	// A config that can't be used is reported where it is read.
+	mcp, _ := setup.LoadMCP()
 	var found []string
 	for _, a := range registry.All() {
 		known := setups.Known(a.Name(), a.ConfigPath())
@@ -87,6 +88,6 @@ func mcpNotices(a agent.Agent, bin string, known bool, setups state.Setups, mcp 
 		return nil
 	}
 	host := m.MCP()
-	check := agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: mcp.Want && known, EnvPass: mcp.EnvPass}
+	check := agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: known, EnvPass: mcp.EnvPass}
 	return host.CheckMCP(bin, check)
 }

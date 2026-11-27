@@ -3,8 +3,9 @@
 # git would otherwise call binary.
 
 gitrepo srv/skill
-exec ctxtra source add git $GITSRV/skill --include bindings.yaml
-stdout '^    skills: \.$'
+exec ctxtra source add --repo $GITSRV/skill
+exec ctxtra binding add top --instruction skill:..notes.md --skill skill:.
+stdout '^      - skill:\.$'
 
 cp v2/run.sh srv/skill/run.sh
 cp v2/dots.md srv/skill/..notes.md
@@ -22,11 +23,9 @@ stdout '\\u0000'
 -- no.txt --
 n
 -- srv/skill/bindings.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 bindings:
   - name: top
-    match:
-      global: true
     instructions: [..notes.md]
     skills: [.]
 -- srv/skill/SKILL.md --

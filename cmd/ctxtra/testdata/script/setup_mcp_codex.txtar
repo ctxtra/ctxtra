@@ -15,25 +15,31 @@ exec ctxtra setup --agent codex
 stdout '~/.codex/config.toml'
 grep '^# >>> ctxtra MCP proxy: written by ctxtra setup; keys you add are kept$' .codex/config.toml
 grep '^\[mcp_servers.ctxtra-proxy\]$' .codex/config.toml
-grep '^args = \["mcp", "proxy", "codex"\]$' .codex/config.toml
-grep '^env_vars = \["CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", .*"HTTPS_PROXY", "https_proxy", .*"SSL_CERT_FILE", "SSL_CERT_DIR", "PGHOST"\]$' .codex/config.toml
+grep '^args = \["mcp", "proxy", "codex", "--setup-version=1"\]$' .codex/config.toml
+grep '^env_vars = \["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "CTXTRA_LOG", .*"HTTPS_PROXY", "https_proxy", .*"SSL_CERT_FILE", "SSL_CERT_DIR", "PGHOST"\]$' .codex/config.toml
 grep '^startup_timeout_sec = 30$' .codex/config.toml
 grep '^required = true$' .codex/config.toml
 grep '^# <<< ctxtra MCP proxy$' .codex/config.toml
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 exec ctxtra setup --agent codex
 stdout 'is already set up for'
 
 ! exec ctxtra doctor
 stdout '    MCP: MCP entry runs .*/ctxtra \(ok\) \(~/.codex/config.toml\)'
 
-# A server with a new env-pass name: Codex must pass it too.
-exec ctxtra mcp add db --env-pass DBHOST -- mcptest
+# A server with a new pass-env name: Codex must pass it too.
+exec ctxtra mcp add db --pass-env DBHOST -- mcptest
 stdout 'run ctxtra setup: ctxtra''s MCP proxy in codex needs it'
 ! exec ctxtra doctor
-stdout 'the ctxtra MCP proxy doesn''t pass DBHOST to local servers; run ctxtra setup --agent codex'
+stdout 'the ctxtra MCP entry doesn''t pass DBHOST to the proxy; run ctxtra setup --agent codex'
+exec ctxtra binding add db --mcp-server db
+runhook codex SessionStart .
+stdout '\\nℹ the ctxtra MCP entry doesn''t pass DBHOST to the proxy; run ctxtra setup --agent codex'
 exec ctxtra setup --agent codex
 grep '"DBHOST", "PGHOST"\]$' .codex/config.toml
+runhook codex SessionStart .
+stdout 'MCP server'
+! stdout 'doesn''t pass'
 
 # A key the user adds in ctxtra's table stays.
 exec sed -i.bak 's/^startup_timeout_sec = 30$/startup_timeout_sec = 30\ndefault_tools_approval_mode = "approve"/' .codex/config.toml
@@ -68,9 +74,9 @@ exec ctxtra setup --remove --agent codex
 cmp .codex/config.toml original.toml
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
-  pg: {command: [pg-mcp], env-pass: [PGHOST]}
+  pg: {command: [pg-mcp], pass-env: [PGHOST]}
 -- original.toml --
 model = "gpt-6.1-sol"
 
@@ -94,8 +100,8 @@ trust_level = "trusted"
 # >>> ctxtra MCP server: written by ctxtra setup; keys you add are kept
 [mcp_servers.ctxtra]
 command = "/old/ctxtra"
-args = ["mcp", "proxy", "codex"]
-env_vars = ["CTXTRA_CONFIG"]
+args = ["mcp", "proxy", "codex", "--setup-version=1"]
+env_vars = ["XDG_CONFIG_HOME"]
 startup_timeout_sec = 30
 default_tools_approval_mode = "approve"
 required = true

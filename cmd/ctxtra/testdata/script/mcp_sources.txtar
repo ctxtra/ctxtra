@@ -3,49 +3,57 @@ mkdir dev/app
 exec git -C pkg init -b main
 exec git -C pkg add .
 exec git -C pkg commit -m initial
-exec ctxtra source check pkg
+exec ctxtra source validate pkg
 stdout '0 errors, 0 warnings'
-exec ctxtra source add local-git pkg --name work --include bindings.yaml
-stdout 'MCP definition work/build:'
-stdout 'MCP servers: build'
+exec ctxtra source add --repo pkg --name work
+stdout 'MCP definition work:build:'
+# binding add refuses a server that isn't approved, and gives the command
+# to approve it first; a binding written by hand gets the error at session
+# start.
+! exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stderr 'MCP server work:build: it isn''t approved on this machine'
+stderr '^approve the servers first, then add the binding again:$'
+stderr '^  ctxtra mcp approve work:build$'
+! grep 'name: work' .config/ctxtra/config.yaml
+exec sh -c 'cat work-binding.yaml >> .config/ctxtra/config.yaml'
 exec ctxtra mcp list --json
-stdout '"id": "work/build"'
+stdout '"id": "work:build"'
 stdout '"name": "build"'
 stdout '"source": "work"'
 stdout '"approval": "approval needed"'
-! exists .ctxtra/mcp/key.json
-! exec ctxtra mcp show work/build
-stderr 'approval needed; run ctxtra mcp approve work/build'
-! exec ctxtra mcp show work/web
-stderr 'approval needed; run ctxtra mcp approve work/web'
-! exists .ctxtra/mcp/key.json
+! exists .local/state/ctxtra/mcp/key.json
+! exec ctxtra mcp show work:build
+stderr 'approval needed; run ctxtra mcp approve work:build'
+! exec ctxtra mcp show work:web
+stderr 'approval needed; run ctxtra mcp approve work:web'
+! exists .local/state/ctxtra/mcp/key.json
 
 # Approval is never unattended, even if stdin contains yes.
 stdin yes.txt
-! exec ctxtra mcp approve work/build
+! exec ctxtra mcp approve work:build
 stderr 'needs your terminal'
-! exists .ctxtra/mcp/approval/work%2Fbuild.json
-exec ctxtra setup --agent claude
-runhook claude SessionStart dev/app
-stdout 'work/build needs approval: run ctxtra mcp approve work/build'
+! exists .local/state/ctxtra/mcp/approval/work%3Abuild.json
+exec ctxtra setup --agent claude-code
+runhook claude-code SessionStart dev/app
+stdout 'work:build needs approval: run ctxtra mcp approve work:build'
 
 # A decline is remembered, but does not grant connection permission.
 stdin no.txt
-! exec ctxtra-tty mcp approve work/build
-stderr 'approval of work/build declined'
-runhook claude SessionStart dev/app
+! exec ctxtra-tty mcp approve work:build
+stderr 'approval of work:build declined'
+runhook claude-code SessionStart dev/app
 ! stdout 'needs approval'
 exec ctxtra mcp list
-stdout 'work/build  local, none needed, approval declined'
-! exec ctxtra mcp show work/build
+stdout 'work:build  local, none needed, approval declined'
+! exec ctxtra mcp show work:build
 stderr 'approval needed'
 
 # Approval performs no MCP startup and creates no credential key.
 stdin yes.txt
-exec ctxtra-tty mcp approve work/build
-stdout 'approved work/build on this machine; no connection or command started'
-! exists .ctxtra/mcp/key.json
-exec ctxtra mcp show work/build
+exec ctxtra-tty mcp approve work:build
+stdout 'approved work:build on this machine; no connection or command started'
+! exists .local/state/ctxtra/mcp/key.json
+exec ctxtra mcp show work:build
 stdout '^  build__echo$'
 stdout '^  build__package$'
 mcp dev/app
@@ -53,79 +61,91 @@ stdout '^tool build__echo'
 stdout '^tool build__package'
 ! stdout 'work__'
 exec ctxtra mcp status dev/app
-stdout 'work/build'
+stdout 'work:build'
 stdout 'tool prefix: build; approved'
 ! stdout 'local-git:'
 
 # A package definition is read-only to mcp remove.
-! exec ctxtra mcp remove work/build
-stderr 'package definition; change its bindings or remove the source'
+! exec ctxtra mcp remove work:build
+stderr 'is declared by the source work; change its bindings or remove the source instead'
 
 # Separate approval consent precedes a secret prompt in login.
 stdin login.txt
-exec ctxtra-tty mcp login work/secure
-stdout 'stored the secret values of work/secure'
+exec ctxtra-tty mcp login work:secure
+stdout 'stored the secret values of work:secure'
 ! stdout CTXMARK
 ! stderr CTXMARK
-exists .ctxtra/mcp/credentials/work%2Fsecure.v1.age
-exec ctxtra mcp revoke work/secure
+exists .local/state/ctxtra/mcp/credentials/work%3Asecure.v1.age
+exec ctxtra mcp revoke work:secure
 stdout 'Credentials and provider grants remain'
-exists .ctxtra/mcp/credentials/work%2Fsecure.v1.age
-exec ctxtra mcp logout work/secure
-stdout 'deleted the sign-in and secret values of work/secure'
+exists .local/state/ctxtra/mcp/credentials/work%3Asecure.v1.age
+exec ctxtra mcp logout work:secure
+stdout 'deleted the sign-in and secret values of work:secure'
 
 # An accepted operational change needs approval again, not just source acceptance.
-cp updated.yaml pkg/mcp-servers.yaml
+cp updated.yaml pkg/ctxtra-source.yaml
 exec git -C pkg add .
 exec git -C pkg commit -m 'change environment'
 stdin yes.txt
 exec ctxtra-tty source update work
-stdout 'work/build changed its operational definition'
+stdout 'work:build changed its operational definition'
 exec ctxtra mcp list
-stdout 'work/build  local, none needed, approval needed'
-! exec ctxtra mcp show work/build
+stdout 'work:build  local, none needed, approval needed'
+! exec ctxtra mcp show work:build
 stderr 'approval needed'
 stdin yes.txt
-exec ctxtra-tty mcp approve work/build
+exec ctxtra-tty mcp approve work:build
 
-# Widened targeting is reviewed but does not invalidate unchanged approval.
-cp global.yaml pkg/bindings.yaml
-exec git -C pkg add .
-exec git -C pkg commit -m 'widen targeting'
+# A commit that leaves the definition unchanged keeps its approval.
+cp note.md pkg/README.md
+gitcommit pkg
 stdin yes.txt
 exec ctxtra-tty source update work
-stdout 'now applies to every session'
 exec ctxtra mcp list
-stdout 'work/build  local, none needed, approved'
+stdout 'work:build  local, none needed, approved'
 
 # Revoke and logout are different operations.
-exec ctxtra mcp revoke work/build
-! exec ctxtra mcp show work/build
+exec ctxtra mcp revoke work:build
+! exec ctxtra mcp show work:build
 stderr 'approval needed'
 
-# Config bindings win conflicts. A failed winner never selects the package.
+# The first binding wins a name clash, even if that server fails.
+exec ctxtra binding remove work
 exec ctxtra mcp add build --no-login -- missing-mcp-command
-exec ctxtra binding add mine --global --mcp build
-! exec ctxtra context explain dev/app
-stdout 'work/build.*shadowed by build'
-runhook claude SessionStart dev/app
-stdout 'MCP server work/build is shadowed by build'
+exec ctxtra binding add mine --mcp-server build
+
+# binding add refused, mcp approve, then binding add succeeds.
+! exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stderr '^  ctxtra mcp approve work:build$'
+stdin yes.txt
+exec ctxtra-tty mcp approve work:build
+exec ctxtra binding add work --dir '~/dev/**' --mcp-server work:build
+stdout '^      - work:build$'
+exec ctxtra context explain dev/app
+stdout 'MCP servers build and work:build are both named build; the session gets build, the first in binding order'
+runhook claude-code SessionStart dev/app
+stdout 'MCP servers build and work:build are both named build; the session gets build, the first in binding order'
 mcp dev/app
 ! stdout '^tool build__'
 exec ctxtra mcp status dev/app
-stdout 'work/build shadowed by build'
+stdout 'build and work:build are both named build; the session gets build, the first in binding order'
 
 # Removing a source leaves shared credentials for explicit cleanup.
 exec ctxtra source remove work
-stdout 'MCP credentials for work/secure remain'
-stdout 'ctxtra mcp remove work/secure'
-exists .ctxtra/mcp/credentials/work%2Fsecure.v1.age
-exec ctxtra doctor
-stdout 'MCP credentials for work/secure are not declared in this config; another config may use them'
-exec ctxtra mcp remove work/secure
-stdout 'deleted leftover credentials of work/secure'
-! exists .ctxtra/mcp/credentials/work%2Fsecure.v1.age
+stdout 'MCP credentials for work:secure remain'
+stdout 'ctxtra mcp remove work:secure'
+exists .local/state/ctxtra/mcp/credentials/work%3Asecure.v1.age
+! exec ctxtra doctor
+stdout 'MCP credentials for work:secure are not declared in this config'
+exec ctxtra mcp remove work:secure
+stdout 'deleted leftover credentials of work:secure'
+! exists .local/state/ctxtra/mcp/credentials/work%3Asecure.v1.age
 
+-- work-binding.yaml --
+bindings:
+  - name: work
+    location: {dirs: ['~/dev/**']}
+    mcp-servers: ['work:build']
 -- yes.txt --
 y
 -- no.txt --
@@ -133,8 +153,10 @@ n
 -- login.txt --
 y
 CTXMARK-secret
--- pkg/mcp-servers.yaml --
-schema: ctxtra/v1
+-- note.md --
+Source documentation.
+-- pkg/ctxtra-source.yaml --
+schema: ctxtra/source/v1
 mcp-servers:
   build:
     command: [mcptest, -tools, package]
@@ -144,7 +166,7 @@ mcp-servers:
   web:
     url: https://example.invalid/mcp
 -- updated.yaml --
-schema: ctxtra/v1
+schema: ctxtra/source/v1
 mcp-servers:
   build:
     command: [mcptest, -tools, package]
@@ -154,15 +176,3 @@ mcp-servers:
     secret-env: [TOKEN]
   web:
     url: https://example.invalid/mcp
--- global.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: work
-    match: {global: true}
-    mcp-servers: [build]
--- pkg/bindings.yaml --
-schema: ctxtra/v1
-bindings:
-  - name: work
-    match: {dirs: ['~/dev/**']}
-    mcp-servers: [build]

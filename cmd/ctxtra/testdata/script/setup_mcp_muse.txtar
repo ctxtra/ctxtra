@@ -1,48 +1,26 @@
-# Muse setup works without an experimental opt-in. Both the hooks and
-# proxy use the config recorded by setup when Muse clears the environment.
-mkdir ctx
-cp config.yaml ctx/custom.yaml
-env CTXTRA_CONFIG=$HOME/ctx/custom.yaml
+# Muse records the folders used by setup in hook and proxy entries.
+env XDG_CONFIG_HOME=$HOME/ctx
 exec ctxtra setup --dry-run --agent muse
-! exists .config/muse/settings.json
+! exists ctx/muse/settings.json
 exec ctxtra setup --agent muse
-grep '"mode": "optional"' .config/muse/settings.json
-grep '"env":' .config/muse/settings.json
-grep '"configs":' .ctxtra/setup.json
+grep '"mode": "optional"' ctx/muse/settings.json
+grep '"env":' ctx/muse/settings.json
+grep 'XDG_CONFIG_HOME' ctx/muse/settings.json
+! grep '"configs":' .local/state/ctxtra/setup.json
 exec ctxtra setup --agent muse
 stdout 'is already set up for'
-
-env CTXTRA_CONFIG=
-stdin hook.json
-exec ctxtra hook muse SessionStart --slot 0 --of 40
+runhook muse SessionStart .
 stdout 'CUSTOM_CONFIG_MARKER'
-
-# A new session's explicit override still wins.
-env CTXTRA_CONFIG=$HOME/ctx/override.yaml
-stdin override-hook.json
-exec ctxtra hook muse SessionStart --slot 0 --of 40
-! stdout 'CUSTOM_CONFIG_MARKER'
-
-env CTXTRA_CONFIG=$HOME/ctx/custom.yaml
 exec ctxtra setup --remove --agent muse
-! grep '"ctxtra-proxy":' .config/muse/settings.json
-! grep '"configs":' .ctxtra/setup.json
+! grep '"ctxtra-proxy":' ctx/muse/settings.json
 
--- config.yaml --
-schema: ctxtra/v1
-check-updates: false
+-- ctx/ctxtra/config.yaml --
+schema: ctxtra/config/v1
+check-releases: false
 mcp-servers:
   pg: {command: [pg-mcp]}
 bindings:
   - name: custom
-    match: {global: true}
     instructions: [custom.md]
--- ctx/override.yaml --
-schema: ctxtra/v1
-check-updates: false
--- ctx/custom.md --
+-- ctx/ctxtra/custom.md --
 CUSTOM_CONFIG_MARKER
--- hook.json --
-{"session_id":"muse-test"}
--- override-hook.json --
-{"session_id":"muse-override"}

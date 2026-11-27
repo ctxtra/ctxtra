@@ -4,8 +4,9 @@
 // Sessions never wait on the network: the hook shows the results that
 // state.json has from earlier checks, and starts a check in a detached
 // process when one is due (StartDue). The check writes its results for the
-// next session. A check reads only a version number or a commit ID: it
-// fetches no files and accepts nothing.
+// next session. A check reads only a version number or a commit ID, and
+// accepts nothing; for a source with subdir it fetches the branch into
+// ctxtra's cache, to tell whether anything changed under subdir.
 package update
 
 import (
@@ -23,12 +24,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/detach"
+	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/paths"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/term"
+	"github.com/ctxtra/ctxtra/internal/yamlx"
 )
 
 const (
@@ -58,7 +65,7 @@ var (
 	resultWait = 10 * time.Second
 	now        = time.Now
 	// spawn starts ctxtra with args without waiting for it.
-	spawn = start
+	spawn = func(args []string) error { return detach.Start(executable(), args) }
 )
 
 // reRelease is a release version, or a release candidate (v0.6.0-rc.1):
@@ -133,33 +140,109 @@ func newer(a, b string) bool {
 	return x.rc > y.rc
 }
 
-// Sources are the sources of cfg that have check-updates on. A config that
-// is ignored as a whole has none.
-func Sources(cfg *config.Config) []config.Source {
-	if cfg.Ignored() {
-		return nil
+// Config is what the checks need from the config.
+type Config struct {
+	// Releases is false when checks for new ctxtra releases are off.
+	Releases bool
+	// Sources are the sources to check for new commits.
+	Sources []Source
+}
+
+// Source is a repo source that follows a branch or a tag, with update
+// checks on.
+type Source struct {
+	Name, Remote string
+	Ref          config.Ref
+	Subdir       string
+	// Accepted is the commit in the lock, "" when it has none for what the
+	// source follows.
+	Accepted string
+}
+
+// Follows is what the state of s is kept by: its branch or tag, and its
+// subdir. A source that follows something else has another state.
+func Follows(ref config.Ref, subdir string) string {
+	f := ref.String()
+	if sub := config.CleanSubdir(subdir); sub != "" {
+		f += " subdir " + sub
 	}
-	var out []config.Source
-	for _, s := range cfg.Sources {
-		if s.CheckUpdates && s.Remote() != "" {
-			out = append(out, s)
+	return f
+}
+
+// StateKey is the key of source s in state.json: its remote's ID, the
+// remote, and what it follows.
+func StateKey(s *config.Source) (id, remote, follows string) {
+	remote = s.Repo
+	if config.IsLocalRepo(remote) {
+		remote = filepath.Clean(paths.Expand(remote))
+	}
+	return source.ID(remote), remote, Follows(s.Ref, s.Subdir)
+}
+
+// FromConfig is what the checks need from c and its lock l: the release
+// check unless check-releases is false, and every repo source that follows
+// a branch or a tag and doesn't have check-updates: false. A source at a
+// rev has nothing new to check, and one not on this machine isn't checked. A config that can't be read checks
+// nothing: its check-releases: false may be what failed.
+func FromConfig(c *config.Config, l *lock.Lock) Config {
+	if slices.ContainsFunc(c.Errors, func(e *yamlx.Error) bool { return e.Out() == yamlx.OutFile }) {
+		return Config{}
+	}
+	out := Config{Releases: c.CheckReleases == nil || *c.CheckReleases}
+	for _, s := range c.Sources {
+		if s.Broken() || s.Repo == "" || s.Ref.Kind == config.Rev || s.CheckUpdates != nil && !*s.CheckUpdates || catalog.NotOnThisMachine(s) {
+			continue
 		}
+		_, remote, _ := StateKey(s)
+		src := Source{Name: s.Name, Remote: remote, Ref: s.Ref, Subdir: config.CleanSubdir(s.Subdir)}
+		if l != nil {
+			if e := l.Entry(s.Name); e != nil && lock.Compare(e, s).Same() {
+				src.Accepted = e.Commit
+			}
+		}
+		out.Sources = append(out.Sources, src)
 	}
 	return out
+}
+
+func (s Source) follows() string { return Follows(s.Ref, s.Subdir) }
+
+// head is the newest commit of what s follows. For a branch with subdir,
+// unchanged is the accepted commit when the files under subdir are the
+// same at head; finding that out fetches the branch into the cache.
+func (s Source) head(ctx context.Context) (head, unchanged string, err error) {
+	r := source.Open(s.Remote)
+	if s.Ref.Kind == config.Tag {
+		head, err = r.TagHead(ctx, s.Ref.Name)
+		return head, "", err
+	}
+	head, err = r.Head(ctx, s.Ref.Name)
+	if err != nil || s.Subdir == "" || s.Accepted == "" || head == s.Accepted {
+		return head, "", err
+	}
+	if _, err := r.FetchBranch(ctx, s.Ref.Name); err != nil {
+		return "", "", err
+	}
+	was, err1 := r.TreeID(ctx, s.Accepted, s.Subdir)
+	now, err2 := r.TreeID(ctx, head, s.Subdir)
+	if err1 == nil && err2 == nil && was == now {
+		unchanged = s.Accepted
+	}
+	return head, unchanged, nil
 }
 
 // StartDue starts a check in the background when one is due: the release
 // check is on and this is a release build, or a source has check-updates
 // on, and its last attempt is older than Interval. The background check
 // checks only what this call claimed. It returns at once.
-func StartDue(cfg *config.Config, version string) error {
+func StartDue(cfg Config, version string) error {
 	if os.Getenv(EnvOff) != "" {
 		return nil
 	}
-	release := cfg.CheckCtxtra && IsRelease(version)
+	release := cfg.Releases && IsRelease(version)
 	var claims []state.Claim
-	for _, s := range Sources(cfg) {
-		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote()), URL: s.Remote(), Branch: s.Branch})
+	for _, s := range cfg.Sources {
+		claims = append(claims, state.Claim{Name: s.Name, ID: source.ID(s.Remote), URL: s.Remote, Follows: s.follows()})
 	}
 	if !release && len(claims) == 0 {
 		return nil
@@ -168,7 +251,7 @@ func StartDue(cfg *config.Config, version string) error {
 	if err != nil || !claimedRelease && len(claimed) == 0 {
 		return err
 	}
-	args := []string{"check-updates", "--background", "--config", cfg.File}
+	args := []string{"check-updates", "--background"}
 	if claimedRelease {
 		args = append(args, "--release")
 	}
@@ -190,7 +273,7 @@ func StartDue(cfg *config.Config, version string) error {
 				mine(&s.Ctxtra.Check)
 			}
 			for _, c := range claimed {
-				e := s.Get(c.ID, c.URL, c.Branch)
+				e := s.Get(c.ID, c.URL, c.Follows)
 				mine(&e.Check)
 				s.Put(c.ID, e)
 			}
@@ -203,9 +286,9 @@ func StartDue(cfg *config.Config, version string) error {
 // Available is the newer ctxtra release that an earlier check found, and
 // the command that upgrades this ctxtra to it ("" when the install method
 // is unknown). latest is "" when there is none.
-func Available(cfg *config.Config, st state.State, version string) (latest, command string) {
+func Available(cfg Config, st state.State, version string) (latest, command string) {
 	latest = st.Ctxtra.Latest
-	if !cfg.CheckCtxtra || !newer(latest, version) {
+	if !cfg.Releases || !newer(latest, version) {
 		return "", ""
 	}
 	// A release candidate found by a ctxtra-rc install isn't offered to a
@@ -220,7 +303,7 @@ func Available(cfg *config.Config, st state.State, version string) (latest, comm
 // ReleaseNotice is the notice about a newer ctxtra release that an earlier
 // check found, or "". The command to upgrade, when known, is on a second
 // line.
-func ReleaseNotice(cfg *config.Config, st state.State, version string) string {
+func ReleaseNotice(cfg Config, st state.State, version string) string {
 	latest, command := Available(cfg, st, version)
 	if latest == "" {
 		return ""
@@ -275,25 +358,20 @@ func inCellar(path, formula string) bool {
 	return strings.Contains(path, sep+"Cellar"+sep+formula+sep)
 }
 
-// executable is the path this ctxtra was started by, as the hook command
-// names it (a symlink stays a symlink), else the running binary. A
-// variable for tests.
-var executable = func() string {
-	if filepath.IsAbs(os.Args[0]) {
-		return os.Args[0]
-	}
-	exe, _ := os.Executable()
-	return exe
-}
+// executable is detach.Executable; a variable for tests.
+var executable = detach.Executable
 
 // Result is what one check found.
 type Result struct {
 	Release bool   // the release check, else a source's
 	Name    string // the source's name
 	Latest  string // the latest release, or the source's commit
-	At      time.Time
-	Err     error
-	order   int
+	// Unchanged is the accepted commit when Latest has the same files
+	// under the source's subdir.
+	Unchanged string
+	At        time.Time
+	Err       error
+	order     int
 }
 
 // Selection is what a check checks: the release, when the release check is
@@ -306,7 +384,7 @@ type Selection struct {
 // Run checks what sel selects, or with nil everything that is on, in
 // parallel, and records the results. It returns them in config order, the
 // release first, and the first error writing them.
-func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection) ([]Result, error) {
+func Run(ctx context.Context, cfg Config, version string, sel *Selection) ([]Result, error) {
 	var (
 		results []Result
 		mu      sync.Mutex
@@ -321,7 +399,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 			werr = err
 		}
 	}
-	if cfg.CheckCtxtra && (sel == nil || sel.Release) {
+	if cfg.Releases && (sel == nil || sel.Release) {
 		wg.Go(func() {
 			at := now()
 			latest, err := latestRelease(ctx, version)
@@ -333,7 +411,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 		})
 	}
 	sem := make(chan struct{}, 4)
-	for i, s := range Sources(cfg) {
+	for i, s := range cfg.Sources {
 		if sel != nil && !slices.Contains(sel.Sources, s.Name) {
 			continue
 		}
@@ -341,20 +419,21 @@ func Run(ctx context.Context, cfg *config.Config, version string, sel *Selection
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			at := now()
-			var head string
+			var head, unchanged string
 			err := errNoTime
 			// A check that waited past the deadline doesn't ask the remote:
 			// its error says why, not that the remote failed.
 			if ctx.Err() == nil {
 				ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 				defer cancel()
-				head, err = source.Open(s.Remote()).Head(ctx, s.Branch)
+				head, unchanged, err = s.head(ctx)
 			}
-			add(Result{Name: s.Name, Latest: head, At: at, Err: err, order: i}, state.UpdateWithin(resultWait, source.ID(s.Remote()), s.Remote(), s.Branch, func(e *state.Source) {
-				if Record(&e.Check, at, err) && err == nil {
-					e.Head = head
-				}
-			}))
+			add(Result{Name: s.Name, Latest: head, Unchanged: unchanged, At: at, Err: err, order: i},
+				state.UpdateWithin(resultWait, source.ID(s.Remote), s.Remote, s.follows(), func(e *state.Source) {
+					if Record(&e.Check, at, err) && err == nil {
+						e.Head, e.Unchanged = head, unchanged
+					}
+				}))
 		})
 	}
 	wg.Wait()
@@ -458,6 +537,17 @@ type ghRelease struct {
 	Tag string `json:"tag_name"`
 }
 
+// errTestAsksGitHub fails a release check in a test binary, the CLI's
+// scripts included, that would ask GitHub: a test turns the check off or
+// asks a local server.
+var errTestAsksGitHub = errors.New("a test asked GitHub for the latest release: turn the release check off (check-releases: false)")
+
+// asksGitHub reports whether a test binary would ask GitHub at u, in any
+// case and with or without the trailing dot of a full domain name.
+func asksGitHub(u *neturl.URL) bool {
+	return testing.Testing() && strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "api.github.com")
+}
+
 // getJSON reads GitHub's answer at url, at most limit bytes, into v. It
 // returns the URL of the answer's next page, or "" when there is none.
 func getJSON(ctx context.Context, url, version string, limit int64, v any) (next string, err error) {
@@ -467,11 +557,17 @@ func getJSON(ctx context.Context, url, version string, limit int64, v any) (next
 	if err != nil {
 		return "", err
 	}
+	if asksGitHub(req.URL) {
+		return "", errTestAsksGitHub
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "ctxtra/"+version)
 	client := &http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if r.URL.Scheme != "https" || len(via) >= 3 {
 			return errors.New("unexpected redirect")
+		}
+		if asksGitHub(r.URL) {
+			return errTestAsksGitHub
 		}
 		return nil
 	}}

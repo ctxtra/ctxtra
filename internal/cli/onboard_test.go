@@ -30,10 +30,10 @@ func TestOnboardImport(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := testenv.Home(t)
-			f := newFakeAgents(t, "claude", "codex")
+			f := newFakeAgents(t, "claude-code", "codex")
 			file := filepath.Join(h, ".claude", "CLAUDE.md")
 			testenv.Write(t, file, "my instructions\n")
-			code, out, errOut := runOnboard("y\n"+tc.input, "--agent", "claude", "--agent", "codex")
+			code, out, errOut := runOnboard("y\n"+tc.input, "--agent", "claude-code", "--agent", "codex")
 			if code != 0 {
 				t.Fatalf("onboard: %d %s", code, errOut)
 			}
@@ -42,14 +42,14 @@ func TestOnboardImport(t *testing.T) {
 					t.Errorf("missing %q:\n%s", text, out)
 				}
 			}
-			if strings.Contains(out, "Next:") || skillBound("ctxtra") == nil || skillBound(follow) == nil {
+			if strings.Contains(out, "Next:") || skillBound("ctxtra") == "" || skillBound(follow) == "" {
 				t.Fatalf("skills or flow:\n%s", out)
 			}
 			if tc.started == "" {
 				if len(f.started) != 0 {
 					t.Fatalf("started without consent: %+v", f.started)
 				}
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*"))
 				if len(backups) != 0 {
 					t.Fatalf("backed up without consent: %v", backups)
 				}
@@ -57,7 +57,7 @@ func TestOnboardImport(t *testing.T) {
 				if len(f.started) != 1 || f.started[0].bin != tc.started {
 					t.Fatalf("started %+v", f.started)
 				}
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*", "claude", ".claude", "CLAUDE.md"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*", "claude-code", ".claude", "CLAUDE.md"))
 				if len(backups) != 1 {
 					t.Fatalf("backups: %v", backups)
 				}
@@ -76,11 +76,11 @@ func TestOnboardDeclineSkills(t *testing.T) {
 	for _, input := range []string{"n\nn\n", "", "y"} {
 		t.Run(input, func(t *testing.T) {
 			testenv.Home(t)
-			f := newFakeAgents(t, "claude")
-			if code, _, errOut := runOnboard("y\n"+input, "--agent", "claude"); code != 0 {
+			f := newFakeAgents(t, "claude-code")
+			if code, _, errOut := runOnboard("y\n"+input, "--agent", "claude-code"); code != 0 {
 				t.Fatalf("onboard: %d %s", code, errOut)
 			}
-			if skillBound("ctxtra") != nil || skillBound(follow) != nil || len(f.started) != 0 {
+			if skillBound("ctxtra") != "" || skillBound(follow) != "" || len(f.started) != 0 {
 				t.Fatal("declined skills installed or agent started")
 			}
 		})
@@ -89,16 +89,16 @@ func TestOnboardDeclineSkills(t *testing.T) {
 
 func TestOnboardRerun(t *testing.T) {
 	h := testenv.Home(t)
-	newFakeAgents(t, "claude")
-	if code, _, errOut := runOnboard("\n\n\n", "--agent", "claude"); code != 0 {
+	newFakeAgents(t, "claude-code")
+	if code, _, errOut := runOnboard("\n\n\n", "--agent", "claude-code"); code != 0 {
 		t.Fatal(errOut)
 	}
 	testenv.Write(t, filepath.Join(h, "notes.md"), "notes")
-	if code, _, errOut := run("binding", "add", "notes", "--global", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
+	if code, _, errOut := run("binding", "add", "notes", "--instruction", filepath.Join(h, "notes.md")); code != 0 {
 		t.Fatal(errOut)
 	}
 	testenv.Write(t, filepath.Join(h, ".claude", "CLAUDE.md"), "old rules")
-	if code, out, errOut := runOnboard("y\n", "--agent", "claude"); code != 0 || strings.Contains(out+errOut, "skill?") {
+	if code, out, errOut := runOnboard("y\n", "--agent", "claude-code"); code != 0 || strings.Contains(out+errOut, "skill?") {
 		t.Fatalf("rerun: %d %s\n%s", code, errOut, out)
 	}
 }
@@ -107,8 +107,8 @@ func TestOnboardNeedsTerminal(t *testing.T) {
 	for _, mode := range []string{"no terminal", "no input", "custom config"} {
 		t.Run(mode, func(t *testing.T) {
 			testenv.Home(t)
-			newFakeAgents(t, "claude")
-			args := []string{"--agent", "claude"}
+			newFakeAgents(t, "claude-code")
+			args := []string{"--agent", "claude-code"}
 			switch mode {
 			case "no terminal":
 				Interactive = func(IO) bool { return false }
@@ -123,7 +123,7 @@ func TestOnboardNeedsTerminal(t *testing.T) {
 			if _, err := os.Stat(state.SetupsPath()); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("setup changed: %v", err)
 			}
-			if skillBound("ctxtra") != nil {
+			if skillBound("ctxtra") != "" {
 				t.Fatal("skill installed")
 			}
 		})
@@ -136,15 +136,15 @@ func TestOnboardImportAvailability(t *testing.T) {
 		installed   []string
 		started     int
 	}{
-		{"single agent", "\n\n\n", []string{"claude"}, 1},
+		{"single agent", "\n\n\n", []string{"claude-code"}, 1},
 		{"no launcher", "\n\n", nil, 0},
-		{"declined base skill", "n\ny\n", []string{"claude"}, 0},
+		{"declined base skill", "n\ny\n", []string{"claude-code"}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := testenv.Home(t)
 			f := newFakeAgents(t, tc.installed...)
 			testenv.Write(t, filepath.Join(h, ".claude", "CLAUDE.md"), "rules")
-			code, out, errOut := runOnboard("y\n"+tc.input, "--agent", "claude")
+			code, out, errOut := runOnboard("y\n"+tc.input, "--agent", "claude-code")
 			if code != 0 || len(f.started) != tc.started || strings.Contains(out+errOut, "Which agent?") {
 				t.Fatalf("onboard: %d %s, started %+v\n%s", code, errOut, f.started, out)
 			}
@@ -159,16 +159,16 @@ func TestOnboardFailure(t *testing.T) {
 	for _, mode := range []string{"setup", "skill", "choice", "start"} {
 		t.Run(mode, func(t *testing.T) {
 			h := testenv.Home(t)
-			f := newFakeAgents(t, "claude", "codex")
+			f := newFakeAgents(t, "claude-code", "codex")
 			testenv.Write(t, filepath.Join(h, ".claude", "CLAUDE.md"), "rules")
-			args := []string{"--agent", "claude", "--agent", "codex"}
+			args := []string{"--agent", "claude-code", "--agent", "codex"}
 			input := "\n\ny\n1\n"
 			switch mode {
 			case "setup":
 				args = []string{"--agent", "nonexistent"}
 			case "skill":
 				testenv.Write(t, filepath.Join(h, "notes.md"), "notes")
-				testenv.Config(t, h, "schema: ctxtra/v1\nbindings:\n  - name: ctxtra\n    match: {global: true}\n    instructions: [~/notes.md]\n")
+				testenv.Config(t, h, "schema: ctxtra/config/v1\nbindings:\n  - name: ctxtra\n    instructions: [~/notes.md]\n")
 			case "choice":
 				input = "\n\ny\n99\n"
 			case "start":
@@ -178,11 +178,11 @@ func TestOnboardFailure(t *testing.T) {
 			if code == 0 || errOut == "" || len(f.started) != 0 {
 				t.Fatalf("onboard: %d %s, started %+v", code, errOut, f.started)
 			}
-			if mode == "setup" && skillBound("ctxtra") != nil {
+			if mode == "setup" && skillBound("ctxtra") != "" {
 				t.Fatal("installed skill after failed setup")
 			}
 			if mode == "choice" {
-				backups, _ := filepath.Glob(filepath.Join(h, ".ctxtra", "backups", "import-*"))
+				backups, _ := filepath.Glob(filepath.Join(h, ".local/state/ctxtra", "backups", "import-*"))
 				if len(backups) != 0 {
 					t.Fatalf("backup before valid choice: %v", backups)
 				}
@@ -195,20 +195,20 @@ func TestOnboardDeclineHooks(t *testing.T) {
 	for _, input := range []string{"n\ny\ny\n", "", "y"} {
 		t.Run(input, func(t *testing.T) {
 			h := testenv.Home(t)
-			f := newFakeAgents(t, "claude")
+			f := newFakeAgents(t, "claude-code")
 			config := filepath.Join(h, ".claude", "settings.json")
 			testenv.Write(t, config, "{}\n")
-			code, out, errOut := runOnboard(input, "--agent", "claude")
+			code, out, errOut := runOnboard(input, "--agent", "claude-code")
 			if code != 0 || !strings.Contains(out, "~/.claude/settings.json") || !strings.Contains(errOut, "Install hooks and continue? [Y/n]") || !strings.Contains(out, "Onboarding stopped") {
 				t.Fatalf("decline: %d %s\n%s", code, errOut, out)
 			}
 			if b, err := os.ReadFile(config); err != nil || string(b) != "{}\n" {
 				t.Fatalf("config changed: %q %v", b, err)
 			}
-			if _, err := os.Stat(filepath.Join(h, ".ctxtra")); !errors.Is(err, os.ErrNotExist) {
+			if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("onboarding wrote state: %v", err)
 			}
-			if skillBound("ctxtra") != nil || skillBound(follow) != nil || len(f.started) != 0 || strings.Contains(out, "Your agents can set up") {
+			if skillBound("ctxtra") != "" || skillBound(follow) != "" || len(f.started) != 0 || strings.Contains(out, "Your agents can set up") {
 				t.Fatal("continued after declining hooks")
 			}
 		})
@@ -217,8 +217,8 @@ func TestOnboardDeclineHooks(t *testing.T) {
 
 func TestOnboardStepSeparators(t *testing.T) {
 	testenv.Home(t)
-	newFakeAgents(t, "claude")
-	code, out, errOut := runOnboard("y\nn\nn\n", "--agent", "claude")
+	newFakeAgents(t, "claude-code")
+	code, out, errOut := runOnboard("y\nn\nn\n", "--agent", "claude-code")
 	if code != 0 {
 		t.Fatal(errOut)
 	}

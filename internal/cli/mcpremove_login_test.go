@@ -14,6 +14,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/ctxtra/ctxtra/internal/config"
+	"github.com/ctxtra/ctxtra/internal/edit"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/oauth"
 	"github.com/ctxtra/ctxtra/internal/mcp/oauthtest"
@@ -26,9 +27,9 @@ func TestMCPRemovalCancelsPendingAuthorization(t *testing.T) {
 			h := testenv.Home(t)
 			keyring.MockInit()
 			fake := oauthtest.New(t, oauthtest.Options{})
-			declaration := "schema: ctxtra/v1\nmcp-servers:\n  shared: {url: '" + fake.ResourceURL() + "'}\n"
+			declaration := "schema: ctxtra/config/v1\nmcp-servers:\n  shared: {url: '" + fake.ResourceURL() + "'}\n"
 			file := testenv.Config(t, h, declaration)
-			srv, ok := config.Load(file, newReader()).MCPServer("shared")
+			srv, ok := serverIn(t, file, "shared")
 			if !ok {
 				t.Fatal("missing server")
 			}
@@ -55,8 +56,14 @@ func TestMCPRemovalCancelsPendingAuthorization(t *testing.T) {
 			f := &oauth.SignIn{Server: srv, Store: store, HTTP: fake.Client(), Out: &output, ExpectedGeneration: &generation, Commit: stillDeclared(srv)}
 			f.OpenBrowser = func(authURL string) error {
 				s := newSources(IO{Out: &output, Err: &output})
-				s.file = removalFile
-				if err := s.editThen(func(old []byte) ([]byte, error) { return config.RemoveMCPServer(old, "shared") }, func() error { return store.Delete(srv) }); err != nil {
+				s.file, s.files.Config = removalFile, removalFile
+				remove := func(tx *edit.Tx) error { return tx.Config.Remove(config.MCPServers, "shared") }
+				if err := s.writeCommit(remove, func(write func() error) error {
+					if err := write(); err != nil {
+						return err
+					}
+					return store.Delete(srv)
+				}); err != nil {
 					return err
 				}
 				if mode == "remove and readd" {

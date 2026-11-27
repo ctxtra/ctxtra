@@ -17,13 +17,13 @@ func TestSkills(t *testing.T) {
 		repo := s.Repo("dev/svc", "https://github.com/acme/svc", nil)
 		deploy := s.Skill("skills/deploy", "deploy", "DEPLOYDESC", "DEPLOYBODY")
 		s.Skill("skills/other", "other", "OTHERDESC", "OTHERBODY")
-		s.Config(`schema: ctxtra/v1
+		s.Config(`schema: ctxtra/config/v1
 bindings:
   - name: svc
-    match: {repos: [{remote: github.com/acme/svc}]}
+    location: {repos: [github.com/acme/svc]}
     skills: [~/skills/deploy]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     skills: [~/skills/other]
 `)
 		s.Setup()

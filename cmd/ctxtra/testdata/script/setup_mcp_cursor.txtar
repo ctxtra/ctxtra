@@ -12,7 +12,7 @@ cmp .cursor/mcp.json original.json
 exec ctxtra setup --agent cursor
 stdout '~/.cursor/mcp.json'
 cmpenv .cursor/mcp.json want.json
-exists .ctxtra/backups
+exists .local/state/ctxtra/backups
 exec ctxtra setup --agent cursor
 stdout 'is already set up for'
 
@@ -24,7 +24,7 @@ exec ctxtra setup --remove --agent cursor
 grep '"other"' .cursor/mcp.json
 
 -- config.yaml --
-schema: ctxtra/v1
+schema: ctxtra/config/v1
 mcp-servers:
   pg: {command: [pg-mcp]}
 -- original.json --
@@ -46,7 +46,8 @@ mcp-servers:
       "args": [
         "mcp",
         "proxy",
-        "cursor"
+        "cursor",
+        "--setup-version=1"
       ]
     }
   }

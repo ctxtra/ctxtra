@@ -1,0 +1,118 @@
+# Every mistake is an error: ctxtra leaves out the smallest part, applies
+# the rest, and reports the error in the session message, the log, context
+# explain and doctor, which exits 1.
+mkdir work .config/ctxtra
+exec ctxtra setup --agent claude-code
+
+# A missing file: the session gets me.md, and the message names gone.md.
+cp missing.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+stdout 'ME_NOTES'
+stdout '1 error \(run ctxtra doctor\)'
+stdout '⚠ ~/.config/ctxtra/config.yaml: line 4: binding me: ~/notes/gone.md is not a file; the entry is left out"'
+grep 'binding me: ~/notes/gone.md is not a file' .local/state/ctxtra/log.jsonl
+! exec ctxtra context explain work
+stdout '~/notes/gone.md is not a file'
+! exec ctxtra doctor work
+stdout 'ERROR: ~/.config/ctxtra/config.yaml: line 4: binding me: ~/notes/gone.md is not a file'
+
+# A broken binding: only that binding is left out, and the error names it
+# and the known agents.
+cp broken.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+stdout 'ME_NOTES'
+stdout '⚠ ~/.config/ctxtra/config.yaml: line 7: binding broken: unknown agent \\"claude-cod\\" \(known: claude-code, codex, '
+! exec ctxtra doctor work
+stdout 'binding broken: unknown agent "claude-cod" \(known: claude-code, codex, .*\); binding broken is left out'
+
+# A config YAML can't read: sessions get nothing from it, and the session
+# message and doctor give the line.
+cp syntax.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+! stdout 'ME_NOTES'
+stdout '"systemMessage":"ctxtra added nothing; 1 error \(run ctxtra doctor\)\\n\\n⚠ ~/.config/ctxtra/config.yaml: line 3: YAML syntax: .*; nothing in the file is used"'
+! exec ctxtra doctor work
+stdout '~/.config/ctxtra/config.yaml: line 3: YAML syntax'
+
+# Duplicate name: both are skipped, doctor names them, and the other
+# bindings apply.
+cp twice.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+stdout 'ME_NOTES'
+! stdout 'TWICE_NOTES'
+! exec ctxtra doctor work
+stdout 'binding twice: 2 bindings are named twice, at lines 5 and 7; none of them is used'
+
+# A broken folder entry matches nothing, and a broken folder exclusion
+# leaves out its binding: the session message and doctor report each entry.
+cp folders.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+stdout 'ME_NOTES'
+! stdout 'jira'
+stdout '⚠ ~/.config/ctxtra/config.yaml: line 8: binding folder: work/\*\* is a relative folder; dirs are absolute or start with ~; the entry matches nothing'
+stdout '⚠ ~/.config/ctxtra/config.yaml: line 11: binding folder-ex: clients/\*\* is a relative folder; dirs are absolute or start with ~; binding folder-ex is left out'
+! exec ctxtra doctor work
+stdout 'binding folder: work/\*\* is a relative folder'
+stdout 'binding folder-ex: clients/\*\* is a relative folder'
+
+# More errors than the message names: the first three, then how many more.
+cp many.yaml .config/ctxtra/config.yaml
+runhook claude-code SessionStart work
+stdout '4 errors \(run ctxtra doctor\)'
+stdout 'binding a: ~/notes/a.md is not a file'
+stdout 'binding c: ~/notes/c.md is not a file'
+! stdout 'binding d:'
+stdout '⚠ 1 more error \(run ctxtra doctor\)"'
+
+-- notes/me.md --
+ME_NOTES
+-- notes/twice.md --
+TWICE_NOTES
+-- missing.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/notes/gone.md, ~/notes/me.md]
+-- broken.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/notes/me.md]
+  - name: broken
+    agents:
+      - claude-cod
+    instructions: [~/notes/me.md]
+-- syntax.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+   instructions: [~/notes/me.md]
+-- twice.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - name: me
+    instructions: [~/notes/me.md]
+  - name: twice
+    instructions: [~/notes/twice.md]
+  - name: twice
+    instructions: [~/notes/twice.md]
+-- folders.yaml --
+schema: ctxtra/config/v1
+mcp-servers:
+  jira: {url: 'https://mcp.example.invalid/mcp'}
+bindings:
+  - name: me
+    instructions: [~/notes/me.md]
+  - name: folder
+    location: {dirs: ['work/**']}
+    mcp-servers: [jira]
+  - name: folder-ex
+    location: {dirs: ['!clients/**']}
+    mcp-servers: [jira]
+-- many.yaml --
+schema: ctxtra/config/v1
+bindings:
+  - {name: a, instructions: [~/notes/a.md]}
+  - {name: b, instructions: [~/notes/b.md]}
+  - {name: c, instructions: [~/notes/c.md]}
+  - {name: d, instructions: [~/notes/d.md]}

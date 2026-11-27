@@ -27,7 +27,7 @@ func fileKey(t *testing.T, s *Session) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := s.Path(".ctxtra/mcp")
+	dir := s.Path(".local/state/ctxtra/mcp")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -125,12 +125,12 @@ func TestMCPRemoteCredential(t *testing.T) {
 		web := newAPIServer(t, key)
 		s := mcpSession(t, a, func(s *Session) string {
 			fileKey(t, s)
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   web: {url: '` + web.URL + `/mcp', secret-headers: [X-Api-Key]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     mcp-servers: [web]
 `
 		})
@@ -140,7 +140,7 @@ bindings:
 		if out, err := login.CombinedOutput(); err != nil || !strings.Contains(string(out), "stored its secret values") {
 			t.Fatalf("mcp login: %v\n%s", err, out)
 		}
-		if strings.Contains(readFile(t, s.Path("ctx/ctxtra.yaml")), key) {
+		if strings.Contains(readFile(t, s.Path("ctx-config/ctxtra/config.yaml")), key) {
 			t.Fatal("the key is in the config")
 		}
 		s.Run(s.Path("dev/a"), driver.Options{}, mcpScript(a.Name(), "web__web_ping")...)
@@ -164,19 +164,19 @@ func readFile(t *testing.T, path string) string {
 // session's own command runs ctxtra mcp login, then waits.
 func TestMCPSignInDuringSession(t *testing.T) {
 	forEachAgent(t, nil, func(t *testing.T, a Agent) {
-		if a.Name() != "claude" {
+		if a.Name() != "claude-code" {
 			t.Skip("checked in Claude Code, which takes tool list changes")
 		}
 		const key = "e2e-api-key"
 		web := newAPIServer(t, key)
 		s := mcpSession(t, a, func(s *Session) string {
 			fileKey(t, s)
-			return `schema: ctxtra/v1
+			return `schema: ctxtra/config/v1
 mcp-servers:
   web: {url: '` + web.URL + `/mcp', secret-headers: [X-Api-Key]}
 bindings:
   - name: a
-    match: {dirs: [~/dev/a]}
+    location: {dirs: [~/dev/a]}
     mcp-servers: [web]
 `
 		})

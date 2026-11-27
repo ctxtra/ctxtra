@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -77,7 +78,7 @@ func TestCodexAddKeepsTheRest(t *testing.T) {
 		t.Errorf("the rest changed:\n%s", b)
 	}
 	tail := strings.TrimPrefix(string(b), realConfig)
-	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\nenv_vars = [\"CTXTRA_CONFIG\", \"CTXTRA_LOG\", \"CTXTRA_EXPERIMENTAL_MCP\"") ||
+	if !strings.HasPrefix(tail, "\n"+beginMarker+"\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\nenv_vars = [\"XDG_CONFIG_HOME\", \"XDG_DATA_HOME\", \"XDG_STATE_HOME\", \"XDG_CACHE_HOME\", \"CTXTRA_LOG\"") ||
 		!strings.HasSuffix(tail, "\"SSL_CERT_DIR\", \"PGHOST\"]\nstartup_timeout_sec = 30\nrequired = true\n"+endMarker+"\n") {
 		t.Errorf("block:\n%s", tail)
 	}
@@ -91,6 +92,41 @@ func TestCodexAddKeepsTheRest(t *testing.T) {
 	}
 	if n := (Agent{}).CheckMCP("", agent.MCPCheck{Want: true, Known: true}); len(n) != 1 || !strings.Contains(n[0], "/bin/ctxtra, which isn't an executable file") && !strings.Contains(n[0], "doesn't exist") {
 		t.Errorf("notices %v", n)
+	}
+}
+
+func TestCodexTheVariableReachesTheMCPProxy(t *testing.T) {
+	if !slices.Contains(EnvVars(nil), profile.Env) {
+		t.Error("the default allow-list omits the profile variable")
+	}
+	vars := EnvVars([]string{profile.Env, "PGHOST", profile.Env})
+	count := 0
+	for _, v := range vars {
+		if v == profile.Env {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("profile variable missing or repeated: %v", vars)
+	}
+}
+
+func TestCodexReportsAMissingProfileVariable(t *testing.T) {
+	h := testenv.Home(t)
+	bin := filepath.Join(h, "ctxtra")
+	testenv.Write(t, bin, "#!/bin/sh\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setupMCP(t, add(bin)); err != nil {
+		t.Fatal(err)
+	}
+	path := Agent{}.MCPPath()
+	b, _ := os.ReadFile(path)
+	testenv.Write(t, path, strings.Replace(string(b), `"CTXTRA_PROFILES", `, "", 1))
+	n := (Agent{}).CheckMCP(bin, agent.MCPCheck{Want: true, Known: true})
+	if len(n) != 1 || n[0] != "the ctxtra MCP entry doesn't pass CTXTRA_PROFILES to the proxy; run ctxtra setup --agent codex" {
+		t.Errorf("notices: %v", n)
 	}
 }
 
@@ -189,12 +225,12 @@ func TestCodexNewFileAndDryRun(t *testing.T) {
 func TestCodexHandEdited(t *testing.T) {
 	h := testenv.Home(t)
 	path := filepath.Join(h, ".codex", "config.toml")
-	block := beginMarker + "\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" + endMarker + "\n"
+	block := beginMarker + "\n[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n" + endMarker + "\n"
 	for name, body := range map[string]string{
 		"quoted table":     realConfig + "[mcp_servers.\"ctxtra-proxy\"]\ncommand = \"x\"\n",
 		"dotted keys":      "mcp_servers.ctxtra-proxy.command = \"x\"\n" + realConfig,
 		"inline map":       "mcp_servers = { ctxtra-proxy = { command = \"x\" } }\n",
-		"no markers":       realConfig + "[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n",
+		"no markers":       realConfig + "[mcp_servers.ctxtra-proxy]\ncommand = \"/bin/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n",
 		"begin only":       realConfig + beginMarker + "\n[mcp_servers.x]\ncommand = \"x\"\n",
 		"end first":        endMarker + "\n" + realConfig + beginMarker + "\n",
 		"two blocks":       realConfig + block + block,
@@ -332,7 +368,7 @@ func read(t *testing.T, p string) string {
 }
 
 // legacyBlock is the entry as setup wrote it before the rename.
-const legacyBlock = legacyBeginMarker + "\n" + legacyTableHeader + "\ncommand = \"/old/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\"]\n" +
+const legacyBlock = legacyBeginMarker + "\n" + legacyTableHeader + "\ncommand = \"/old/ctxtra\"\nargs = [\"mcp\", \"proxy\", \"codex\", \"--setup-version=1\"]\n" +
 	"startup_timeout_sec = 30\ndefault_tools_approval_mode = \"approve\"\nrequired = true\n" + legacyEndMarker + "\nenabled = true\n"
 
 // Setup renames the old block, with the keys and subtables the user added,

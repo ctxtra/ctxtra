@@ -6,7 +6,7 @@ package e2e
 // isolated home folder, and checks what reaches the model.
 //
 //	go test -count=1 ./...                 every agent found
-//	go test -count=1 . -agent claude       one agent
+//	go test -count=1 . -agent claude-code       one agent
 //	CTXTRA_E2E_REQUIRE=1                 a missing agent fails instead of skipping (CI)
 //	CTXTRA_E2E_EVIDENCE=DIR              save everything about a failed run in DIR
 //	go test -count=1 ./... -keep           keep fixture folders and print where
@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	agentFlag  = flag.String("agent", "", "run only this agent (claude, codex, pi, opencode, copilot, muse, antigravity, hermes, dsh)")
+	agentFlag  = flag.String("agent", "", "run only this agent (claude-code, codex, pi, opencode, github-copilot, muse, antigravity, hermes-agent, dsh)")
 	keepFlag   = flag.Bool("keep", false, "keep each run's home folder and log its path")
 	timeoutRun = flag.Duration("run-timeout", 3*time.Minute, "timeout of one agent run")
 )
@@ -139,6 +139,8 @@ type Session struct {
 	// Adjust changes the agent's command before each run, such as to
 	// approve MCP tools in a headless run.
 	Adjust func(cmd *exec.Cmd)
+	// BeforeReply observes model requests before the mock answers them.
+	BeforeReply func(mock.Request)
 }
 
 func newSession(t *testing.T, a Agent) *Session {
@@ -168,7 +170,7 @@ type Result struct {
 // the agent fails or the mock got no request.
 func (s *Session) Run(dir string, opts driver.Options, script ...mock.Step) *Result {
 	s.t.Helper()
-	m := mock.New(s.t, script...)
+	m := mock.Observed(s.t, s.BeforeReply, script...)
 	prompt := mock.Prompt
 	if opts.Prompt != "" {
 		prompt = opts.Prompt
@@ -236,7 +238,7 @@ func (s *Session) saveEvidence(run int, cmd *exec.Cmd, r *Result) {
 	write("stderr.txt", []byte(r.Stderr))
 	reqs, _ := json.MarshalIndent(r.Requests, "", " ")
 	write("requests.json", reqs)
-	for _, name := range []string{".ctxtra/log.jsonl", "claude-debug.log"} {
+	for _, name := range []string{".local/state/ctxtra/log.jsonl", "claude-debug.log"} {
 		if b, err := os.ReadFile(s.Path(name)); err == nil {
 			write(filepath.Base(name), b)
 		}

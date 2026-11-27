@@ -70,11 +70,16 @@ func TestApprovalFingerprint(t *testing.T) {
 	if Fingerprint(same) != Fingerprint(base) {
 		t.Fatal("notes or map insertion order changed approval")
 	}
+	renamed := base
+	renamed.Name = "linear_work"
+	if Fingerprint(renamed) != Fingerprint(base) {
+		t.Fatal("a new name in the config changed the approval of SOURCE:SERVER")
+	}
 	local := upstream.Server{ID: "work/build", Name: "build", Origin: "git:repo", Pinned: true, Command: []string{"tools", "--read"}}
 	for name, change := range map[string]func(*upstream.Server){
 		"argv":       func(s *upstream.Server) { s.Command = []string{"tools", "--write"} },
 		"env":        func(s *upstream.Server) { s.Env = map[string]string{"MODE": "write"} },
-		"env-pass":   func(s *upstream.Server) { s.EnvPass = []string{"TOKEN"} },
+		"pass-env":   func(s *upstream.Server) { s.EnvPass = []string{"TOKEN"} },
 		"secret-env": func(s *upstream.Server) { s.SecretEnv = []string{"TOKEN"} },
 	} {
 		t.Run(name, func(t *testing.T) {

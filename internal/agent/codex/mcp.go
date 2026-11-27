@@ -18,6 +18,7 @@ import (
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/fsutil"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 )
 
 // ctxtra's MCP entry is a block of lines between two markers in Codex's
@@ -52,12 +53,11 @@ func (Agent) MCPPath() string { return filepath.Join(dir(), "config.toml") }
 // EnvVars are the variables Codex passes to the proxy: Codex starts MCP
 // servers with an allow-listed environment. They make the proxy read the
 // hook's config and log, reach the keychain on Linux, work behind a proxy,
-// and give local servers their env-pass variables.
+// and give local servers their pass-env variables.
 func EnvVars(envPass []string) []string {
 	// The Secret Service's variables matter only on Linux; listed
 	// everywhere, so the entry is the same on every system.
-	// Keep the legacy opt-in name in the serialized setup contract.
-	vars := []string{"CTXTRA_CONFIG", "CTXTRA_LOG", "CTXTRA_EXPERIMENTAL_MCP", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"}
+	vars := append(slices.Clone(paths.XDGVars), "CTXTRA_LOG", profile.Env, "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
 	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY"} {
 		vars = append(vars, v, strings.ToLower(v))
 	}
@@ -462,11 +462,19 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 		return []string{fmt.Sprintf("%s: %v; restore or delete it, then %s", paths.Tilde(path), errHandEdited, repair)}
 	}
 	out := agent.BinaryNotices("the ctxtra MCP proxy runs", []string{b}, bin, repair)
+	args, _ := f.entry()["args"].([]any)
+	current := make([]string, len(args))
+	for i, v := range args {
+		current[i], _ = v.(string)
+	}
+	if !slices.Equal(current, agent.MCPArgs(a.Name())) {
+		out = append(out, "the ctxtra MCP proxy entry is from an earlier ctxtra; "+repair)
+	}
 	if t, _ := f.entry()["startup_timeout_sec"].(int64); t < StartupTimeout {
 		out = append(out, "the ctxtra MCP proxy has a shorter startup_timeout_sec than setup writes; "+repair)
 	}
-	if missing := missingVars(f.entry(), o.EnvPass); o.Want && len(missing) > 0 {
-		out = append(out, fmt.Sprintf("the ctxtra MCP proxy doesn't pass %s to local servers; %s", strings.Join(missing, ", "), repair))
+	if missing := missingVars(f.entry(), append([]string{profile.Env}, o.EnvPass...)); o.Want && len(missing) > 0 {
+		out = append(out, fmt.Sprintf("the ctxtra MCP entry doesn't pass %s to the proxy; %s", strings.Join(missing, ", "), repair))
 	}
 	if r, _ := f.entry()["required"].(bool); !r {
 		out = append(out, "the ctxtra MCP proxy isn't required, so Codex doesn't wait for its tools; "+repair)
@@ -475,6 +483,17 @@ func (a Agent) CheckMCP(bin string, o agent.MCPCheck) []string {
 		out = append(out, fmt.Sprintf("the ctxtra MCP proxy has its old name %s; %s", agent.LegacyMCPEntryName, repair))
 	}
 	return out
+}
+
+func (a Agent) MissingEnv(names []string) []string {
+	f, err := readTOML(a.MCPPath())
+	if err != nil || f.begin < 0 {
+		return nil
+	}
+	if _, ours := mcpBinary(f.entry()); !ours {
+		return nil
+	}
+	return missingVars(f.entry(), names)
 }
 
 func (a Agent) MCP() agent.MCPHost { return a }

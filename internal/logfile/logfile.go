@@ -1,5 +1,5 @@
 // Package logfile appends records to ctxtra's log ($CTXTRA_LOG or
-// ~/.ctxtra/log.jsonl), one JSON object per line.
+// ~/.local/state/ctxtra/log.jsonl), one JSON object per line.
 package logfile
 
 import (

@@ -15,6 +15,18 @@ import (
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
+func TestAgentIDs(t *testing.T) {
+	want := []string{"claude-code", "codex", "pi", "opencode", "muse", "hermes-agent", "dsh", "cursor", "github-copilot", "antigravity", "devin"}
+	if !slices.Equal(Names(), want) {
+		t.Fatalf("agent IDs: %v, want %v", Names(), want)
+	}
+	for _, name := range []string{"claude", "copilot", "hermes"} {
+		if _, ok := Get(name); ok {
+			t.Errorf("earlier ID %s is still accepted", name)
+		}
+	}
+}
+
 // Every agent has what the commands need, and answers with a JSON object
 // also when there is nothing to add.
 func TestAgentsAreComplete(t *testing.T) {
@@ -156,7 +168,7 @@ func TestHomeClearsAgentVars(t *testing.T) {
 		}
 		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
 			found++
-			if !slices.Contains(testenv.AgentVars, m[1]) {
+			if !slices.Contains(slices.Concat(testenv.AgentVars, testenv.AgentSessionVars), m[1]) {
 				t.Errorf("%s reads %s, which testenv.Home doesn't clear", f, m[1])
 			}
 		}
@@ -164,7 +176,7 @@ func TestHomeClearsAgentVars(t *testing.T) {
 	if found < 10 {
 		t.Errorf("found %d variables: the source files moved?", found)
 	}
-	for _, k := range testenv.AgentVars {
+	for _, k := range slices.Concat(testenv.AgentVars, testenv.AgentSessionVars) {
 		t.Setenv(k, "/elsewhere")
 	}
 	h := testenv.Home(t)

@@ -3,19 +3,20 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
+	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/chunk"
-	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/hook"
 	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
 	"github.com/ctxtra/ctxtra/internal/setup"
-	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/state"
 	"github.com/ctxtra/ctxtra/internal/term"
 	"github.com/ctxtra/ctxtra/internal/update"
@@ -25,36 +26,101 @@ import (
 type report struct {
 	IO
 	version string
+	// agent is the session's agent, "" for none: then bindings with
+	// agents don't apply.
+	agent string
+	// profiles are the session's active profiles.
+	profiles profile.Active
 }
 
-// resolve is what a session in dir gets, with the release notice that
-// sessions show.
-func (r report) resolve(dir string) (*resolve.Result, *config.Config) {
-	res, cfg := resolve.Session(dir, paths.ConfigPath())
-	if n := update.ReleaseNotice(cfg, state.Load(), r.version); n != "" {
+// newReport is a report for a session of agentName with the profiles a new
+// session gets, or with the --profile names given.
+func (a *app) newReport(agentName string, given []string) (report, error) {
+	r := report{IO: a.IO, version: a.version, agent: agentName, profiles: profile.Current()}
+	if len(given) > 0 {
+		var err error
+		if r.profiles, err = profile.Given(given); err != nil {
+			return r, err
+		}
+	}
+	return r, nil
+}
+
+// as is r for a session of agentName.
+func (r report) as(agentName string) report {
+	r.agent = agentName
+	return r
+}
+
+// checkAgent fails for an agent name that no agent has.
+func (r report) checkAgent() error {
+	if r.agent == "" {
+		return nil
+	}
+	if _, ok := registry.Get(r.agent); !ok {
+		return fmt.Errorf("unknown agent %q (one of: %s)", r.agent, strings.Join(registry.Names(), ", "))
+	}
+	return nil
+}
+
+// resolve is what a session of r.agent in dir gets, with the release
+// notice that sessions show.
+func (r report) resolve(dir string) (*resolve.Result, *resolve.Env) {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	env := loadEnv()
+	res := env.Resolve(resolve.Input{Dir: dir, Agent: r.agent, Profiles: r.profiles})
+	// A session of a known agent gets what fits in it.
+	if a, ok := registry.Get(r.agent); ok {
+		a.Delivery().Fit(res)
+	}
+	if n := update.ReleaseNotice(update.FromConfig(env.Config, env.Lock), state.Load(), r.version); n != "" {
 		res.Notices = append([]string{n}, res.Notices...)
 	}
-	return res, cfg
+	return res, env
+}
+
+// profilesNote tells, on stderr, which profiles are active when the
+// output is only the session's files or text.
+func (r report) profilesNote() {
+	if r.profiles.Shown() {
+		fmt.Fprintf(r.Err, "profiles: %s\n", r.profiles)
+	}
+}
+
+// profilesInfo is the active profiles in --json output.
+func profilesInfo(a profile.Active) map[string]any {
+	names := a.Names
+	if names == nil {
+		names = []string{}
+	}
+	return map[string]any{"active": names, "from": string(a.Origin)}
 }
 
 // status is the exit code of a command that shows res: 1 when a session
 // wouldn't get all it should.
 func status(res *resolve.Result) int {
-	if len(res.Problems) > 0 || len(res.Missing) > 0 || len(res.Dropped) > 0 {
+	if len(res.Errors) > 0 || len(res.Dropped) > 0 {
 		return 1
 	}
 	return 0
 }
 
-// sessionDiagnostics are res's problems, missing files, drops and notices,
-// for --json.
-func sessionDiagnostics(res *resolve.Result) []diagnostic {
-	d := diagnostics("error", res.Problems)
-	for _, m := range res.Missing {
-		d = append(d, diagnostic{"error", "missing: " + m})
+// errorTexts are errs as reported.
+func errorTexts(errs []*catalog.Error) []string {
+	out := make([]string, len(errs))
+	for i, e := range errs {
+		out[i] = e.Error()
 	}
+	return out
+}
+
+// sessionDiagnostics are res's errors, drops and notices, for --json.
+func sessionDiagnostics(res *resolve.Result) []diagnostic {
+	d := diagnostics("error", errorTexts(res.Errors))
 	for _, h := range res.Dropped {
-		d = append(d, diagnostic{"warning", fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
+		d = append(d, diagnostic{"error", fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path)})
 	}
 	return append(d, diagnostics("notice", oneLine(res.Notices))...)
 }
@@ -62,6 +128,7 @@ func sessionDiagnostics(res *resolve.Result) []diagnostic {
 // hitInfo is a file or skill a session gets, in --json output.
 type hitInfo struct {
 	Path    string `json:"path"`
+	Ref     string `json:"ref,omitempty"`  // SOURCE:PATH of a file in a source
 	Name    string `json:"name,omitempty"` // skills
 	Binding string `json:"binding"`
 	Chars   int    `json:"chars,omitempty"` // files
@@ -70,7 +137,7 @@ type hitInfo struct {
 func hits(hs []resolve.Hit, skills bool) []hitInfo {
 	out := []hitInfo{}
 	for _, h := range hs {
-		i := hitInfo{Path: h.Path, Binding: h.Origin}
+		i := hitInfo{Path: h.Path, Ref: h.Ref, Binding: h.Origin}
 		if skills {
 			i.Name = h.Name
 		} else {
@@ -81,31 +148,38 @@ func hits(hs []resolve.Hit, skills bool) []hitInfo {
 	return out
 }
 
+// printIssues prints res's errors, drops and notices to w.
+func printIssues(w interface{ Write([]byte) (int, error) }, res *resolve.Result) {
+	for _, e := range res.Errors {
+		fmt.Fprintf(w, "error: %s\n", e)
+	}
+	for _, h := range res.Dropped {
+		fmt.Fprintf(w, "dropped (over %s): %s\n", h.Over, h.Path)
+	}
+	for _, n := range oneLine(res.Notices) {
+		fmt.Fprintf(w, "notice: %s\n", n)
+	}
+}
+
 func (r report) files(dir string, asJSON bool) int {
+	if err := r.checkAgent(); err != nil {
+		fmt.Fprintf(r.Err, "ctxtra context files: %v\n", err)
+		return 2
+	}
 	res, _ := r.resolve(dir)
 	if asJSON {
-		writeJSON(r.Out, map[string]any{"dir": res.Dir, "files": hits(res.Files, false), "skills": hits(res.Skills, true)},
+		writeJSON(r.Out, map[string]any{"dir": res.Dir, "profiles": profilesInfo(r.profiles), "files": hits(res.Files, false), "skills": hits(res.Skills, true)},
 			sessionDiagnostics(res))
 		return status(res)
 	}
-	for _, p := range res.Problems {
-		fmt.Fprintf(r.Err, "problem: %s\n", p)
-	}
+	r.profilesNote()
 	for _, h := range res.Files {
 		fmt.Fprintln(r.Out, h.Path)
 	}
 	for _, h := range res.Skills {
 		fmt.Fprintln(r.Out, h.Path)
 	}
-	for _, m := range res.Missing {
-		fmt.Fprintf(r.Err, "missing: %s\n", m)
-	}
-	for _, h := range res.Dropped {
-		fmt.Fprintf(r.Err, "dropped (over %s): %s\n", h.Over, h.Path)
-	}
-	for _, n := range oneLine(res.Notices) {
-		fmt.Fprintf(r.Err, "notice: %s\n", n)
-	}
+	printIssues(r.Err, res)
 	return status(res)
 }
 
@@ -125,12 +199,14 @@ type showOptions struct {
 }
 
 func (r report) show(dir string, o showOptions) int {
-	res, _ := r.resolve(dir)
-	for _, p := range res.Problems {
-		fmt.Fprintf(r.Err, "problem: %s\n", p)
+	if err := r.checkAgent(); err != nil {
+		fmt.Fprintf(r.Err, "ctxtra context show: %v\n", err)
+		return 2
 	}
-	for _, m := range res.Missing {
-		fmt.Fprintf(r.Err, "missing: %s\n", m)
+	res, _ := r.resolve(dir)
+	r.profilesNote()
+	for _, e := range res.Errors {
+		fmt.Fprintf(r.Err, "error: %s\n", e)
 	}
 	for _, h := range res.Dropped {
 		fmt.Fprintf(r.Err, "dropped (over %s): %s\n", h.Over, h.Path)
@@ -211,13 +287,14 @@ func cut(s string, n int) string {
 // sessionInfo is the session folder in --json output.
 type sessionInfo struct {
 	Dir        string   `json:"dir"`
+	Agent      string   `json:"agent,omitempty"`
 	Repository string   `json:"repository,omitempty"`
 	Remotes    []string `json:"remotes,omitempty"`
 	Subpath    string   `json:"subpath,omitempty"`
 }
 
-func session(res *resolve.Result) sessionInfo {
-	s := sessionInfo{Dir: res.Dir}
+func (r report) sessionInfo(res *resolve.Result) sessionInfo {
+	s := sessionInfo{Dir: res.Dir, Agent: r.agent}
 	if res.Repo != nil {
 		s.Repository, s.Remotes, s.Subpath = res.Repo.Root, res.Repo.Remotes, res.Repo.Subpath
 	}
@@ -226,37 +303,63 @@ func session(res *resolve.Result) sessionInfo {
 
 func (r report) session(res *resolve.Result) {
 	fmt.Fprintf(r.Out, "session folder: %s\n", res.Dir)
-	if res.Repo == nil {
-		fmt.Fprintln(r.Out, "  not in a git repository: repos in match blocks don't match")
-		return
+	if r.agent != "" {
+		fmt.Fprintf(r.Out, "  agent: %s\n", r.agent)
+	} else {
+		fmt.Fprintln(r.Out, "  agent: none given (--agent): bindings with agents don't apply")
 	}
-	remotes := strings.Join(res.Repo.Remotes, ", ")
-	if remotes == "" {
-		remotes = "(none)"
-	}
-	fmt.Fprintf(r.Out, "  repository: %s\n  remotes: %s\n  subpath: %s\n", res.Repo.Root, remotes, res.Repo.Subpath)
+	r.repository(res)
 }
 
-// traceItem is a file or skill of a binding in explain --json: added,
-// dropped, skipped (an earlier binding added it, or a problem), or missing.
+// repository prints the repository of res's folder.
+func (r report) repository(res *resolve.Result) {
+	switch {
+	case res.RepoErr != nil:
+		fmt.Fprintf(r.Out, "  repository: can't be told: %v\n", res.RepoErr)
+	case res.Repo != nil:
+		remotes := strings.Join(res.Repo.Remotes, ", ")
+		if remotes == "" {
+			remotes = "(none)"
+		}
+		fmt.Fprintf(r.Out, "  repository: %s\n  remotes: %s\n  subpath: %s\n", res.Repo.Root, remotes, res.Repo.Subpath)
+	}
+}
+
+// traceItem is a file, skill or server of a binding in explain --json.
 type traceItem struct {
 	Path   string `json:"path"`
-	Status string `json:"status"`
+	Status string `json:"status"` // added, dropped
 	Chars  int    `json:"chars,omitempty"`
 	Name   string `json:"name,omitempty"` // skills
 	Over   string `json:"over,omitempty"` // dropped files: the limit
 }
 
+// conditionInfo is a condition of a binding in explain --json.
+type conditionInfo struct {
+	Key  string `json:"key"`
+	Held bool   `json:"held"`
+	Why  string `json:"why"`
+	Not  string `json:"excluded_by,omitempty"`
+}
+
+// exclusionInfo is what a ! entry removed, in explain --json.
+type exclusionInfo struct {
+	Entry string `json:"entry"`
+	Item  string `json:"item"`
+}
+
 // traceInfo is a binding in explain --json.
 type traceInfo struct {
-	Binding string      `json:"binding"`
-	Matched bool        `json:"matched"`
-	Reason  string      `json:"reason"`
-	Files   []traceItem `json:"files"`
-	Skills  []traceItem `json:"skills"`
-	Missing []string    `json:"missing"`
-	// MCP servers by name; only when the binding has some.
-	MCPServers []traceItem `json:"mcp_servers,omitempty"`
+	Binding     string          `json:"binding"`
+	Matched     bool            `json:"matched"`
+	Reason      string          `json:"reason"`
+	Conditions  []conditionInfo `json:"conditions"`
+	Files       []traceItem     `json:"files"`
+	Skills      []traceItem     `json:"skills"`
+	MCPServers  []traceItem     `json:"mcp_servers,omitempty"`
+	Excluded    []exclusionInfo `json:"excluded,omitempty"`
+	Unavailable []string        `json:"unavailable,omitempty"`
+	Errors      []string        `json:"errors,omitempty"`
 }
 
 // agentDrop is an agent whose sessions don't get all of a text, in --json.
@@ -264,9 +367,14 @@ type agentDrop struct {
 	Agent   string   `json:"agent"`
 	Over    string   `json:"over"`
 	Dropped []string `json:"dropped"`
+	// Still is set when what is left after dropping every file it can is
+	// still over: the skills of these bindings.
+	Still []string `json:"still_over,omitempty"`
+	// fitted is set when the result was fit to the agent already.
+	fitted bool
 }
 
-// traces is how each binding of res added its files and skills.
+// traces is how each binding of res added its files, skills and servers.
 func traces(res *resolve.Result) []traceInfo {
 	files := map[string]resolve.Hit{}
 	for _, h := range res.Files {
@@ -282,85 +390,131 @@ func traces(res *resolve.Result) []traceInfo {
 	}
 	out := []traceInfo{}
 	for _, t := range res.Trace {
-		ti := traceInfo{Binding: t.Origin, Matched: t.Matched, Reason: t.Reason, Files: []traceItem{}, Skills: []traceItem{},
-			Missing: append([]string{}, t.Missing...)}
+		ti := traceInfo{Binding: t.Origin, Matched: t.Matched, Reason: t.Reason, Conditions: []conditionInfo{},
+			Files: []traceItem{}, Skills: []traceItem{}, Unavailable: t.Unavailable, Errors: errorTexts(t.Errors)}
+		for _, c := range t.Conditions {
+			ti.Conditions = append(ti.Conditions, conditionInfo{c.Key, c.Held, c.Why, c.Not})
+		}
 		for _, f := range t.Files {
-			switch {
-			case dropped[f].Origin == t.Origin:
-				ti.Files = append(ti.Files, traceItem{Path: f, Status: "dropped", Over: dropped[f].Over})
-			case files[f].Origin == t.Origin:
+			if h, ok := dropped[f]; ok {
+				ti.Files = append(ti.Files, traceItem{Path: f, Status: "dropped", Over: h.Over})
+			} else {
 				ti.Files = append(ti.Files, traceItem{Path: f, Status: "added", Chars: resolve.Chars(files[f].Content)})
-			case files[f].Origin != "" || dropped[f].Origin != "":
-				ti.Files = append(ti.Files, traceItem{Path: f, Status: "skipped: already added by an earlier binding"})
-			case !mentions(t.Missing, f):
-				ti.Files = append(ti.Files, traceItem{Path: f, Status: "skipped: not added; see problems"})
 			}
 		}
 		for _, s := range t.Skills {
-			if h, ok := skills[s]; ok && h.Origin == t.Origin {
-				ti.Skills = append(ti.Skills, traceItem{Path: s, Status: "added", Name: h.Name})
-			} else if !mentions(t.Missing, s) {
-				ti.Skills = append(ti.Skills, traceItem{Path: s, Status: "skipped: not added; see problems"})
-			}
+			ti.Skills = append(ti.Skills, traceItem{Path: s, Status: "added", Name: skills[s].Name})
 		}
-		for _, name := range t.MCPServers {
-			i := slices.IndexFunc(res.MCPServers, func(m resolve.MCPServer) bool { return m.ID == name })
+		for _, id := range t.MCPServers {
+			i := slices.IndexFunc(res.MCPServers, func(m resolve.MCPServer) bool { return m.ID == id })
 			switch {
-			case !t.Matched:
-				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "not added"})
+			case i >= 0 && res.MCPServers[i].Unapproved != "":
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "not approved; run ctxtra mcp approve " + id})
 			case i >= 0 && res.MCPServers[i].Origin == t.Origin:
-				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "added"})
-			case i < 0:
-				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "skipped: shadowed by an earlier tool prefix; see problems"})
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "added"})
+			case i >= 0:
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "already added by an earlier binding"})
 			default:
-				ti.MCPServers = append(ti.MCPServers, traceItem{Path: name, Status: "skipped: already added by an earlier binding"})
+				ti.MCPServers = append(ti.MCPServers, traceItem{Path: id, Status: "same name as an earlier server; see the notices"})
 			}
 		}
-		for _, f := range t.ExcludedFiles {
-			ti.Files = append(ti.Files, traceItem{Path: f, Status: "skipped: excluded"})
-		}
-		for _, s := range t.ExcludedSkills {
-			ti.Skills = append(ti.Skills, traceItem{Path: s, Status: "skipped: excluded"})
+		for _, x := range t.Excluded {
+			ti.Excluded = append(ti.Excluded, exclusionInfo{x.Entry, x.Item})
 		}
 		out = append(out, ti)
 	}
 	return out
 }
 
-// agentDrops are the agents that wouldn't get all of res, with the files
-// their sessions don't get.
-func agentDrops(res *resolve.Result) []agentDrop {
-	out := []agentDrop{}
-	for _, a := range registry.All() {
-		d := a.Delivery()
-		c := *res
-		c.Dropped = nil
-		d.Fit(&c)
-		if len(c.Dropped) == 0 {
+// overCapacity is the exit code of res's agent capacity: 1 when an agent
+// wouldn't get all of it.
+func (r report) overCapacity(res *resolve.Result) int {
+	if len(r.agentDrops(res)) > 0 {
+		return 1
+	}
+	return 0
+}
+
+// capacityErrors are the errors of the agents that wouldn't get all of res.
+// A result fit to an agent has that agent's error already.
+func (r report) capacityErrors(res *resolve.Result) []string {
+	var out []string
+	for _, d := range r.agentDrops(res) {
+		if d.fitted {
 			continue
 		}
-		name := c.Namer()
-		names := make([]string, len(c.Dropped))
-		for i, h := range c.Dropped {
-			names[i] = name(h)
+		if len(d.Dropped) > 0 {
+			out = append(out, fmt.Sprintf("over %s, %s sessions don't get %s", d.Over, d.Agent, agent.Names(d.Dropped)))
 		}
-		out = append(out, agentDrop{a.Name(), d.Over(), names})
+		if len(d.Still) > 0 {
+			out = append(out, fmt.Sprintf("over %s even without instruction files: the skills of bindings %s are too long for %s sessions",
+				d.Over, strings.Join(d.Still, ", "), d.Agent))
+		}
+	}
+	return out
+}
+
+// stillOver are the bindings whose skills res has: what is left over
+// capacity when no file can be dropped.
+func stillOver(res *resolve.Result) []string {
+	var out []string
+	for _, h := range res.Skills {
+		if !slices.Contains(out, h.Origin) {
+			out = append(out, h.Origin)
+		}
+	}
+	return out
+}
+
+// agentDrops are the agents that wouldn't get all of res, with the files
+// their sessions don't get.
+func (r report) agentDrops(res *resolve.Result) []agentDrop {
+	out := []agentDrop{}
+	for _, a := range registry.All() {
+		if r.agent != "" && a.Name() != r.agent {
+			continue
+		}
+		d := a.Delivery()
+		c := *res
+		fitted := r.agent != "" && slices.ContainsFunc(res.Dropped, func(h resolve.Hit) bool { return h.Over == d.Over() })
+		if !fitted {
+			if d.Fits(res) {
+				continue
+			}
+			c.Dropped = nil
+			d.Fit(&c)
+		}
+		c.Dropped = slices.DeleteFunc(slices.Clone(c.Dropped), func(h resolve.Hit) bool { return h.Over != d.Over() })
+		name := c.Namer()
+		drop := agentDrop{Agent: a.Name(), Over: d.Over(), Dropped: make([]string, len(c.Dropped)), fitted: fitted}
+		for i, h := range c.Dropped {
+			drop.Dropped[i] = name(h)
+		}
+		if !d.Fits(&c) {
+			drop.Still = stillOver(&c)
+		}
+		out = append(out, drop)
 	}
 	return out
 }
 
 func (r report) explain(dir string, asJSON bool) int {
-	res, cfg := r.resolve(dir)
+	if err := r.checkAgent(); err != nil {
+		fmt.Fprintf(r.Err, "ctxtra context explain: %v\n", err)
+		return 2
+	}
+	res, env := r.resolve(dir)
 	total := resolve.Chars(res.Render())
 	if asJSON {
 		writeJSON(r.Out, map[string]any{
-			"config": cfg.File, "session": session(res), "bindings": traces(res),
-			"total":     map[string]int{"files": len(res.Files), "skills": len(res.Skills), "chars": total, "tokens": total / 4},
-			"max_chars": res.MaxChars, "agents_over": agentDrops(res),
-		}, sessionDiagnostics(res))
-		return status(res)
+			"config": env.Path, "profiles": profilesInfo(r.profiles), "session": r.sessionInfo(res), "bindings": traces(res),
+			"total":         map[string]int{"files": len(res.Files), "skills": len(res.Skills), "chars": total, "tokens": total / 4},
+			"max_ctx_chars": res.MaxChars, "agents_over": r.agentDrops(res),
+		}, slices.Concat(sessionDiagnostics(res), diagnostics("error", r.capacityErrors(res))))
+		return max(status(res), r.overCapacity(res))
 	}
-	fmt.Fprintf(r.Out, "config: %s\n", cfg.File)
+	fmt.Fprintf(r.Out, "config: %s\n", env.Path)
+	fmt.Fprintf(r.Out, "profiles: %s\n", r.profiles)
 	r.session(res)
 	fmt.Fprintln(r.Out)
 	if len(res.Trace) == 0 {
@@ -372,40 +526,48 @@ func (r report) explain(dir string, asJSON bool) int {
 			mark = "+"
 		}
 		fmt.Fprintf(r.Out, "%s %s: %s\n", mark, t.Binding, t.Reason)
+		for _, c := range t.Conditions {
+			if c.Not != "" {
+				fmt.Fprintf(r.Out, "    %s: left out by %s\n", c.Key, c.Not)
+			}
+		}
 		for _, f := range t.Files {
-			switch f.Status {
-			case "dropped":
+			if f.Status == "dropped" {
 				fmt.Fprintf(r.Out, "    dropped  %s (over %s)\n", f.Path, f.Over)
-			case "added":
+			} else {
 				fmt.Fprintf(r.Out, "    file     %s (%d chars)\n", f.Path, f.Chars)
-			default:
-				fmt.Fprintf(r.Out, "    skip     %s (%s)\n", f.Path, strings.TrimPrefix(f.Status, "skipped: "))
 			}
 		}
 		for _, s := range t.Skills {
-			if s.Status == "added" {
-				fmt.Fprintf(r.Out, "    skill    %s (%s)\n", s.Path, s.Name)
-			} else {
-				fmt.Fprintf(r.Out, "    skip     %s (%s)\n", s.Path, strings.TrimPrefix(s.Status, "skipped: "))
-			}
-		}
-		for _, m := range t.Missing {
-			fmt.Fprintf(r.Out, "    MISSING  %s\n", m)
+			fmt.Fprintf(r.Out, "    skill    %s (%s)\n", s.Path, s.Name)
 		}
 		for _, m := range t.MCPServers {
-			switch m.Status {
-			case "added":
+			if m.Status == "added" {
 				fmt.Fprintf(r.Out, "    mcp      %s\n", m.Path)
-			case "not added":
-			default:
-				fmt.Fprintf(r.Out, "    skip     mcp %s (%s)\n", m.Path, strings.TrimPrefix(m.Status, "skipped: "))
+			} else {
+				fmt.Fprintf(r.Out, "    skip     mcp %s (%s)\n", m.Path, m.Status)
 			}
 		}
+		for _, x := range t.Excluded {
+			fmt.Fprintf(r.Out, "    excluded %s (by %s)\n", x.Item, x.Entry)
+		}
+		for _, u := range t.Unavailable {
+			fmt.Fprintf(r.Out, "    unavailable source %s: %s\n", u, env.Catalog.Source(u).Why)
+		}
+		for _, e := range t.Errors {
+			fmt.Fprintf(r.Out, "    error    %s\n", e)
+		}
 	}
-	if len(res.Problems) > 0 {
-		fmt.Fprintln(r.Out, "\nproblems:")
-		for _, p := range res.Problems {
-			fmt.Fprintf(r.Out, "  %s\n", p)
+	if len(res.Errors) > 0 {
+		fmt.Fprintln(r.Out, "\nerrors:")
+		for _, e := range res.Errors {
+			fmt.Fprintf(r.Out, "  %s\n", e)
+		}
+	}
+	if len(res.Notices) > 0 {
+		fmt.Fprintln(r.Out, "\nnotices:")
+		for _, n := range oneLine(res.Notices) {
+			fmt.Fprintf(r.Out, "  %s\n", n)
 		}
 	}
 	fmt.Fprintf(r.Out, "\ntotal: %d files, %d skills, %d chars (about %d tokens)", len(res.Files), len(res.Skills), total, total/4)
@@ -413,18 +575,18 @@ func (r report) explain(dir string, asJSON bool) int {
 		fmt.Fprintf(r.Out, ", %d MCP servers", n)
 	}
 	if res.MaxChars > 0 {
-		fmt.Fprintf(r.Out, ", budget.max-chars %d", res.MaxChars)
+		fmt.Fprintf(r.Out, ", max-ctx-chars %d", res.MaxChars)
 	}
 	fmt.Fprintln(r.Out)
 	r.sizeWarnings(res, "")
-	return status(res)
+	return max(status(res), r.overCapacity(res))
 }
 
-// sizeWarnings warns about each agent that wouldn't get all of res: the
-// files its sessions don't get.
+// sizeWarnings reports each agent that wouldn't get all of res: the files
+// its sessions don't get. Over capacity is an error.
 func (r report) sizeWarnings(res *resolve.Result, indent string) {
-	for _, d := range agentDrops(res) {
-		fmt.Fprintf(r.Out, "%swarning: over %s, %s sessions don't get %s\n", indent, d.Over, d.Agent, agent.Names(d.Dropped))
+	for _, e := range r.capacityErrors(res) {
+		fmt.Fprintf(r.Out, "%serror: %s\n", indent, e)
 	}
 }
 
@@ -437,25 +599,103 @@ type hookInfo struct {
 	Details []string `json:"details"`
 }
 
+// agentRun is what a session of one agent gets in doctor's folder; agent
+// is "" when no agent is set up.
+type agentRun struct {
+	agent string
+	res   *resolve.Result
+}
+
+// agentRuns resolves dir once for each agent that setup set up, or once
+// for no agent when there is none.
+func (r report) agentRuns(dir string, setups state.Setups) ([]agentRun, *resolve.Env) {
+	var runs []agentRun
+	var env *resolve.Env
+	for _, a := range registry.All() {
+		if setups.Known(a.Name(), a.ConfigPath()) {
+			res, e := r.as(a.Name()).resolve(dir)
+			runs, env = append(runs, agentRun{a.Name(), res}), e
+		}
+	}
+	if len(runs) == 0 {
+		res, e := r.resolve(dir)
+		runs, env = []agentRun{{"", res}}, e
+	}
+	return runs, env
+}
+
+// byAgent are msgs of each run, once each in first-seen order, with the
+// agents that have them when agents are set up; unless always, only those
+// that some agents don't have.
+func byAgent(runs []agentRun, always bool, msgs func(agentRun) []string) []string {
+	var order []string
+	agents := map[string][]string{}
+	for _, run := range runs {
+		for _, m := range msgs(run) {
+			if _, ok := agents[m]; !ok {
+				order = append(order, m)
+			}
+			if run.agent != "" && !slices.Contains(agents[m], run.agent) {
+				agents[m] = append(agents[m], run.agent)
+			}
+		}
+	}
+	out := make([]string, len(order))
+	for i, m := range order {
+		out[i] = m
+		if as := agents[m]; len(as) > 0 && (always || len(as) < len(runs)) {
+			out[i] += " (" + strings.Join(as, ", ") + ")"
+		}
+	}
+	return out
+}
+
+// sessionLines are what doctor prints of a session's files, skills, drops
+// and notices.
+func sessionLines(res *resolve.Result) []string {
+	var out []string
+	for _, h := range res.Files {
+		out = append(out, fmt.Sprintf("file: %s (%d chars, %s)", h.Path, resolve.Chars(h.Content), h.Origin))
+	}
+	for _, h := range res.Skills {
+		out = append(out, fmt.Sprintf("skill: %s (%s, %s)", h.Name, h.Path, h.Origin))
+	}
+	for _, s := range res.MCPServers {
+		out = append(out, fmt.Sprintf("mcp: %s (%s)", s.ID, s.Origin))
+	}
+	for _, h := range res.Dropped {
+		out = append(out, fmt.Sprintf("DROPPED (over %s): %s", h.Over, h.Path))
+	}
+	return out
+}
+
 func (r report) doctor(dir string, asJSON bool) int {
 	ok := true
-	res, cfg := r.resolve(dir)
-	loadedProblems := len(cfg.Problems)
-	cfg.LoadMCPCatalog()
-	cfg.Notes = append(cfg.Notes, mcpOrphans(cfg)...)
-	res.Problems = append(res.Problems, cfg.Problems[loadedProblems:]...)
-	_, statErr := os.Stat(cfg.File)
 	setups, _, _ := state.LoadSetups()
+	runs, env := r.agentRuns(dir, setups)
+	res := runs[0].res
+	notes := mcpOrphans(env)
+	servers, _ := env.Catalog.AllServers()
+	for _, s := range servers {
+		if s.Source == "" {
+			notes = append(notes, secretNotes(s.ID, s.Server, "config")...)
+		}
+	}
+	if st, err := os.Stat(filepath.Join(paths.Home(), ".ctxtra")); err == nil && st.IsDir() {
+		notes = append(notes, "~/.ctxtra can be deleted once every agent is set up again with ctxtra setup")
+	}
+	_, statErr := os.Stat(env.Path)
 	bin := running()
 	var agents []hookInfo
-	mcp := setup.LoadMCP()
+	// A config that can't be used is reported where it is read.
+	mcp, _ := setup.LoadMCP()
 	for _, a := range registry.All() {
 		known := setups.Known(a.Name(), a.ConfigPath())
 		st := a.Status(bin, known)
 		details := append([]string{}, st.Details...)
 		if m, isMCP := a.(agent.MCPAgent); isMCP {
 			host := m.MCP()
-			ms := host.MCPStatus(bin, agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: mcp.Want && known, EnvPass: mcp.EnvPass})
+			ms := host.MCPStatus(bin, agent.MCPCheck{Known: setups.Known(setup.MCPKey(a.Name()), host.MCPPath()), Want: known, EnvPass: mcp.EnvPass})
 			details = append(details, "MCP: "+ms.State+" ("+paths.Tilde(host.MCPPath())+")")
 			details = append(details, ms.Details...)
 			st.OK = st.OK && ms.OK
@@ -467,71 +707,102 @@ func (r report) doctor(dir string, asJSON bool) int {
 	if res.Repo != nil {
 		repo = res.Repo.Root
 	}
-	runs := hook.LastRuns(res.Dir, repo)
-	others := res.OtherProblems(cfg)
-	ok = ok && status(res) == 0 && len(others) == 0
+	hookRuns := hook.LastRuns(res.Dir, repo)
+	// Errors of the session, for each agent that has them; then errors of
+	// bindings that apply to no agent here.
+	errs := byAgent(runs, true, func(run agentRun) []string {
+		return slices.Concat(errorTexts(run.res.Errors), r.as(run.agent).capacityErrors(run.res))
+	})
+	inSession := map[string]bool{}
+	for _, run := range runs {
+		for _, e := range run.res.Errors {
+			inSession[e.Error()] = true
+		}
+	}
+	var others []string
+	for _, run := range runs {
+		for _, e := range errorTexts(env.OtherErrors(run.res)) {
+			if !inSession[e] && !slices.Contains(others, e) {
+				others = append(others, e)
+			}
+		}
+	}
+	notices := byAgent(runs, false, func(run agentRun) []string { return oneLine(run.res.Notices) })
+	for _, run := range runs {
+		rr := r.as(run.agent)
+		ok = ok && status(run.res) == 0 && rr.overCapacity(run.res) == 0
+	}
+	ok = ok && len(others) == 0
+	checks := update.FromConfig(env.Config, env.Lock)
 	if asJSON {
 		sources := []sourceInfo{}
-		for _, src := range cfg.Sources {
-			sources = append(sources, info(src))
+		for _, cs := range env.Catalog.Sources() {
+			sources = append(sources, info(env, cs))
 		}
-		if runs == nil {
-			runs = []hook.Entry{}
+		if hookRuns == nil {
+			hookRuns = []hook.Entry{}
+		}
+		sessions := []map[string]any{}
+		over := []agentDrop{}
+		for _, run := range runs {
+			rr := r.as(run.agent)
+			sessions = append(sessions, map[string]any{"agent": run.agent, "files": hits(run.res.Files, false), "skills": hits(run.res.Skills, true)})
+			over = append(over, rr.agentDrops(run.res)...)
 		}
 		out := map[string]any{
-			"ctxtra":  releaseInfo(cfg, state.Load(), r.version),
-			"config":  map[string]any{"file": cfg.File, "exists": statErr == nil, "binding_files": len(cfg.BindingFiles), "bindings": len(cfg.Bindings)},
-			"sources": sources, "session": session(res),
-			"files": hits(res.Files, false), "skills": hits(res.Skills, true), "agents_over": agentDrops(res),
-			"hooks": agents, "last_hook_runs": runs,
+			"folders":  map[string]string{"config": paths.ConfigDir(), "data": paths.DataDir(), "state": paths.StateDir(), "cache": paths.CacheDir()},
+			"ctxtra":   releaseInfo(checks, state.Load(), r.version),
+			"config":   map[string]any{"file": env.Path, "exists": statErr == nil, "bindings": len(env.Config.Bindings)},
+			"profiles": profilesInfo(r.profiles),
+			"sources":  sources, "session": r.sessionInfo(res), "sessions": sessions, "agents_over": over,
+			"hooks": agents, "last_hook_runs": hookRuns,
 		}
-		if len(cfg.MCPServers) > 0 {
-			out["mcp"] = map[string]any{"key": keyLocation(), "servers": mcpInfos(cfg)}
+		if len(servers) > 0 {
+			out["mcp"] = map[string]any{"key": keyLocation(), "servers": mcpInfos(servers)}
 		}
-		writeJSON(r.Out, out, slices.Concat(sessionDiagnostics(res), diagnostics("error", others), diagnostics("notice", cfg.Notes)))
+		var drops []diagnostic
+		for _, d := range byAgent(runs, true, func(run agentRun) []string {
+			var out []string
+			for _, h := range run.res.Dropped {
+				out = append(out, fmt.Sprintf("dropped (over %s): %s", h.Over, h.Path))
+			}
+			return out
+		}) {
+			drops = append(drops, diagnostic{"error", d})
+		}
+		writeJSON(r.Out, out, slices.Concat(diagnostics("error", errs), drops, diagnostics("error", others), diagnostics("notice", notices), diagnostics("notice", notes)))
 		if ok {
 			return 0
 		}
 		return 1
 	}
-	fmt.Fprintf(r.Out, "ctxtra %s: %s\n", r.version, releaseStatus(cfg, state.Load(), r.version))
-	fmt.Fprintf(r.Out, "config: %s\n", cfg.File)
+	fmt.Fprintf(r.Out, "ctxtra %s: %s\n", r.version, releaseStatus(checks, state.Load(), r.version))
+	fmt.Fprintf(r.Out, "folders:\n  config: %s\n  data: %s\n  state: %s\n  cache: %s\n", paths.ConfigDir(), paths.DataDir(), paths.StateDir(), paths.CacheDir())
+	fmt.Fprintf(r.Out, "profiles: %s\n", r.profiles)
+	fmt.Fprintf(r.Out, "config: %s\n", env.Path)
 	if statErr != nil {
 		fmt.Fprintln(r.Out, "  not found: nothing is added (the format: ctxtra help config)")
 	}
-	fmt.Fprintf(r.Out, "  binding files: %d, bindings: %d\n", len(cfg.BindingFiles), len(cfg.Bindings))
-	for _, src := range cfg.Sources {
-		fmt.Fprintf(r.Out, "  source %s: %s\n", src.Name, describeSource(src))
+	fmt.Fprintf(r.Out, "  bindings: %d\n", len(env.Config.Bindings))
+	for _, cs := range env.Catalog.Sources() {
+		fmt.Fprintf(r.Out, "  source %s: %s\n", cs.Name, describeSource(env, cs))
 	}
-	for _, n := range cfg.Notes {
+	for _, n := range notes {
 		fmt.Fprintf(r.Out, "  NOTE: %s\n", n)
 	}
-	for _, p := range slices.Concat(res.Problems, others) {
-		fmt.Fprintf(r.Out, "  PROBLEM: %s\n", p)
+	for _, e := range slices.Concat(errs, others) {
+		fmt.Fprintf(r.Out, "  ERROR: %s\n", e)
 	}
 	fmt.Fprintln(r.Out)
-	r.session(res)
-	for _, h := range res.Files {
-		fmt.Fprintf(r.Out, "  file: %s (%d chars, %s)\n", h.Path, resolve.Chars(h.Content), h.Origin)
-	}
-	for _, h := range res.Skills {
-		fmt.Fprintf(r.Out, "  skill: %s (%s, %s)\n", h.Name, h.Path, h.Origin)
-	}
-	for _, m := range res.Missing {
-		fmt.Fprintf(r.Out, "  MISSING: %s\n", m)
-	}
-	for _, h := range res.Dropped {
-		fmt.Fprintf(r.Out, "  DROPPED (over %s): %s\n", h.Over, h.Path)
-	}
-	for _, n := range oneLine(res.Notices) {
+	r.doctorSessions(runs)
+	for _, n := range notices {
 		fmt.Fprintf(r.Out, "  NOTICE: %s\n", n)
 	}
-	r.sizeWarnings(res, "  ")
 
-	if len(cfg.MCPServers) > 0 {
+	if len(servers) > 0 {
 		fmt.Fprintln(r.Out, "\nMCP servers:")
 		fmt.Fprintf(r.Out, "  credentials: %s\n", keyNote())
-		for _, s := range mcpInfos(cfg) {
+		for _, s := range mcpInfos(servers) {
 			fmt.Fprintf(r.Out, "  %s: %s, %s", s.ID, s.Kind, term.Sanitize(s.SignIn))
 			if s.Source != "" {
 				fmt.Fprintf(r.Out, ", %s", s.Approval)
@@ -548,11 +819,11 @@ func (r report) doctor(dir string, asJSON bool) int {
 		}
 	}
 	fmt.Fprintln(r.Out, "\nlast hook runs here:")
-	if len(runs) == 0 {
+	if len(hookRuns) == 0 {
 		fmt.Fprintln(r.Out, "  none yet")
 	}
-	for _, e := range runs {
-		status := fmt.Sprintf("files=%d skills=%d missing=%d", len(e.Files), len(e.Skills), len(e.Missing))
+	for _, e := range hookRuns {
+		status := fmt.Sprintf("files=%d skills=%d errors=%d", len(e.Files), len(e.Skills), len(e.Errors))
 		if e.Error != "" {
 			status = "error: " + e.Error
 		}
@@ -567,14 +838,44 @@ func (r report) doctor(dir string, asJSON bool) int {
 	return 1
 }
 
-// mentions reports whether any entry of list starts with s.
-func mentions(list []string, s string) bool {
-	for _, x := range list {
-		if strings.HasPrefix(x, s) {
-			return true
+// doctorSessions prints the session folder and what each set-up agent's
+// session gets there: once for agents whose sessions get the same.
+func (r report) doctorSessions(runs []agentRun) {
+	var names []string
+	var groups [][]string
+	lines := map[string][]string{}
+	for _, run := range runs {
+		l := sessionLines(run.res)
+		key := strings.Join(l, "\n")
+		if _, ok := lines[key]; !ok {
+			groups = append(groups, nil)
+			names = append(names, key)
+			lines[key] = l
+		}
+		i := slices.Index(names, key)
+		if run.agent != "" {
+			groups[i] = append(groups[i], run.agent)
 		}
 	}
-	return false
+	res := runs[0].res
+	fmt.Fprintf(r.Out, "session folder: %s\n", res.Dir)
+	switch {
+	case runs[0].agent == "":
+		fmt.Fprintln(r.Out, "  agent: none set up: bindings with agents don't apply")
+	case len(groups) == 1:
+		fmt.Fprintf(r.Out, "  agents: %s\n", strings.Join(groups[0], ", "))
+	}
+	r.repository(res)
+	for i, key := range names {
+		indent := "  "
+		if len(groups) > 1 {
+			fmt.Fprintf(r.Out, "  %s:\n", strings.Join(groups[i], ", "))
+			indent = "    "
+		}
+		for _, l := range lines[key] {
+			fmt.Fprintf(r.Out, "%s%s\n", indent, l)
+		}
+	}
 }
 
 // oneLine is notices with their command on the same line, for reports.
@@ -584,40 +885,4 @@ func oneLine(notices []string) []string {
 		out[i] = strings.ReplaceAll(n, "\n", "; ")
 	}
 	return out
-}
-
-// describeSource is one line about a source and its state.
-func describeSource(s config.Source) string {
-	if !s.Pinned() {
-		state := ""
-		if _, err := os.Stat(s.TrustedPath); err != nil {
-			state = " (not found)"
-		}
-		return "trusted-path " + paths.Tilde(s.TrustedPath) + state + ": read from disk, changes apply without review"
-	}
-	d := fmt.Sprintf("git %s, branch %s, ", s.Git, s.Branch)
-	if s.LocalGit != "" {
-		d = "local-git " + paths.Tilde(s.LocalGit) + ", follows its committed HEAD, "
-	}
-	e := state.Load().Get(source.ID(s.Remote()), s.Remote(), s.Branch)
-	check := "; update checks off (remove check-updates: false to turn them on)"
-	if s.CheckUpdates {
-		check = "; " + checkStatus(s, e)
-	}
-	switch {
-	case s.Commit == "":
-		return d + "no accepted commit yet (accept one in a terminal: ctxtra source update " + s.Name + ")" + check
-	case !source.Has(s.Remote(), s.Commit):
-		return d + "pinned to " + source.Short(s.Commit) + ", NOT IN THE STORE (run: ctxtra source restore " + s.Name + ")" + check
-	}
-	d += "pinned to " + source.Short(s.Commit) + " (new commits apply after you accept them in ctxtra source update)"
-	if e.LastCheck.IsZero() {
-		d += ", not fetched on this machine yet"
-	} else {
-		d += ", last fetched " + e.LastCheck.Format(timeFormat)
-	}
-	if e.Dismissed != "" && e.Dismissed != s.Commit {
-		d += ", " + source.Short(e.Dismissed) + " not accepted (dismissed)"
-	}
-	return d + check
 }

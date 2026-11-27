@@ -9,8 +9,13 @@ import (
 
 	"github.com/zalando/go-keyring"
 
+	"github.com/ctxtra/ctxtra/internal/fsutil"
+	"github.com/ctxtra/ctxtra/internal/lock"
+	"github.com/ctxtra/ctxtra/internal/manifest"
 	"github.com/ctxtra/ctxtra/internal/mcp/creds"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
+	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/testenv"
 )
 
@@ -36,7 +41,7 @@ func TestMCPAddRejectsStoredBindingBeforeMutation(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			cfg := testenv.Config(t, h, "schema: ctxtra/v1\n")
+			cfg := testenv.Config(t, h, "schema: ctxtra/config/v1\n")
 			configBefore, _ := os.ReadFile(cfg)
 			files, _ := filepath.Glob(filepath.Join(store.Dir, "credentials", "*.age"))
 			recordBefore, _ := os.ReadFile(files[0])
@@ -61,14 +66,14 @@ func TestMCPAddRejectsStoredBindingBeforeMutation(t *testing.T) {
 
 func TestMCPStillDeclaredChecksCommandAndOrigin(t *testing.T) {
 	h := testenv.Home(t)
-	cfg := testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [tools, --read]}\n")
+	cfg := testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  build: {command: [tools, --read]}\n")
 	srv := upstream.Server{ID: "build", Name: "build", Command: []string{"tools", "--read"}}
 	saved := false
 	save := func() error { saved = true; return nil }
 	if err := stillDeclared(srv)(save); err != nil || !saved {
 		t.Fatalf("unchanged command: %v", err)
 	}
-	testenv.Write(t, cfg, "schema: ctxtra/v1\nmcp-servers:\n  build: {command: [tools, --write]}\n")
+	testenv.Write(t, cfg, "schema: ctxtra/config/v1\nmcp-servers:\n  build: {command: [tools, --write]}\n")
 	saved = false
 	if err := stillDeclared(srv)(save); err == nil || saved {
 		t.Fatal("sign-in saved for an outdated command")
@@ -87,7 +92,7 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 	if _, err := store.EnsureKey(); err != nil {
 		t.Fatal(err)
 	}
-	server := upstream.Server{ID: "work/build", Name: "build", Command: []string{"build-mcp"}}
+	server := upstream.Server{ID: "work:build", Name: "build", Command: []string{"build-mcp"}}
 	if _, err := store.Update(server, true, func(r *creds.Record) error {
 		r.Secrets.Env = map[string]string{"TOKEN": "keep"}
 		return nil
@@ -95,13 +100,32 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 		t.Fatal(err)
 	}
 	root := filepath.Join(h, "context")
-	manifest := filepath.Join(root, "mcp-servers.yaml")
-	testenv.Write(t, manifest, "schema: ctxtra/v1\nmcp-servers: [\n")
-	file := testenv.Config(t, h, "schema: ctxtra/v1\nsources:\n  work: {trusted-path: '"+root+"'}\n")
+	mf := filepath.Join(root, manifest.FileName)
+	testenv.Write(t, mf, "schema: ctxtra/source/v1\nmcp-servers: [\n")
+	file := testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {dir: '"+root+"'}\n")
 	var output bytes.Buffer
 	a := &app{IO: IO{Out: &output}}
-	for _, broken := range []string{"manifest", "config"} {
-		if broken == "config" {
+	for _, broken := range []string{"manifest", "busy store", "config"} {
+		switch broken {
+		case "busy store":
+			// A repo source whose accepted commit declares the server,
+			// while cleanup holds ctxtra's store.
+			commit := strings.Repeat("a", 40)
+			gen := source.GenDir("https://example.invalid/context.git", "", commit)
+			testenv.Write(t, filepath.Join(gen, manifest.FileName), "schema: ctxtra/source/v1\nmcp-servers:\n  build: {command: [build-mcp]}\n")
+			testenv.Config(t, h, "schema: ctxtra/config/v1\nsources:\n  work: {repo: 'https://example.invalid/context.git', branch: main}\n")
+			testenv.Write(t, lock.Path(file), "schema: ctxtra/lock/v1\nsources:\n  work:\n    repo: https://example.invalid/context.git\n    branch: main\n    commit: "+commit+"\n")
+			unlock, err := fsutil.Lock(filepath.Join(paths.StateDir(), "store.lock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(unlock)
+			// mcp list reports the read failure, not a config without servers.
+			code, out, _ := run("mcp", "list", "--json")
+			if code != 1 || !strings.Contains(out, "ctxtra's store is being cleaned") {
+				t.Errorf("mcp list: exit %d\n%s", code, out)
+			}
+		case "config":
 			testenv.Write(t, file, "schema: [\n")
 		}
 		if err := a.removeMCPLeftover(server.ID, false); err == nil || !strings.Contains(err.Error(), "cannot establish") {
@@ -116,12 +140,12 @@ func TestMCPCleanupPreservesCredentialsWhenDeclarationIsUnreadable(t *testing.T)
 
 func TestMCPStatusReportsUnavailableReferencesLocally(t *testing.T) {
 	h := testenv.Home(t)
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  build: {command: ['./relative-command']}\nbindings:\n  - {name: work, match: {global: true}, mcp-servers: [build, missing]}\n")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  build: {command: ['./relative-command']}\nbindings:\n  - {name: work, mcp-servers: [build, missing]}\n")
 	var output bytes.Buffer
 	a := &app{IO: IO{Out: &output}}
-	a.mcpStatus(h)
-	for _, ref := range []string{"build", "missing"} {
-		if !strings.Contains(output.String(), "unavailable MCP reference \""+ref+"\"") {
+	a.mcpStatus(h, "")
+	for _, ref := range []string{"MCP server build has errors", "no MCP server missing"} {
+		if !strings.Contains(output.String(), ref) {
 			t.Fatalf("unavailable reference %s not reported: %s", ref, &output)
 		}
 	}

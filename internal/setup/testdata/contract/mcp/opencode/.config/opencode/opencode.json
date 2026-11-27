@@ -7,7 +7,8 @@
           "@@HOME@@/bin/ctxtra",
           "mcp",
           "proxy",
-          "opencode"
+          "opencode",
+          "--setup-version=1"
         ],
         "pool": false
       }

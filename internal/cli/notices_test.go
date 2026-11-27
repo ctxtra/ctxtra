@@ -77,7 +77,7 @@ func TestNoNoticesAfterSetup(t *testing.T) {
 			t.Errorf("%s: setup.json %+v", a.Name(), s)
 		}
 	}
-	if !slices.Contains(s.Detected, "claude") {
+	if !slices.Contains(s.Detected, "claude-code") {
 		t.Errorf("detected: %v", s.Detected)
 	}
 	// A binary in a temporary folder isn't compared.
@@ -90,19 +90,21 @@ func TestNoNoticesAfterSetup(t *testing.T) {
 func TestNotices(t *testing.T) {
 	h, bin := noticeHome(t)
 	gone := filepath.Join(h, "gone", "ctxtra")
-	setUp(t, gone, "claude")
-	wantNotices(t, "missing binary", "claude: the hooks run ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude")
+	setUp(t, gone, "claude-code")
+	wantNotices(t, "missing binary", "claude-code: the hooks run ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code", "claude-code: the ctxtra MCP proxy runs ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code")
 
 	other := fakeBin(t, filepath.Join(h, "other", "ctxtra"))
-	setUp(t, other, "claude", "codex")
+	setUp(t, other, "claude-code", "codex")
 	wantNotices(t, "other binary",
-		"claude: the hooks run ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent claude",
-		"codex: the hooks run ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent codex (Codex will then ask you to trust the hooks again)")
+		"claude-code: the hooks run ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent claude-code",
+		"claude-code: the ctxtra MCP proxy runs ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent claude-code",
+		"codex: the hooks run ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent codex (Codex will then ask you to trust the hooks again)",
+		"codex: the ctxtra MCP proxy runs ~/other/ctxtra, not this ctxtra (~/bin/ctxtra); to switch, run ctxtra setup --agent codex")
 
-	setUp(t, bin, "claude", "codex", "hermes", "dsh")
-	wantNotices(t, "Hermes not enabled", "hermes: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra")
+	setUp(t, bin, "claude-code", "codex", "hermes-agent", "dsh")
+	wantNotices(t, "Hermes not enabled", "hermes-agent: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra")
 	testenv.Write(t, filepath.Join(h, ".hermes", "config.yaml"), "plugins:\n  enabled: [ctxtra]\n  disabled: [ctxtra]\n")
-	wantNotices(t, "Hermes disabled", "hermes: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra")
+	wantNotices(t, "Hermes disabled", "hermes-agent: the ctxtra plugin is installed but not enabled; run hermes plugins enable ctxtra")
 	testenv.Write(t, filepath.Join(h, ".hermes", "config.yaml"), "plugins:\n  enabled: [ctxtra]\n")
 	wantNotices(t, "Hermes enabled")
 
@@ -114,9 +116,9 @@ func TestNotices(t *testing.T) {
 	// Gone: setup.json lists the config, which no longer has the hooks.
 	settings := filepath.Join(h, ".claude", "settings.json")
 	testenv.Write(t, settings, "{}\n")
-	wantNotices(t, "gone", "claude: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude; "+
-		"if it was, ctxtra setup --remove --agent claude stops this notice")
-	o := setup.Options{Agents: []string{"claude"}}
+	wantNotices(t, "gone", "claude-code: ctxtra's hooks are gone from ~/.claude/settings.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; "+
+		"if it was, ctxtra setup --remove --agent claude-code stops this notice")
+	o := setup.Options{Agents: []string{"claude-code"}}
 	o.Remove = true
 	if _, err := setup.Run(o); err != nil {
 		t.Fatal(err)
@@ -139,7 +141,7 @@ func TestNotices(t *testing.T) {
 // A new Codex is set up with a trust prompt, and the notice says so.
 func TestNewCodexNotice(t *testing.T) {
 	h, bin := noticeHome(t)
-	setUp(t, bin, "claude")
+	setUp(t, bin, "claude-code")
 	if err := os.MkdirAll(filepath.Join(h, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestNewCodexNotice(t *testing.T) {
 // broken one says so once, and is then as if missing.
 func TestSetupsFile(t *testing.T) {
 	h, bin := noticeHome(t)
-	setUp(t, bin, "claude")
+	setUp(t, bin, "claude-code")
 	testenv.Write(t, filepath.Join(h, ".claude", "settings.json"), "{}\n")
 	if err := os.MkdirAll(filepath.Join(h, ".cursor"), 0o755); err != nil {
 		t.Fatal(err)
@@ -158,10 +160,10 @@ func TestSetupsFile(t *testing.T) {
 	if len(notices()) != 2 {
 		t.Fatalf("notices %q", notices())
 	}
-	unreadable := "~/.ctxtra/setup.json is unreadable: notices about new or removed setups are off until the next ctxtra setup"
+	unreadable := "~/.local/state/ctxtra/setup.json is unreadable: notices about new or removed setups are off until the next ctxtra setup"
 	for name, content := range map[string]string{
 		"broken":     `{"installed": [`,
-		"wrong type": `{"installed": {"claude": "x"}}`,
+		"wrong type": `{"installed": {"claude-code": "x"}}`,
 		"huge":       `{"detected": ["` + strings.Repeat("x", 2<<20) + `"]}`,
 	} {
 		testenv.Write(t, state.SetupsPath(), content)
@@ -170,7 +172,7 @@ func TestSetupsFile(t *testing.T) {
 	os.Remove(state.SetupsPath())
 	wantNotices(t, "missing")
 	// A list that names another config isn't this one's setup.
-	testenv.Write(t, state.SetupsPath(), `{"installed": {"claude": ["/elsewhere/settings.json"]}, "detected": ["cursor"]}`)
+	testenv.Write(t, state.SetupsPath(), `{"installed": {"claude-code": ["/elsewhere/settings.json"]}, "detected": ["cursor"]}`)
 	wantNotices(t, "another config")
 }
 
@@ -189,20 +191,20 @@ func TestSetupRecord(t *testing.T) {
 		return s.Installed
 	}
 	claude, codex := registry.All()[0], registry.All()[1]
-	if code, _, _ := run("setup", "--dry-run", "--agent", "claude"); code != 0 {
+	if code, _, _ := run("setup", "--dry-run", "--agent", "claude-code"); code != 0 {
 		t.Fatalf("dry run: %d", code)
 	}
 	if _, err := os.Stat(state.SetupsPath()); !os.IsNotExist(err) {
 		t.Errorf("dry run wrote setup.json: %v", err)
 	}
 	testenv.Write(t, codex.ConfigPath(), `{"hooks": []}`)
-	if code, _, errOut := run("setup", "--agent", "claude", "--agent", "codex"); code != 1 || !strings.Contains(errOut, "codex: ") {
+	if code, _, errOut := run("setup", "--agent", "claude-code", "--agent", "codex"); code != 1 || !strings.Contains(errOut, "codex: ") {
 		t.Fatalf("partial failure: %d %s", code, errOut)
 	}
-	if got := installed(); len(got) != 1 || !slices.Equal(got["claude"], []string{claude.ConfigPath()}) {
+	if got := installed(); len(got) != 2 || !slices.Equal(got["claude-code"], []string{claude.ConfigPath()}) {
 		t.Errorf("after a partial failure: %v", got)
 	}
-	if code, _, _ := run("setup", "--remove", "--agent", "claude"); code != 0 {
+	if code, _, _ := run("setup", "--remove", "--agent", "claude-code"); code != 0 {
 		t.Fatal(code)
 	}
 	if got := installed(); len(got) != 0 {
@@ -214,11 +216,11 @@ func TestSetupRecord(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(state.SetupsPath(), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := run("setup", "--agent", "claude")
-	if code != 1 || !strings.Contains(out, "ctxtra is set up for Claude Code:") || !strings.Contains(errOut, "ctxtra setup: can't write ~/.ctxtra/setup.json: ") {
+	code, out, errOut := run("setup", "--agent", "claude-code")
+	if code != 1 || !strings.Contains(out, "ctxtra is set up for Claude Code:") || !strings.Contains(errOut, "ctxtra setup: can't write ~/.local/state/ctxtra/setup.json: ") {
 		t.Errorf("unwritable setup.json: %d %q %q", code, out, errOut)
 	}
-	if b, _ := os.ReadFile(claude.ConfigPath()); !strings.Contains(string(b), "hook claude SessionStart") {
+	if b, _ := os.ReadFile(claude.ConfigPath()); !strings.Contains(string(b), "hook claude-code SessionStart") {
 		t.Errorf("config not changed:\n%s", b)
 	}
 }
@@ -228,15 +230,15 @@ func TestSetupRecord(t *testing.T) {
 // agent.
 func TestNoticesFollowCommands(t *testing.T) {
 	h, _ := noticeHome(t)
-	setUp(t, filepath.Join(h, "gone", "ctxtra"), "claude")
-	notice := "claude: the hooks run ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude\n"
-	for _, args := range [][]string{{"version"}, {"help"}, {"--help"}, {"hook", "claude", "SessionStart"}, {"nonsense"},
+	setUp(t, filepath.Join(h, "gone", "ctxtra"), "claude-code")
+	notice := "claude-code: the hooks run ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code\n"
+	for _, args := range [][]string{{"version"}, {"help"}, {"--help"}, {"hook", "claude-code", "SessionStart"}, {"nonsense"},
 		{"context", "files", "--help"}, {"source"}, {"completion", "bash"}} {
 		if _, _, errOut := run(args...); strings.Contains(errOut, notice) {
 			t.Errorf("%v: %q", args, errOut)
 		}
 	}
-	if code, _, errOut := run("context", "files", h); code != 0 || errOut != notice {
+	if code, _, errOut := run("context", "files", h); code != 0 || errOut != notice+"claude-code: the ctxtra MCP proxy runs ~/gone/ctxtra, which doesn't exist; run ctxtra setup --agent claude-code\n" {
 		t.Errorf("context files: %d %q", code, errOut)
 	}
 	if code, out, errOut := run("doctor", h); code != 1 || !strings.Contains(out, "\n    the hooks run ~/gone/ctxtra, which doesn't exist") || strings.Contains(errOut, notice) {
@@ -271,7 +273,7 @@ func TestNoticesRunNothing(t *testing.T) {
 // shows again. Without a new agent, setup.json isn't written.
 func TestNewAgentNoticeOnce(t *testing.T) {
 	h, bin := noticeHome(t)
-	setUp(t, bin, "claude")
+	setUp(t, bin, "claude-code")
 	before, _ := os.Stat(state.SetupsPath())
 	wantNotices(t, "nothing new")
 	if after, _ := os.Stat(state.SetupsPath()); !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) {
@@ -295,7 +297,7 @@ func TestNewAgentNoticeOnce(t *testing.T) {
 	wantNotices(t, "new", notice)
 	wantNotices(t, "told")
 	s, _, _ := state.LoadSetups()
-	if !slices.Contains(s.Detected, "cursor") || len(s.Installed) != 1 || !s.Known("claude", filepath.Join(h, ".claude", "settings.json")) {
+	if !slices.Contains(s.Detected, "cursor") || len(s.Installed) != 2 || !s.Known("claude-code", filepath.Join(h, ".claude", "settings.json")) {
 		t.Errorf("setup.json %+v", s)
 	}
 	// doctor still lists it as not set up.
@@ -311,7 +313,7 @@ func TestNewAgentNoticeDuringSetup(t *testing.T) {
 	for i := range 20 {
 		os.Remove(state.SetupsPath())
 		os.RemoveAll(filepath.Join(h, ".cursor"))
-		setUp(t, bin, "claude")
+		setUp(t, bin, "claude-code")
 		o := setup.Options{Agents: []string{"codex"}}
 		o.Binary = bin
 		if i%2 == 1 {
@@ -334,7 +336,7 @@ func TestNewAgentNoticeDuringSetup(t *testing.T) {
 		}
 		s, ok, err := state.LoadSetups()
 		codex := filepath.Join(h, ".codex", "hooks.json")
-		if !ok || err != nil || !s.Known("claude", filepath.Join(h, ".claude", "settings.json")) || s.Known("codex", codex) == o.Remove ||
+		if !ok || err != nil || !s.Known("claude-code", filepath.Join(h, ".claude", "settings.json")) || s.Known("codex", codex) == o.Remove ||
 			!slices.Contains(s.Detected, "cursor") {
 			t.Fatalf("run %d: %+v, %v, %v", i, s, ok, err)
 		}
@@ -345,12 +347,16 @@ func TestNewAgentNoticeDuringSetup(t *testing.T) {
 // another binary, gone from its file; and nothing without configured servers.
 func TestMCPNotices(t *testing.T) {
 	h, bin := noticeHome(t)
-	testenv.Config(t, h, "schema: ctxtra/v1\n")
-	setUp(t, bin, "claude")
+	testenv.Config(t, h, "schema: ctxtra/config/v1\n")
+	setUp(t, bin, "claude-code")
 	wantNotices(t, "no servers")
-	testenv.Config(t, h, "schema: ctxtra/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
-	wantNotices(t, "servers added after setup", "claude: the ctxtra MCP proxy is missing; run ctxtra setup --agent claude")
-	o := setup.Options{Agents: []string{"claude"}, MCP: setup.LoadMCP()}
+	testenv.Config(t, h, "schema: ctxtra/config/v1\nmcp-servers:\n  pg: {command: [pg-mcp]}\n")
+	wantNotices(t, "servers added after setup")
+	mcp, err := setup.LoadMCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := setup.Options{Agents: []string{"claude-code"}, MCP: mcp}
 	o.Binary = bin
 	if _, err := setup.Run(o); err != nil {
 		t.Fatal(err)
@@ -358,9 +364,9 @@ func TestMCPNotices(t *testing.T) {
 	wantNotices(t, "set up")
 	other := fakeBin(t, filepath.Join(h, "other", "ctxtra"))
 	running = func() string { return other }
-	wantNotices(t, "another binary", "claude: the hooks run ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude",
-		"claude: the ctxtra MCP proxy runs ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude")
+	wantNotices(t, "another binary", "claude-code: the hooks run ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude-code",
+		"claude-code: the ctxtra MCP proxy runs ~/bin/ctxtra, not this ctxtra (~/other/ctxtra); to switch, run ctxtra setup --agent claude-code")
 	running = func() string { return bin }
 	testenv.Write(t, filepath.Join(h, ".claude.json"), "{}")
-	wantNotices(t, "gone", "claude: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude; if it was, ctxtra setup --remove --agent claude stops this notice")
+	wantNotices(t, "gone", "claude-code: the ctxtra MCP proxy is gone from ~/.claude.json; if that wasn't on purpose, run ctxtra setup --agent claude-code; if it was, ctxtra setup --remove --agent claude-code stops this notice")
 }

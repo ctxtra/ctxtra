@@ -88,7 +88,7 @@ func TestPruneBackupsIsolationAndOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	importDir := filepath.Join(backups, "import-20261101-010101-123", "claude")
+	importDir := filepath.Join(backups, "import-20261101-010101-123", "claude-code")
 	if err := os.MkdirAll(importDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

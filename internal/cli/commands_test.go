@@ -57,11 +57,14 @@ func TestCommandTree(t *testing.T) {
 	}
 }
 
-// A help topic can't share a name with a command: help would show only
-// one of them.
+// The config topic shares its name with the settings group. Other topics
+// must stay distinct from commands.
 func TestTopicNames(t *testing.T) {
 	root := tree()
 	for _, tp := range topics {
+		if tp.name == "config" {
+			continue
+		}
 		if c, rest, err := root.Find([]string{tp.name}); err == nil && c != root && len(rest) == 0 {
 			t.Errorf("topic %s is a command too", tp.name)
 		}

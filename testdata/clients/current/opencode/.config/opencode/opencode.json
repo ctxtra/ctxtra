@@ -1,0 +1,17 @@
+{
+  "mcp": {
+    "servers": {
+      "ctxtra-proxy": {
+        "type": "local",
+        "command": [
+          "@@HOME@@/bin/ctxtra",
+          "mcp",
+          "proxy",
+          "opencode",
+          "--setup-version=1"
+        ],
+        "pool": false
+      }
+    }
+  }
+}

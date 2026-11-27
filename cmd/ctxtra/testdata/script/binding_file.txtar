@@ -1,0 +1,116 @@
+# binding add --file takes one binding in YAML as in the config, without its
+# name, from a file or stdin, and checks it as the config is. --replace
+# changes a binding in its place, and adds it when there is none.
+exec ctxtra binding add me --instruction notes/me.md
+exec ctxtra binding add obs --instruction notes/obs.md
+exec ctxtra binding add go --instruction notes/go.md
+
+# Changing a binding in place.
+exec ctxtra binding add obs --replace --file obs.yaml
+stdout '^replaced binding obs in ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in sessions where its location matches, with observability or oncall active$'
+exec sh -c 'ctxtra binding list | grep "^[a-z-]*:" | cut -d: -f1 | tr "\n" " "'
+stdout '^me obs go $'
+grep '^    # observability, only in company repos$' .config/ctxtra/config.yaml
+grep '^    location: \{repos: \[''github.com/acme/\*\*'', ''!github.com/acme/legacy''\]\}$' .config/ctxtra/config.yaml
+grep '^    profiles: \[observability, oncall\]$' .config/ctxtra/config.yaml
+
+# The same entry again changes nothing.
+cp .config/ctxtra/config.yaml before.yaml
+exec ctxtra binding add obs --replace --file obs.yaml
+stdout '^the binding obs is in ~/.config/ctxtra/config.yaml already$'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# --replace keeps the place: --before and --after can't move it.
+! exec ctxtra binding add obs --replace --after go --file obs.yaml
+stderr 'the binding obs exists, and a replaced binding keeps its place; leave out --before and --after'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# Without --replace, a name that exists is an error, as for flags.
+! exec ctxtra binding add obs --file other.yaml
+stderr 'a binding named obs already exists'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# --replace adds a binding that isn't there, where --before says.
+stdin agents.yaml
+exec ctxtra binding add review --replace --before go --file -
+stdout '^added binding review to ~/.config/ctxtra/config.yaml:$'
+stdout '^it applies in every session of every agent but cursor$'
+exec sh -c 'ctxtra binding list | grep "^[a-z-]*:" | cut -d: -f1 | tr "\n" " "'
+stdout '^me obs review go $'
+grep '^    agents: \[''!cursor''\]$' .config/ctxtra/config.yaml
+
+# A shape the flags can't write: two monorepo parts.
+stdin parts.yaml
+exec ctxtra binding add parts --file -
+grep '^        - \{repo: github.com/acme/a, subdirs: \[''api/\*\*''\]\}$' .config/ctxtra/config.yaml
+grep '^        - \{repo: github.com/acme/b, subdirs: \[''!web/legacy/\*\*''\]\}$' .config/ctxtra/config.yaml
+
+# The entry is checked as the config is; nothing changes on a mistake.
+cp .config/ctxtra/config.yaml before.yaml
+! exec ctxtra binding add bad --file tag.yaml
+stderr 'tag.yaml: line 2: YAML reads !cursor as a tag; quote an entry that starts with !: ''!cursor''; nothing changed$'
+! exec ctxtra binding add bad --file flow-tag.yaml
+stderr 'flow-tag.yaml: line \d: YAML syntax: .*quote it: ''!docs/draft-\*.md'''
+! exec ctxtra binding add bad --file unknown.yaml
+stderr 'unknown key "locaton"'
+! exec ctxtra binding add bad --file named.yaml
+stderr 'binding bad: the name is given apart, not as a name key'
+! exec ctxtra binding add bad --file list.yaml
+stderr 'a binding must be a map'
+! exec ctxtra binding add bad --file nothing.yaml
+stderr 'the binding adds nothing'
+! exec ctxtra binding add bad --file anchor.yaml
+stderr 'anchor.yaml: line 1: the anchor &x: ctxtra doesn''t read anchors, aliases or <<'
+! exec ctxtra binding add bad --file missing.yaml
+stderr 'missing.yaml: no such file'
+cmp .config/ctxtra/config.yaml before.yaml
+
+# --file can't be combined with the entry flags.
+! exec ctxtra binding add bad --file obs.yaml --profile iam
+stderr '--file gives the whole binding; leave out the flags of its entries'
+! exec ctxtra binding add bad --file obs.yaml --source team
+stderr '--file gives the whole binding'
+cmp .config/ctxtra/config.yaml before.yaml
+
+-- notes/me.md --
+ME
+-- notes/obs.md --
+OBS
+-- notes/go.md --
+GO
+-- obs.yaml --
+# observability, only in company repos
+location: {repos: [github.com/acme/**, '!github.com/acme/legacy']}
+profiles: [observability, oncall]
+instructions: [../../notes/obs.md]
+-- other.yaml --
+instructions: [../../notes/go.md]
+-- agents.yaml --
+agents: ['!cursor']
+instructions: [../../notes/me.md]
+-- parts.yaml --
+location:
+  repos:
+    - {repo: github.com/acme/a, subdirs: [api/**]}
+    - {repo: github.com/acme/b, subdirs: ['!web/legacy/**']}
+instructions: [../../notes/me.md]
+-- tag.yaml --
+agents:
+  - !cursor
+instructions: [../../notes/me.md]
+-- flow-tag.yaml --
+instructions: [../../notes/*.md, !docs/draft-*.md]
+-- unknown.yaml --
+locaton: {dirs: [~/work/**]}
+instructions: [../../notes/me.md]
+-- named.yaml --
+name: bad
+instructions: [../../notes/me.md]
+-- list.yaml --
+- ../../notes/me.md
+-- nothing.yaml --
+profiles: [iam]
+-- anchor.yaml --
+a: &x [1]
+instructions: *x

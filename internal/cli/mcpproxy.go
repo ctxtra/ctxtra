@@ -2,10 +2,10 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -17,9 +17,8 @@ import (
 	"github.com/ctxtra/ctxtra/internal/mcp/proxy"
 	sessionstatus "github.com/ctxtra/ctxtra/internal/mcp/status"
 	"github.com/ctxtra/ctxtra/internal/mcp/upstream"
-	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/resolve"
-	"github.com/ctxtra/ctxtra/internal/state"
 )
 
 // started is when this process started: the proxy's deadline for the
@@ -35,6 +34,9 @@ func runProxy(args []string, stdio IO, version string) int {
 	if len(args) > 0 {
 		agent = args[0]
 	}
+	if _, ok := registry.Get(agent); !ok || !slices.Contains(args, agentpkg.SetupVersionArg) {
+		return 0
+	}
 	dir, err := os.Getwd()
 	log := func(r proxy.Record) {
 		logfile.Append(proxyRecord{Ts: time.Now().UTC().Format(time.RFC3339Nano), Kind: "mcp", Harness: agent, Record: r})
@@ -42,7 +44,7 @@ func runProxy(args []string, stdio IO, version string) int {
 	// The keychain can wait for a prompt that no one sees in a session.
 	store := openStore()
 	store.KeyTimeout = 3 * time.Second
-	o := proxy.Options{Agent: agent, Version: version, Dir: dir, Start: started, Servers: sessionServers, Log: log,
+	o := proxy.Options{Agent: agent, Version: version, Dir: dir, Start: started, Log: log,
 		Deadline: mcpDeadline(agent), Secrets: store, Tokens: store, SignInState: store.SignInState,
 		KeepsFirstList: keepsFirstList(agent),
 		NeedsSignIn: func(s upstream.Server) bool {
@@ -54,21 +56,17 @@ func runProxy(args []string, stdio IO, version string) int {
 				log(proxy.Record{Event: "error", Error: "can't write the session's status record"})
 			}
 		}}
-	configPath := paths.ConfigPath()
-	if agent == "muse" {
-		configPath = state.SessionConfig(agent)
-	}
 	var notices []string
 	o.Servers = func(dir string) ([]upstream.Server, []string) {
-		res, _ := resolve.Session(dir, configPath)
+		res := loadEnv().Resolve(resolve.Input{Dir: dir, Agent: agent, Profiles: profile.Current()})
 		for _, c := range res.MCPConflicts {
-			notices = append(notices, fmt.Sprintf("MCP server %s is shadowed by %s (tool prefix %s); no fallback to the other account", c.Loser, c.Winner, c.Prefix))
+			notices = append(notices, c.Notice())
 		}
 		out := make([]upstream.Server, len(res.MCPServers))
 		for i, s := range res.MCPServers {
 			out[i] = s.Server
 		}
-		return out, res.Problems
+		return out, errorTexts(res.Errors)
 	}
 	o.Notices = func() []string { return notices }
 	if err != nil {
@@ -94,17 +92,6 @@ type proxyRecord struct {
 	Kind    string `json:"kind"`
 	Harness string `json:"harness"`
 	proxy.Record
-}
-
-// sessionServers are the servers bound to dir, resolved the way the hook
-// resolves a session there, with the same config.
-func sessionServers(dir string) ([]upstream.Server, []string) {
-	res, _ := resolve.Session(dir, paths.ConfigPath())
-	out := make([]upstream.Server, len(res.MCPServers))
-	for i, s := range res.MCPServers {
-		out[i] = s.Server
-	}
-	return out, res.Problems
 }
 
 // keepsFirstList reports whether agent ignores tool list changes: tools

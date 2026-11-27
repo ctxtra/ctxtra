@@ -1,0 +1,37 @@
+# Branch changed: the review shows what changed between the locked commit
+# and the newest commit of the new branch, and on accept the lock has the
+# new branch and its commit.
+gitrepo srv/team
+exec ctxtra source add --repo $GITSRV/team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+exec ctxtra context files .
+stdout 'rules.md'
+
+exec git -C srv/team checkout -q -b next
+cp next.md srv/team/rules.md
+gitcommit srv/team
+exec git -C srv/team checkout -q main
+exec sh -c 'sed -i.bak "s/branch: main/branch: next/" .config/ctxtra/config.yaml'
+! exec ctxtra context files .
+stderr 'source team: ctxtra.lock has a commit accepted for another branch, tag or rev; run `ctxtra source update team`'
+
+stdin yes.txt
+exec ctxtra-tty source update team
+stdout '^ctxtra.lock has [0-9a-f]{7} accepted for branch main; the config now says branch next$'
+stdout '^-MAIN_RULES$'
+stdout '^\+NEXT_RULES$'
+stdout '^accepted team '
+grep -count=1 '^    branch: next$' .config/ctxtra/ctxtra.lock
+exec ctxtra context show .
+stdout 'NEXT_RULES'
+
+-- yes.txt --
+y
+-- bindings.yaml --
+bindings:
+  - name: team
+    instructions: ['team:rules.md']
+-- srv/team/rules.md --
+MAIN_RULES
+-- next.md --
+NEXT_RULES

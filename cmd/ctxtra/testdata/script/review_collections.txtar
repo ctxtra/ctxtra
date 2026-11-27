@@ -1,0 +1,151 @@
+# The update review reports the collections in use that a commit changes:
+# what it newly adds to them, and those it removes, with the bindings that
+# use them.
+gitrepo srv/iam-team
+exec ctxtra source add --repo $GITSRV/iam-team
+exec sh -c 'cat bindings.yaml >> .config/ctxtra/config.yaml'
+exec ctxtra context files .
+stdout 'docs/a.md'
+
+# A used collection gets a new server and a new skill.
+cp v2.yaml srv/iam-team/ctxtra-source.yaml
+cp release.md srv/iam-team/skills/release/SKILL.md
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^collection essentials newly adds MCP server deploy, skill skills/release; binding iam uses it$'
+stdout '^\+Release it.$'
+! stdout 'collection ops-only'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "notice",\s+"message": "iam-team: collection essentials newly adds MCP server deploy, skill skills/release; binding iam uses it"'
+
+# The source moves files: the review shows them at their new place.
+cp v3.yaml srv/iam-team/ctxtra-source.yaml
+mv srv/iam-team/docs/a.md srv/iam-team/guides/a.md
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^collection essentials newly adds .*file guides/a.md; binding iam uses it$'
+stdout '^rename to guides/a.md$'
+
+# A used collection with errors is not removed: the review shows its errors.
+cp broken.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout 'error: .*collection ops-only: unknown key "instrutions"'
+! stdout 'ops-only is removed'
+
+# A used collection disappears.
+cp v4.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^collection ops-only is removed; bindings obs, ops use it$'
+stdout 'error: .*source iam-team has no collection ops-only'
+exec ctxtra source update --dry-run --json iam-team
+stdout '"severity": "warning",\s+"message": "iam-team: collection ops-only is removed; bindings obs, ops use it"'
+
+# A nested collection that a binding uses disappears, with its reference or
+# without it.
+cp nested.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+stdin yes.txt
+exec ctxtra-tty source update iam-team
+stdout 'accepted iam-team'
+cp nested-gone.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^collection sub is removed; binding iam uses it$'
+cp nested-broken.yaml srv/iam-team/ctxtra-source.yaml
+gitcommit srv/iam-team
+exec ctxtra source update --dry-run iam-team
+stdout '^collection sub is removed; binding iam uses it$'
+stdout 'error: .*collection essentials: source iam-team has no collection sub'
+
+-- yes.txt --
+y
+-- nested.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    collections: [sub]
+    instructions: [guides/*.md]
+  sub:
+    instructions: [ops.md]
+-- nested-gone.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [guides/*.md]
+-- nested-broken.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    collections: [sub]
+    instructions: [guides/*.md]
+-- bindings.yaml --
+bindings:
+  - name: iam
+    collections: ['iam-team:essentials']
+  - name: obs
+    location: {dirs: [/nowhere/**]}
+    collections: ['iam-team:ops-only']
+  - name: ops
+    collections: ['iam-team:ops-*']
+-- srv/iam-team/ctxtra-source.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+  ops-only:
+    instructions: [ops.md]
+-- srv/iam-team/docs/a.md --
+A
+-- srv/iam-team/ops.md --
+OPS
+-- srv/iam-team/guides/.keep --
+-- srv/iam-team/skills/release/.keep --
+-- release.md --
+---
+name: release
+description: Releases a service.
+---
+Release it.
+-- v2.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [docs/*.md]
+    skills: [skills/*]
+    mcp-servers: [deploy]
+  ops-only:
+    instructions: [ops.md]
+mcp-servers:
+  deploy:
+    command: [deploy-mcp]
+-- v3.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [guides/*.md]
+    skills: [skills/*]
+    mcp-servers: [deploy]
+  ops-only:
+    instructions: [ops.md]
+mcp-servers:
+  deploy:
+    command: [deploy-mcp]
+-- broken.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [guides/*.md]
+  ops-only:
+    instrutions: [ops.md]
+-- v4.yaml --
+schema: ctxtra/source/v1
+collections:
+  essentials:
+    instructions: [guides/*.md]
+    skills: [skills/*]
+    mcp-servers: [deploy]
+mcp-servers:
+  deploy:
+    command: [deploy-mcp]

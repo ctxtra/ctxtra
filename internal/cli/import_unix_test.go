@@ -38,7 +38,7 @@ func TestNativeFilesFIFO(t *testing.T) {
 	}
 	binary = func() (string, []string, error) { return "/opt/homebrew/bin/ctxtra", nil, nil }
 	t.Cleanup(func() { binary = setup.Binary })
-	if code, _, e := run("setup", "--agent", "claude"); code != 0 {
+	if code, _, e := run("setup", "--agent", "claude-code"); code != 0 {
 		t.Fatalf("setup: %s", e)
 	}
 	code, out, e := run("import")
@@ -46,7 +46,7 @@ func TestNativeFilesFIFO(t *testing.T) {
 		!strings.Contains(e, "can't read some of the files above: fix or move them, then run ctxtra import") {
 		t.Errorf("import: %d %q %q", code, out, e)
 	}
-	if _, err := os.Stat(filepath.Join(h, ".ctxtra", "backups")); err == nil {
+	if _, err := os.Stat(filepath.Join(h, ".local/state/ctxtra", "backups")); err == nil {
 		t.Error("backed up with a file that can't be read")
 	}
 }

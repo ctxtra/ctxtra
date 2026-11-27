@@ -1,0 +1,197 @@
+package source
+
+import (
+	"context"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/ctxtra/ctxtra/internal/testenv"
+)
+
+// A tag is fetched to its commit, also an annotated one, and a moved tag
+// gives the new commit.
+func TestFetchTag(t *testing.T) {
+	ctx := context.Background()
+	dir, url := team(t)
+	first := commit(t, dir, map[string]string{"a.md": "A"})
+	testenv.Run(t, dir, "git", "tag", "light")
+	testenv.Run(t, dir, "git", "tag", "-a", "annotated", "-m", "x")
+	r := Open(url)
+	for _, tag := range []string{"light", "annotated"} {
+		got, err := r.FetchTag(ctx, tag)
+		if err != nil || got != first {
+			t.Errorf("%s: %q, %v; want %q", tag, got, err, first)
+		}
+		if got, err := r.TagHead(ctx, tag); err != nil || got != first {
+			t.Errorf("TagHead %s: %q, %v; want %q", tag, got, err, first)
+		}
+	}
+	second := commit(t, dir, map[string]string{"a.md": "B"})
+	testenv.Run(t, dir, "git", "tag", "-f", "-a", "annotated", "-m", "moved")
+	if got, err := r.FetchTag(ctx, "annotated"); err != nil || got != second {
+		t.Errorf("moved: %q, %v; want %q", got, err, second)
+	}
+	if got, err := r.TagHead(ctx, "annotated"); err != nil || got != second {
+		t.Errorf("TagHead moved: %q, %v", got, err)
+	}
+	if _, err := r.FetchTag(ctx, "nope"); err == nil || !strings.Contains(err.Error(), "can't fetch the tag nope") {
+		t.Errorf("missing tag: %v", err)
+	}
+	if _, err := r.TagHead(ctx, "nope"); err == nil || !strings.Contains(err.Error(), "the tag nope is not in") {
+		t.Errorf("TagHead missing tag: %v", err)
+	}
+	for _, bad := range []string{"-x", "a..b", "x.lock", ""} {
+		if CheckTag(bad) == nil {
+			t.Errorf("CheckTag(%q)", bad)
+		}
+	}
+}
+
+// source add --rev takes any revision and gives its full ID: a full or
+// short commit ID, a tag or a branch.
+func TestResolveRev(t *testing.T) {
+	ctx := context.Background()
+	dir, url := team(t)
+	first := commit(t, dir, map[string]string{"a.md": "A"})
+	testenv.Run(t, dir, "git", "tag", "-a", "v1", "-m", "x")
+	second := commit(t, dir, map[string]string{"a.md": "B"})
+	testenv.Run(t, dir, "git", "branch", "side", first)
+	testenv.Run(t, dir, "git", "tag", "v1+build", second)
+	for _, c := range []struct{ rev, want string }{
+		{second, second}, {first[:9], first}, {strings.ToUpper(first[:9]), first}, {"v1", first}, {"side", first}, {"main", second},
+		{"main~1", first}, {"main^", first}, {"v1+build", second}, {"v1+build~1", first}, {"v1^{commit}", first}, {second[:9] + "~1", first},
+		{"HEAD", second}, {"HEAD~1", first}, {"refs/heads/main~1", first}, {"refs/tags/v1", first}, {"refs/heads/side", first},
+	} {
+		if got, err := Open(url).ResolveRev(ctx, c.rev); err != nil || got != c.want {
+			t.Errorf("%s: %q, %v; want %q", c.rev, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"nope", "-x", "abc", "main~5", "main:a.md", "main@{1}", "~1", "main^{tree}", "--output=x",
+		"refs/remotes/origin/main", "refs/heads/-x", "refs/tags/v1~5"} {
+		if _, err := Open(url).ResolveRev(ctx, bad); err == nil {
+			t.Errorf("%s: no error", bad)
+		}
+	}
+	// A tag and a branch with one name: the tag, and its suffix only. The tag
+	// is at the root commit, which has no parent: same~1 is no commit, even
+	// though the branch has one.
+	root := strings.TrimSpace(gitOutput(t, dir, "rev-list", "--max-parents=0", "HEAD"))
+	testenv.Run(t, dir, "git", "tag", "same", root)
+	testenv.Run(t, dir, "git", "branch", "same", second)
+	if got, err := Open(url).ResolveRev(ctx, "same"); err != nil || got != root {
+		t.Errorf("same: %q, %v; want the tag's %q", got, err, root)
+	}
+	if got, err := Open(url).ResolveRev(ctx, "same~1"); err == nil {
+		t.Errorf("same~1: %q; want an error, not the branch's parent", got)
+	}
+	if got, err := Open(url).ResolveRev(ctx, "refs/heads/same~1"); err != nil || got != first {
+		t.Errorf("refs/heads/same~1: %q, %v; want %q", got, err, first)
+	}
+	// The branches and tags it fetched to find the revision are not kept.
+	r := Open(url)
+	out, err := r.git(ctx, true, nil, "for-each-ref", "--format=%(refname)", "refs/ctxtra/revs/")
+	if err != nil || len(out) > 0 {
+		t.Errorf("refs left: %q, %v", out, err)
+	}
+}
+
+// A folder of a repository: its files by their paths from it, with the
+// limits checked for the whole commit; a symlink is never followed as the
+// folder.
+func TestFilesOfSubdir(t *testing.T) {
+	ctx := context.Background()
+	dir, url := team(t)
+	c := commit(t, dir, map[string]string{"teams/billing/skills/x/SKILL.md": "X", "teams/iam/y.md": "Y"})
+	if err := os.Symlink("teams/billing", filepath.Join(dir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	withLink := commit(t, dir, nil)
+	r := Open(url)
+	if _, err := r.FetchBranch(ctx, "main"); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := r.Files(ctx, c, "teams/billing")
+	if err != nil || len(entries) != 1 || entries[0].Path != "skills/x/SKILL.md" {
+		t.Errorf("entries %+v, %v", entries, err)
+	}
+	if _, _, err := r.Files(ctx, withLink, "linked"); err == nil || !strings.Contains(err.Error(), "subdir linked is a blob, not a folder") {
+		t.Errorf("a symlink as subdir: %v", err)
+	}
+	if _, _, err := r.Files(ctx, c, "teams/none"); err == nil || !strings.Contains(err.Error(), "has no folder teams/none") {
+		t.Errorf("a missing subdir: %v", err)
+	}
+	a, err1 := r.TreeID(ctx, c, "teams/billing")
+	b, err2 := r.TreeID(ctx, withLink, "teams/billing")
+	if err1 != nil || err2 != nil || a != b {
+		t.Errorf("tree IDs %s %v, %s %v", a, err1, b, err2)
+	}
+	// Over the limits outside subdir: refused, and nothing is stored.
+	big := commit(t, dir, map[string]string{"assets/big.bin": strings.Repeat("x", MaxFileBytes+1)})
+	if _, err := r.FetchBranch(ctx, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Materialize(ctx, big, "teams/billing"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("a large file outside subdir: %v", err)
+	}
+	if Has(url, "teams/billing", big) {
+		t.Error("stored over the limit")
+	}
+	// Two folders of one commit have their own generations.
+	g1, err1 := r.Materialize(ctx, c, "teams/billing")
+	g2, err2 := r.Materialize(ctx, c, "teams/iam")
+	if err1 != nil || err2 != nil || g1 == g2 || !Exists(filepath.Join(g1, "skills/x/SKILL.md")) || !Exists(filepath.Join(g2, "y.md")) ||
+		Exists(filepath.Join(g1, "y.md")) {
+		t.Errorf("generations %s %v, %s %v", g1, err1, g2, err2)
+	}
+}
+
+// A snapshot has the files that the store would have, read from the cache,
+// and writing nothing outside it.
+func TestSnapshot(t *testing.T) {
+	ctx := context.Background()
+	dir, url := team(t)
+	if err := os.MkdirAll(filepath.Join(dir, "teams/billing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.md", filepath.Join(dir, "teams/billing/link.md")); err != nil {
+		t.Fatal(err)
+	}
+	c := commit(t, dir, map[string]string{"teams/billing/a.md": "A", "teams/billing/skills/x/SKILL.md": "X", "other.md": "O"})
+	r := Open(url)
+	if _, err := r.FetchBranch(ctx, "main"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := r.Snapshot(ctx, c, "teams/billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fstest.TestFS(s, "a.md", "skills/x/SKILL.md"); err != nil {
+		t.Error(err)
+	}
+	if b, err := fs.ReadFile(s, "skills/x/SKILL.md"); err != nil || string(b) != "X" {
+		t.Errorf("SKILL.md: %q, %v", b, err)
+	}
+	if _, err := fs.Stat(s, "link.md"); err == nil || len(s.Skipped) != 1 || s.Skipped[0].Path != "link.md" {
+		t.Errorf("the symlink: %v, skipped %+v", err, s.Skipped)
+	}
+	if _, err := fs.Stat(s, "other.md"); err == nil {
+		t.Error("a file outside subdir")
+	}
+	if Exists(StoreDir()) {
+		t.Error("a snapshot wrote to the store")
+	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}

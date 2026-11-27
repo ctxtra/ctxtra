@@ -19,19 +19,18 @@ func TestStartup(t *testing.T) {
 		s.Marked("ctx/svc.md", "SVC")
 		s.Marked("ctx/me.md", "PERSONAL")
 		s.Marked("ctx/other.md", "OTHER")
-		s.Config(`schema: ctxtra/v1
+		s.Config(`schema: ctxtra/config/v1
 bindings:
   - name: acme
-    match: {repos: [{remote: "github.com/acme/**"}]}
+    location: {repos: ["github.com/acme/**"]}
     instructions: [~/ctx/work.md]
   - name: svc
-    match: {dirs: [~/dev/svc]}
+    location: {dirs: [~/dev/svc]}
     instructions: [~/ctx/svc.md]
   - name: me
-    match: {global: true}
     instructions: [~/ctx/me.md]
   - name: other
-    match: {repos: [{remote: github.com/acme/other}]}
+    location: {repos: [github.com/acme/other]}
     instructions: [~/ctx/other.md]
 `)
 		s.Setup()

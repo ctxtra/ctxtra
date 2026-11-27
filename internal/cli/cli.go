@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxtra/ctxtra/internal/agent"
 	"github.com/ctxtra/ctxtra/internal/hook"
-	"github.com/ctxtra/ctxtra/internal/paths"
+	"github.com/ctxtra/ctxtra/internal/profile"
 	"github.com/ctxtra/ctxtra/internal/source"
 	"github.com/ctxtra/ctxtra/internal/term"
 )
@@ -31,8 +31,7 @@ type IO struct {
 type app struct {
 	IO
 	version string
-	config  string // --config
-	noInput bool   // --no-input
+	noInput bool // --no-input
 	ran     *cobra.Command
 }
 
@@ -62,13 +61,6 @@ func Run(args []string, stdio IO, version string) int {
 	// control characters reach the terminal. The hook's stdout is JSON
 	// for the agent and stays as it is.
 	stdio.Out, stdio.Err = term.Writer{W: stdio.Out}, term.Writer{W: stdio.Err}
-	// --config sets $CTXTRA_CONFIG for this run, and for the agent that
-	// import starts.
-	if old, ok := os.LookupEnv("CTXTRA_CONFIG"); ok {
-		defer os.Setenv("CTXTRA_CONFIG", old)
-	} else {
-		defer os.Unsetenv("CTXTRA_CONFIG")
-	}
 	a := &app{IO: stdio, version: version}
 	root := a.root()
 	root.SetArgs(args)
@@ -89,10 +81,23 @@ func Run(args []string, stdio IO, version string) int {
 		fmt.Fprintf(stdio.Err, "Run '%s --help' for more.\n", path)
 		n = 2
 	}
-	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) {
+	if a.ran != nil && !slices.Contains(quiet, a.ran.Name()) && !dryRun(a.ran) && (n == 0 || !sourceCommand(a.ran)) {
 		setupNotices(stdio.Err)
 	}
 	return n
+}
+
+// dryRun reports whether cmd ran with --dry-run, which changes nothing: no
+// setup record, and no mark on the commits that the notices read.
+func dryRun(cmd *cobra.Command) bool {
+	f := cmd.Flags().Lookup("dry-run")
+	return f != nil && f.Value.String() == "true"
+}
+
+// sourceCommand reports whether cmd is a source command. One that fails
+// changed nothing, and its notices would not keep it so.
+func sourceCommand(cmd *cobra.Command) bool {
+	return cmd.Parent() != nil && cmd.Parent().Name() == "source" && cmd.Parent().Parent() == cmd.Root()
 }
 
 // run makes f a cobra RunE, and records that the command ran. f returns
@@ -105,20 +110,37 @@ func (a *app) run(f func(cmd *cobra.Command, args []string) error) func(*cobra.C
 	}
 }
 
-// global applies the global flags before a command runs.
+// global applies the global flags before a command runs, and fails a
+// command that reads the config when the config or its lock can't be used
+// as a whole: before the command does anything.
 func (a *app) global(cmd *cobra.Command, _ []string) error {
 	source.NoPrompt = !a.prompts()
-	if a.config == "" {
+	if !readsConfig(cmd) {
 		return nil
 	}
-	if cmd.Name() == "setup" || cmd.Name() == "onboard" {
-		return errors.New("--config doesn't apply: the hooks don't carry a config path, sessions read $CTXTRA_CONFIG or ~/.config/ctxtra/config.yaml")
+	if err := loadEnv().Fatal(); err != nil {
+		a.ran = cmd
+		asJSON := false
+		if f := cmd.Flags().Lookup("json"); f != nil {
+			asJSON = f.Changed
+		}
+		return exitCode(failEnv(a.IO, strings.TrimPrefix(cmd.CommandPath(), "ctxtra "), asJSON, err))
 	}
-	abs, err := filepath.Abs(paths.Expand(a.config))
-	if err != nil {
-		return err
-	}
-	return os.Setenv("CTXTRA_CONFIG", abs)
+	return nil
+}
+
+// ownErrors are the commands that don't need the config, or that report
+// a config they can't use in their own output: help and the version, a
+// manifest's check, and the reports of what sessions get, which are how a
+// broken config is found. check-updates fails on its own, and stays quiet
+// in the background.
+var ownErrors = []string{"ctxtra", "ctxtra version", "ctxtra help", "ctxtra source validate", "ctxtra skill show",
+	"ctxtra doctor", "ctxtra context files", "ctxtra context show", "ctxtra context explain", "ctxtra check-updates"}
+
+// readsConfig reports whether cmd reads the config.
+func readsConfig(cmd *cobra.Command) bool {
+	p := cmd.CommandPath()
+	return !slices.Contains(ownErrors, p) && !strings.HasPrefix(p, "ctxtra completion") && !strings.HasPrefix(p, "ctxtra __complete")
 }
 
 // Interactive reports whether answers can be asked: stdin and stdout are
@@ -174,11 +196,17 @@ func writeJSON(w io.Writer, data any, diags []diagnostic) {
 	e.Encode(jsonDoc{1, data, diags})
 }
 
-// runHook is ctxtra hook AGENT [EVENT [--slot K --of N]]. It never fails
-// and parses no flags but its own, so that hooks that any version set up
-// keep running.
+// runHook reads an entry of the current setup contract. It never fails a
+// session, and ignores unknown flags within that contract.
 func runHook(args []string, stdio IO, version string) int {
-	if len(args) == 0 {
+	if slices.Equal(args, profile.CleanArgs[1:]) {
+		if err := profile.Clean(); err != nil {
+			fmt.Fprintf(stdio.Err, "ctxtra: can't delete old session records: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	if len(args) == 0 || !slices.Contains(args, agent.SetupVersionArg) {
 		fmt.Fprintln(stdio.Out, "{}")
 		return 0
 	}
