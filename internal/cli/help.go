@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxtra/ctxtra"
 	"github.com/ctxtra/ctxtra/internal/agent/registry"
-	"github.com/ctxtra/ctxtra/internal/catalog"
 	"github.com/ctxtra/ctxtra/internal/config"
 	"github.com/ctxtra/ctxtra/internal/edit"
 	"github.com/ctxtra/ctxtra/internal/paths"
@@ -173,8 +172,9 @@ func printSkill(w io.Writer, name string) error {
 // unless a binding has it already. It adds that binding, with a comment,
 // when the config has none, and otherwise keeps every byte of it but the
 // new entry. The change is checked first, with the skill's files staged in
-// a temporary folder, and again under the write lock; the files are
-// written only after the check, so a refused install changes nothing.
+// a temporary folder, and again under the write lock. Then the skill's
+// folder is replaced as a whole and the config written; when either fails,
+// both stay as they were.
 func skillInstall(stdio IO, name string, dryRun bool) int {
 	if !checkSkill(stdio, "skill install", name) {
 		return 1
@@ -196,7 +196,7 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 			fmt.Fprintf(stdio.Out, "would write the %s skill to %s\nnothing changed (--dry-run)\n", name, dir)
 			return 0
 		}
-		changed, err := skill.Write(name)
+		changed, err := skill.Install(name, func() error { return nil })
 		if err != nil {
 			return fail(err)
 		}
@@ -234,13 +234,11 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 	}
 	created := s.files.Created()
 	var changed bool
-	if err := s.write(func(tx *edit.Tx) error {
+	if err := s.writeCommit(func(tx *edit.Tx) error {
 		exists = config.Parse(tx.Config.Bytes(), config.Options{Agents: registry.Names()}).Binding(skill.Binding) != nil
-		if err := planSkill(s.file, tx.Config, dir, staged); err != nil {
-			return err
-		}
-		// Last: a failed write leaves the config as it was.
-		changed, err = skill.Write(name)
+		return planSkill(s.file, tx.Config, dir, staged)
+	}, func(write func() error) (err error) {
+		changed, err = skill.Install(name, write)
 		return err
 	}); err != nil {
 		return fail(err)
@@ -264,37 +262,25 @@ func skillInstall(stdio IO, name string, dryRun bool) int {
 }
 
 // planSkill adds dir, a skill's folder as the config writes it, to the
-// binding skill.Binding in ed, and checks the result as a session reads it,
-// with the skill's files at staged: the binding has no errors, and no ! entry
-// of it leaves out dir.
+// binding skill.Binding in ed, and checks the result as a session reads it
+// once the skill's files, staged now, are in dir: the binding has no
+// errors, fits the limits, and adds the skill.
 func planSkill(file string, ed *config.Editor, dir, staged string) error {
-	before := ed.Bytes()
-	if old := config.Parse(before, config.Options{Agents: registry.Names()}).Binding(skill.Binding); old != nil && old.Broken() {
+	if old := config.Parse(ed.Bytes(), config.Options{Agents: registry.Names()}).Binding(skill.Binding); old != nil && old.Broken() {
 		return fmt.Errorf("the binding %s has errors, so it can't add the skill; fix it first (see ctxtra doctor); nothing changed", skill.Binding)
 	}
 	if err := putSkill(ed, dir); err != nil {
 		return err
 	}
 	env := resolve.LoadData(file, ed.Bytes(), registry.Names())
-	abs := catalog.Item{Path: filepath.ToSlash(paths.Expand(dir))}
-	if b := env.Config.Binding(skill.Binding); b != nil && slices.ContainsFunc(b.Skills, func(e config.Entry) bool {
-		return e.Not && e.Err == nil && env.Catalog.Excludes(e, abs)
-	}) {
-		return fmt.Errorf("the binding %s leaves out %s; add it to that binding by hand; nothing changed", skill.Binding, dir)
-	}
-	// The same change, with the staged files in place of dir.
-	check, err := config.NewEditor(before)
+	env.Catalog = env.Catalog.WithOverlay(paths.Expand(dir), staged)
+	_, res, err := checkIn(env, skill.Binding)
 	if err != nil {
 		return err
 	}
-	if err := putSkill(check, staged); err != nil {
-		return err
-	}
-	_, res, err := checkBinding(file, check.Bytes(), skill.Binding)
-	if err != nil {
-		return err
-	}
-	if !slices.ContainsFunc(res.Skills, func(h resolve.Hit) bool { return filepath.Dir(h.Path) == staged }) {
+	d := paths.Expand(dir)
+	want := filepath.Join(paths.Real(filepath.Dir(d)), filepath.Base(d))
+	if !slices.ContainsFunc(res.Skills, func(h resolve.Hit) bool { return filepath.Dir(h.Path) == want }) {
 		return fmt.Errorf("the binding %s leaves out %s; add it to that binding by hand; nothing changed", skill.Binding, dir)
 	}
 	return nil
