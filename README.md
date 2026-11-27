@@ -31,7 +31,7 @@ ctxtra onboard
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/story-dark.svg">
-    <img src="docs/assets/story-light.svg" alt="ctxtra hooks into every agent. Bindings add your own instruction files and a pinned team package to sessions by folder or Git remote, worktrees included. An edited file reaches every matching session, a team update waits for your review, and nothing is written into the repos" width="100%">
+    <img src="docs/assets/story-light.svg" alt="ctxtra hooks into every agent. Bindings add your own instruction files and files of a pinned team source to sessions by folder or Git remote, worktrees included. An edited file reaches every matching session, a team update waits for your review, and nothing is written into the repos" width="100%">
   </picture>
 </p>
 
