@@ -542,6 +542,9 @@ type ghRelease struct {
 // asks a local server.
 var errTestAsksGitHub = errors.New("a test asked GitHub for the latest release: turn the release check off (check-releases: false)")
 
+// asksGitHub reports whether a test binary would ask GitHub at u.
+func asksGitHub(u *neturl.URL) bool { return testing.Testing() && u.Hostname() == "api.github.com" }
+
 // getJSON reads GitHub's answer at url, at most limit bytes, into v. It
 // returns the URL of the answer's next page, or "" when there is none.
 func getJSON(ctx context.Context, url, version string, limit int64, v any) (next string, err error) {
@@ -551,7 +554,7 @@ func getJSON(ctx context.Context, url, version string, limit int64, v any) (next
 	if err != nil {
 		return "", err
 	}
-	if testing.Testing() && req.URL.Hostname() == "api.github.com" {
+	if asksGitHub(req.URL) {
 		return "", errTestAsksGitHub
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -559,6 +562,9 @@ func getJSON(ctx context.Context, url, version string, limit int64, v any) (next
 	client := &http.Client{CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if r.URL.Scheme != "https" || len(via) >= 3 {
 			return errors.New("unexpected redirect")
+		}
+		if asksGitHub(r.URL) {
+			return errTestAsksGitHub
 		}
 		return nil
 	}}
