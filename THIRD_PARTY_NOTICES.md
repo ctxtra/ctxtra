@@ -1131,7 +1131,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## github.com/bmatcuk/doublestar/v4 v4.10.4
+## github.com/bmatcuk/doublestar/v4 v4.10.7
 
 ```text
 The MIT License (MIT)
